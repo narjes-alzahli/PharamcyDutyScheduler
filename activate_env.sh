@@ -17,9 +17,10 @@ fi
 echo "🔧 Activating virtual environment..."
 source scheduler_env/bin/activate
 
-# Install/upgrade pip
-echo "🔧 Upgrading pip..."
+# Install/upgrade pip and essential build tools
+echo "🔧 Upgrading pip and installing build tools..."
 pip install --upgrade pip
+pip install --upgrade setuptools wheel
 
 # Install requirements if they don't exist or if requirements.txt is newer
 if [ ! -f "scheduler_env/.requirements_installed" ] || [ "requirements.txt" -nt "scheduler_env/.requirements_installed" ]; then
