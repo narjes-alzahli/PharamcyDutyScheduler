@@ -1,9 +1,9 @@
 # Pharmacy Staff Rostering System Requirements
 # Core dependencies with compatible versions
 
-# Essential build tools (install first)
-setuptools>=65.0.0
-wheel>=0.37.0
+# Essential build tools (install first) - Python 3.12 compatible
+setuptools>=68.0.0
+wheel>=0.40.0
 
 # Optimization engine
 ortools==9.8.3296

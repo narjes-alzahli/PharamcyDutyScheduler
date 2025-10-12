@@ -1,0 +1,15 @@
+# Minimal requirements for Python 3.12 compatibility
+# Use this if the main requirements.txt fails
+
+# Core packages only
+streamlit==1.28.1
+pandas==2.1.4
+numpy==1.24.3
+plotly==5.17.0
+pydantic==2.5.0
+pyyaml==6.0.1
+python-dateutil==2.8.2
+
+# OR-Tools (install separately if needed)
+# ortools==9.8.3296
+# protobuf==4.25.1
