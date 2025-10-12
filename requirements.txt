@@ -1,0 +1,25 @@
+# Pharmacy Staff Rostering System Requirements
+# Core dependencies with compatible versions
+
+# Optimization engine
+ortools==9.8.3296
+
+# Data handling
+pandas==2.1.4
+numpy==1.24.3
+
+# Web interface
+streamlit==1.28.1
+
+# Data validation and configuration
+pydantic==2.5.0
+pyyaml==6.0.1
+
+# Visualization
+plotly==5.17.0
+
+# Protobuf (compatible with OR-Tools)
+protobuf==4.25.1
+
+# Additional utilities
+python-dateutil==2.8.2

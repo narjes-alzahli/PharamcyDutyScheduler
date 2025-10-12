@@ -1,0 +1,23 @@
+# Staff Rostering Configuration
+
+# Objective weights for optimization
+weights:
+  unfilled_coverage: 1000.0  # High penalty for not meeting coverage
+  fairness: 5.0             # Weight for fair distribution of shifts
+  area_switching: 1.0       # Penalty for switching between areas
+  do_after_n: 1.0          # Reward for day off after night shift
+
+# Codes that count as rest days for weekly rest constraints
+rest_codes:
+  - "DO"  # Day off
+  - "CL"  # Casual leave
+  - "ML"  # Medical leave
+  - "W"   # Weekend
+
+# Forbidden shift sequences (from shift -> to shift)
+forbidden_adjacencies:
+  - ["N", "M"]  # No main shift after night shift
+  - ["A", "N"]  # No night shift after evening shift
+
+# Minimum rest days required per 7-day window
+weekly_rest_minimum: 1

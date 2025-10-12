@@ -1,0 +1,572 @@
+"""Data management interface for editing roster data and generating schedules."""
+
+import streamlit as st
+import pandas as pd
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Any
+import tempfile
+from pathlib import Path
+import yaml
+import sys
+
+# Add the parent directory to the path to resolve imports
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
+from roster.app.model.schema import RosterData, RosterConfig
+from roster.app.model.solver import RosterSolver
+from roster.app.ui.schedule_display import ScheduleDisplay
+
+
+class DataManager:
+    """Manages roster data editing and schedule generation."""
+    
+    def __init__(self):
+        self.data_dir = Path(__file__).parent.parent / "data"
+        self.schedule_display = ScheduleDisplay()
+        
+    def load_initial_data(self) -> Dict[str, pd.DataFrame]:
+        """Load initial data from CSV files."""
+        data = {}
+        
+        # Load employees
+        employees_path = self.data_dir / "employees.csv"
+        if employees_path.exists():
+            data['employees'] = pd.read_csv(employees_path)
+        else:
+            data['employees'] = self._create_empty_employees_df()
+        
+        # Load demands
+        demands_path = self.data_dir / "demands.csv"
+        if demands_path.exists():
+            data['demands'] = pd.read_csv(demands_path)
+        else:
+            data['demands'] = self._create_empty_demands_df()
+        
+        # Load time off
+        time_off_path = self.data_dir / "time_off.csv"
+        if time_off_path.exists():
+            data['time_off'] = pd.read_csv(time_off_path)
+        else:
+            data['time_off'] = self._create_empty_time_off_df()
+        
+        # Load locks
+        locks_path = self.data_dir / "locks.csv"
+        if locks_path.exists():
+            data['locks'] = pd.read_csv(locks_path)
+        else:
+            data['locks'] = self._create_empty_locks_df()
+        
+        return data
+    
+    def _create_empty_employees_df(self) -> pd.DataFrame:
+        """Create empty employees dataframe."""
+        return pd.DataFrame(columns=[
+            'employee', 'skill_M', 'skill_O', 'skill_IP', 'skill_A', 'skill_N',
+            'maxN', 'maxA', 'min_days_off', 'weight'
+        ])
+    
+    def _create_empty_demands_df(self) -> pd.DataFrame:
+        """Create empty demands dataframe."""
+        return pd.DataFrame(columns=[
+            'date', 'need_M', 'need_O', 'need_IP', 'need_A', 'need_N'
+        ])
+    
+    def _create_empty_time_off_df(self) -> pd.DataFrame:
+        """Create empty time off dataframe."""
+        return pd.DataFrame(columns=['employee', 'date', 'code'])
+    
+    def _create_empty_locks_df(self) -> pd.DataFrame:
+        """Create empty locks dataframe."""
+        return pd.DataFrame(columns=['employee', 'date', 'shift', 'force'])
+    
+    def generate_month_demands(self, year: int, month: int, base_demand: Dict[str, int]) -> pd.DataFrame:
+        """Generate demands for a specific month."""
+        start_date = date(year, month, 1)
+        if month == 12:
+            end_date = date(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = date(year, month + 1, 1) - timedelta(days=1)
+        
+        demands = []
+        for current_date in pd.date_range(start=start_date, end=end_date, freq='D'):
+            demands.append({
+                'date': current_date.strftime('%Y-%m-%d'),
+                'need_M': base_demand.get('M', 4),
+                'need_O': base_demand.get('O', 4),
+                'need_IP': base_demand.get('IP', 4),
+                'need_A': base_demand.get('A', 2),
+                'need_N': base_demand.get('N', 2)
+            })
+        
+        return pd.DataFrame(demands)
+
+
+def show_data_manager_page():
+    """Show the main data management page."""
+    st.header("📊 Data Manager & Schedule Generator")
+    st.markdown("Edit roster data and generate monthly schedules")
+    
+    # Initialize data manager
+    if 'data_manager' not in st.session_state:
+        st.session_state.data_manager = DataManager()
+    
+    data_manager = st.session_state.data_manager
+    
+    # Load initial data
+    if 'roster_data' not in st.session_state:
+        st.session_state.roster_data = data_manager.load_initial_data()
+    
+    roster_data = st.session_state.roster_data
+    
+    # Sidebar for month/year selection
+    st.sidebar.header("📅 Month Selection")
+    
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        selected_year = st.selectbox("Year", [2025, 2026, 2027], index=0)
+    with col2:
+        selected_month = st.selectbox("Month", [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ], index=2)
+    
+    month_num = ["January", "February", "March", "April", "May", "June",
+                 "July", "August", "September", "October", "November", "December"].index(selected_month) + 1
+    
+    # Main content tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "👥 Employees", "📋 Daily Requirements", "🏖️ Leave", "🔒 Special Requirements", "⚙️ Generate", "📅 View Schedule"
+    ])
+    
+    with tab1:
+        show_employees_tab(roster_data['employees'])
+    
+    with tab2:
+        show_demands_tab(roster_data['demands'], selected_year, month_num)
+    
+    with tab3:
+        show_time_off_tab(roster_data['time_off'], selected_year, month_num)
+    
+    with tab4:
+        show_locks_tab(roster_data['locks'], selected_year, month_num)
+    
+    with tab5:
+        show_generate_tab(roster_data, selected_year, month_num)
+    
+    with tab6:
+        show_schedule_view_tab(selected_year, month_num)
+
+
+def show_employees_tab(employees_df: pd.DataFrame):
+    """Show employees editing tab."""
+    st.subheader("👥 Employee Management")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown("**Edit employee information**")
+    
+    with col2:
+        if st.button("➕ Add Employee", type="primary"):
+            new_employee = {
+                'employee': f'Employee_{len(employees_df) + 1}',
+                'skill_M': True,
+                'skill_O': True,
+                'skill_IP': True,
+                'skill_A': True,
+                'skill_N': True,
+                'maxN': 3,
+                'maxA': 6,
+                'min_days_off': 4,
+                'weight': 1.0
+            }
+            new_row = pd.DataFrame([new_employee])
+            employees_df = pd.concat([employees_df, new_row], ignore_index=True)
+            st.session_state.roster_data['employees'] = employees_df
+            st.rerun()
+    
+    # Editable dataframe
+    edited_employees = st.data_editor(
+        employees_df,
+        num_rows="dynamic",
+        column_config={
+            "employee": st.column_config.TextColumn("Employee Name", width="medium"),
+            "skill_M": st.column_config.CheckboxColumn("Main Shift", width="small"),
+            "skill_O": st.column_config.CheckboxColumn("Outpatient", width="small"),
+            "skill_IP": st.column_config.CheckboxColumn("Inpatient", width="small"),
+            "skill_A": st.column_config.CheckboxColumn("Evening", width="small"),
+            "skill_N": st.column_config.CheckboxColumn("Night", width="small"),
+            "maxN": st.column_config.NumberColumn("Max Nights", min_value=0, max_value=10, width="small"),
+            "maxA": st.column_config.NumberColumn("Max Evenings", min_value=0, max_value=10, width="small"),
+            "min_days_off": st.column_config.NumberColumn("Min Days Off", min_value=1, max_value=10, width="small"),
+            "weight": st.column_config.NumberColumn("Weight", min_value=0.1, max_value=10.0, step=0.1, width="small")
+        },
+        use_container_width=True
+    )
+    
+    # Update data
+    if not edited_employees.equals(employees_df):
+        st.session_state.roster_data['employees'] = edited_employees
+        st.success("✅ Employee data updated!")
+    
+    # Summary stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Employees", len(edited_employees))
+    with col2:
+        st.metric("Can Work Nights", edited_employees['skill_N'].sum())
+    with col3:
+        st.metric("Can Work Evenings", edited_employees['skill_A'].sum())
+    with col4:
+        st.metric("Can Work All Shifts", (edited_employees[['skill_M', 'skill_O', 'skill_IP', 'skill_A', 'skill_N']].all(axis=1)).sum())
+
+
+def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
+    """Show demands editing tab."""
+    st.subheader("📋 Daily Requirements")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown(f"**Set daily staffing requirements for {month:02d}/{year}**")
+    
+    with col2:
+        if st.button("🔄 Generate Month"):
+            base_demand = {
+                'M': 4, 'O': 4, 'IP': 4, 'A': 2, 'N': 2
+            }
+            new_demands = st.session_state.data_manager.generate_month_demands(year, month, base_demand)
+            st.session_state.roster_data['demands'] = new_demands
+            st.rerun()
+    
+    # Filter demands for selected month
+    if not demands_df.empty:
+        demands_df['date'] = pd.to_datetime(demands_df['date'])
+        month_demands = demands_df[
+            (demands_df['date'].dt.year == year) & 
+            (demands_df['date'].dt.month == month)
+        ].copy()
+        
+        if month_demands.empty:
+            st.info(f"No demands data for {month:02d}/{year}. Click 'Generate Month' to create default demands.")
+        else:
+            month_demands['date'] = month_demands['date'].dt.strftime('%Y-%m-%d')
+            
+            # Editable dataframe
+            edited_demands = st.data_editor(
+                month_demands,
+                num_rows="dynamic",
+                column_config={
+                    "date": st.column_config.TextColumn("Date", width="medium"),
+                    "need_M": st.column_config.NumberColumn("Main", min_value=0, max_value=20, width="small"),
+                    "need_O": st.column_config.NumberColumn("Outpatient", min_value=0, max_value=20, width="small"),
+                    "need_IP": st.column_config.NumberColumn("Inpatient", min_value=0, max_value=20, width="small"),
+                    "need_A": st.column_config.NumberColumn("Evening", min_value=0, max_value=20, width="small"),
+                    "need_N": st.column_config.NumberColumn("Night", min_value=0, max_value=20, width="small")
+                },
+                use_container_width=True
+            )
+            
+            # Update data
+            if not edited_demands.equals(month_demands):
+                # Convert back to datetime for storage
+                edited_demands['date'] = pd.to_datetime(edited_demands['date'])
+                
+                # Update the full demands dataframe
+                full_demands = demands_df[~((demands_df['date'].dt.year == year) & (demands_df['date'].dt.month == month))]
+                updated_demands = pd.concat([full_demands, edited_demands], ignore_index=True)
+                st.session_state.roster_data['demands'] = updated_demands
+                st.success("✅ Daily requirements data updated!")
+    else:
+        st.info("No demands data available. Click 'Generate Month' to create default demands.")
+
+
+def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
+    """Show time off editing tab."""
+    st.subheader("🏖️ Leave & Time Off")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown(f"**Manage time off and leave for {month:02d}/{year}**")
+    
+    with col2:
+        if st.button("➕ Add Leave"):
+            st.session_state.show_add_time_off = True
+    
+    # Add time off form
+    if st.session_state.get('show_add_time_off', False):
+        with st.form("add_time_off"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                employee = st.selectbox("Employee", st.session_state.roster_data['employees']['employee'].tolist())
+            
+            with col2:
+                time_off_date = st.date_input("Date", value=date(year, month, 1))
+            
+            with col3:
+                code = st.selectbox("Code", ["DO", "CL", "ML", "W", "UL", "H", "STL"])
+            
+            if st.form_submit_button("Add"):
+                new_time_off = pd.DataFrame([{
+                    'employee': employee,
+                    'date': time_off_date.strftime('%Y-%m-%d'),
+                    'code': code
+                }])
+                updated_time_off = pd.concat([time_off_df, new_time_off], ignore_index=True)
+                st.session_state.roster_data['time_off'] = updated_time_off
+                st.session_state.show_add_time_off = False
+                st.rerun()
+    
+    # Filter time off for selected month
+    if not time_off_df.empty:
+        time_off_df['date'] = pd.to_datetime(time_off_df['date'])
+        month_time_off = time_off_df[
+            (time_off_df['date'].dt.year == year) & 
+            (time_off_df['date'].dt.month == month)
+        ].copy()
+        
+        if not month_time_off.empty:
+            month_time_off['date'] = month_time_off['date'].dt.strftime('%Y-%m-%d')
+            
+            # Editable dataframe
+            edited_time_off = st.data_editor(
+                month_time_off,
+                num_rows="dynamic",
+                column_config={
+                    "employee": st.column_config.SelectboxColumn("Employee", options=st.session_state.roster_data['employees']['employee'].tolist()),
+                    "date": st.column_config.TextColumn("Date", width="medium"),
+                    "code": st.column_config.SelectboxColumn("Code", options=["DO", "CL", "ML", "W", "UL", "H", "STL"])
+                },
+                use_container_width=True
+            )
+            
+            # Update data
+            if not edited_time_off.equals(month_time_off):
+                edited_time_off['date'] = pd.to_datetime(edited_time_off['date'])
+                
+                # Update the full time off dataframe
+                full_time_off = time_off_df[~((time_off_df['date'].dt.year == year) & (time_off_df['date'].dt.month == month))]
+                updated_time_off = pd.concat([full_time_off, edited_time_off], ignore_index=True)
+                st.session_state.roster_data['time_off'] = updated_time_off
+                st.success("✅ Time off data updated!")
+        else:
+            st.info(f"No time off data for {month:02d}/{year}")
+    else:
+        st.info("No time off data available")
+
+
+def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
+    """Show locks editing tab."""
+    st.subheader("🔒 Special Requirements")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown(f"**Force or forbid specific assignments for {month:02d}/{year}**")
+    
+    with col2:
+        if st.button("➕ Add Lock"):
+            st.session_state.show_add_lock = True
+    
+    # Add lock form
+    if st.session_state.get('show_add_lock', False):
+        with st.form("add_lock"):
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                employee = st.selectbox("Employee", st.session_state.roster_data['employees']['employee'].tolist())
+            
+            with col2:
+                lock_date = st.date_input("Date", value=date(year, month, 1))
+            
+            with col3:
+                shift = st.selectbox("Shift", ["M", "O", "IP", "A", "N", "DO", "CL", "ML", "W", "UL"])
+            
+            with col4:
+                force = st.selectbox("Action", ["Force (Must)", "Forbid (Cannot)"])
+            
+            if st.form_submit_button("Add"):
+                new_lock = pd.DataFrame([{
+                    'employee': employee,
+                    'date': lock_date.strftime('%Y-%m-%d'),
+                    'shift': shift,
+                    'force': force == "Force (Must)"
+                }])
+                updated_locks = pd.concat([locks_df, new_lock], ignore_index=True)
+                st.session_state.roster_data['locks'] = updated_locks
+                st.session_state.show_add_lock = False
+                st.rerun()
+    
+    # Filter locks for selected month
+    if not locks_df.empty:
+        locks_df['date'] = pd.to_datetime(locks_df['date'])
+        month_locks = locks_df[
+            (locks_df['date'].dt.year == year) & 
+            (locks_df['date'].dt.month == month)
+        ].copy()
+        
+        if not month_locks.empty:
+            month_locks['date'] = month_locks['date'].dt.strftime('%Y-%m-%d')
+            month_locks['force'] = month_locks['force'].map({True: "Force (Must)", False: "Forbid (Cannot)"})
+            
+            # Editable dataframe
+            edited_locks = st.data_editor(
+                month_locks,
+                num_rows="dynamic",
+                column_config={
+                    "employee": st.column_config.SelectboxColumn("Employee", options=st.session_state.roster_data['employees']['employee'].tolist()),
+                    "date": st.column_config.TextColumn("Date", width="medium"),
+                    "shift": st.column_config.SelectboxColumn("Shift", options=["M", "O", "IP", "A", "N", "DO", "CL", "ML", "W", "UL"]),
+                    "force": st.column_config.SelectboxColumn("Action", options=["Force (Must)", "Forbid (Cannot)"])
+                },
+                use_container_width=True
+            )
+            
+            # Update data
+            if not edited_locks.equals(month_locks):
+                edited_locks['date'] = pd.to_datetime(edited_locks['date'])
+                edited_locks['force'] = edited_locks['force'] == "Force (Must)"
+                
+                # Update the full locks dataframe
+                full_locks = locks_df[~((locks_df['date'].dt.year == year) & (locks_df['date'].dt.month == month))]
+                updated_locks = pd.concat([full_locks, edited_locks], ignore_index=True)
+                st.session_state.roster_data['locks'] = updated_locks
+                st.success("✅ Special requirements data updated!")
+        else:
+            st.info(f"No locks data for {month:02d}/{year}")
+    else:
+        st.info("No locks data available")
+
+
+def show_generate_tab(roster_data: Dict[str, pd.DataFrame], year: int, month: int):
+    """Show schedule generation tab."""
+    st.subheader("⚙️ Generate Schedule")
+    
+    # Configuration
+    st.markdown("**Optimization Settings**")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        time_limit = st.slider("Time Limit (seconds)", 30, 600, 120)
+        unfilled_penalty = st.slider("Unfilled Coverage Penalty", 100, 10000, 1000, 100)
+    
+    with col2:
+        fairness_weight = st.slider("Fairness Weight", 0.0, 50.0, 5.0, 0.5)
+        switching_penalty = st.slider("Area Switching Penalty", 0.0, 20.0, 1.0, 0.1)
+    
+    # Generate button
+    if st.button("🚀 Generate Schedule", type="primary", use_container_width=True):
+        generate_schedule(roster_data, year, month, time_limit, unfilled_penalty, fairness_weight, switching_penalty)
+
+
+def show_schedule_view_tab(year: int, month: int):
+    """Show schedule view tab."""
+    st.subheader("📅 Schedule View")
+    
+    if 'generated_schedule' not in st.session_state:
+        st.info("Generate a schedule first using the 'Generate' tab.")
+        return
+    
+    schedule_df = st.session_state.generated_schedule
+    
+    # Display options
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        show_table = st.checkbox("Show Color-Coded Table", value=True)
+    with col2:
+        show_workload = st.checkbox("Show Employee Workload", value=False)
+    
+    # Display the schedule
+    if show_table:
+        st.subheader("📋 Detailed Schedule Table")
+        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year)
+    
+    if show_workload:
+        st.subheader("👥 Employee Workload Analysis")
+        fig = st.session_state.data_manager.schedule_display.create_employee_workload_chart(schedule_df, month, year)
+        if fig.data:
+            st.plotly_chart(fig, use_container_width=True)
+
+
+def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: int, 
+                     time_limit: int, unfilled_penalty: float, fairness_weight: float, 
+                     switching_penalty: float):
+    """Generate schedule based on current data."""
+    
+    with st.spinner("Generating schedule..."):
+        try:
+            # Create temporary directory for data
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                
+                # Save current data to CSV files
+                roster_data['employees'].to_csv(temp_path / "employees.csv", index=False)
+                roster_data['demands'].to_csv(temp_path / "demands.csv", index=False)
+                roster_data['time_off'].to_csv(temp_path / "time_off.csv", index=False)
+                roster_data['locks'].to_csv(temp_path / "locks.csv", index=False)
+                
+                # Create config
+                config_data = {
+                    "weights": {
+                        "unfilled_coverage": unfilled_penalty,
+                        "fairness": fairness_weight,
+                        "area_switching": switching_penalty,
+                        "do_after_n": 1.0
+                    },
+                    "rest_codes": ["DO", "CL", "ML", "W"],
+                    "forbidden_adjacencies": [["N", "M"], ["A", "N"]],
+                    "weekly_rest_minimum": 1
+                }
+                
+                config_path = temp_path / "config.yaml"
+                with open(config_path, 'w') as f:
+                    yaml.dump(config_data, f)
+                
+                # Load data and solve
+                data = RosterData(temp_path)
+                data.load_data()
+                
+                config = RosterConfig(config_path)
+                solver = RosterSolver(config)
+                
+                success, assignments, metrics = solver.solve(data, time_limit)
+                
+                if success:
+                    # Create schedule dataframe
+                    employees = data.get_employee_names()
+                    dates = data.get_all_dates()
+                    schedule_df = solver.create_schedule_dataframe(assignments, employees, dates)
+                    
+                    # Store results
+                    st.session_state.generated_schedule = schedule_df
+                    st.session_state.schedule_metrics = metrics
+                    
+                    st.success(f"✅ Schedule generated successfully!")
+                    st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
+                    st.metric("Status", metrics.get('status', 'Unknown'))
+                    
+                    # Show summary
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Assignments", len(schedule_df))
+                    with col2:
+                        st.metric("Employees", schedule_df['employee'].nunique())
+                    with col3:
+                        st.metric("Days", schedule_df['date'].nunique())
+                    with col4:
+                        main_shifts = len(schedule_df[schedule_df['shift'].isin(['M', 'M3', 'M4'])])
+                        st.metric("Main Shifts", main_shifts)
+                    
+                else:
+                    st.error("❌ Failed to generate schedule. Check constraints and try again.")
+                    if 'metrics' in locals():
+                        st.write(f"Status: {metrics.get('status', 'Unknown')}")
+        
+        except Exception as e:
+            st.error(f"❌ Error generating schedule: {e}")
+            import traceback
+            st.code(traceback.format_exc())
