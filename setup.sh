@@ -1,7 +1,7 @@
 #!/bin/bash
-# Simple server setup for externally managed Python environments
+# Pharmacy Staff Scheduler - Server Setup Script
 
-echo "🐍 Setting up Pharmacy Scheduler on externally managed Python..."
+echo "🏥 Setting up Pharmacy Staff Scheduler..."
 
 # Check if python3-full is installed
 if ! dpkg -l | grep -q python3-full; then
