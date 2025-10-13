@@ -16,26 +16,26 @@ class ScheduleDisplay:
     def __init__(self):
         self.shift_colors = {
             'M': '#FFFFFF',      # White - Main shift
-            'O': '#E6F3FF',      # Light blue - Outpatient  
+            'O': '#E6F3FF',      # Light blue - Off (from schedule)
             'IP': '#F0F8FF',     # Very light blue - Inpatient
-            'A': '#FFA500',      # Orange - Evening (2:30 PM - 9:30 PM)
+            'A': '#FFA500',      # Orange - Afternoon (2:30 PM - 9:30 PM)
             'N': '#FFFF00',      # Yellow - Night (9:30 PM - 7 AM)
             'DO': '#90EE90',     # Light green - Day Off
-            'CL': '#FFB6C1',     # Light pink - Casual Leave
+            'CL': '#FFB6C1',     # Light pink - Clinic
             'ML': '#DDA0DD',     # Plum - Maternity Leave
             'W': '#D8BFD8',      # Thistle - Workshop
             'UL': '#F5F5F5',     # Light gray - Unpaid Leave
-            'H': '#FFE4E1',      # Misty rose - Holiday
+            'H': '#FFE4E1',      # Misty rose - Harat Pharmacy
             'STL': '#B0E0E6',    # Powder blue - Study Leave
             'ATT': '#E0E0E0',    # Light gray - Attending
-            'APP': '#FF6B6B',    # Light red - Approved
+            'APP': '#FF6B6B',    # Light red - Appointment
             'RT': '#87CEEB',     # Sky blue - Return
             'EV': '#DDA0DD',     # Plum - Event
             'P': '#FFA07A',      # Light salmon - Pharmacy
             'M+P': '#FFB6C1',    # Light pink - Main + Pharmacy
             'IP+P': '#FFB6C1',   # Light pink - IP + Pharmacy
-            'M3': '#FFFFFF',     # White - M3 shift
-            'M4': '#FFFFFF',     # White - M4 shift
+            'M3': '#FFFFFF',     # White - M3 (7am-2pm)
+            'M4': '#FFFFFF',     # White - M4 (12pm-7pm)
             'M3+P': '#FFB6C1',   # Light pink - M3 + Pharmacy
             'DR+M': '#FFB6C1',   # Light pink - Doctor + Main
             'V+P': '#FF6B6B',    # Light red - V + Pharmacy
@@ -46,26 +46,26 @@ class ScheduleDisplay:
         
         self.shift_labels = {
             'M': 'Main',
-            'O': 'Outpatient', 
+            'O': 'Off', 
             'IP': 'Inpatient',
-            'A': 'Evening (2:30-9:30 PM)',
+            'A': 'Afternoon (2:30-9:30 PM)',
             'N': 'Night (9:30 PM-7 AM)',
             'DO': 'Day Off',
-            'CL': 'Casual Leave',
+            'CL': 'Clinic',
             'ML': 'Maternity Leave',
             'W': 'Workshop',
             'UL': 'Unpaid Leave',
-            'H': 'Holiday',
+            'H': 'Harat Pharmacy',
             'STL': 'Study Leave',
             'ATT': 'Attending',
-            'APP': 'Approved',
+            'APP': 'Appointment',
             'RT': 'Return',
             'EV': 'Event',
             'P': 'Pharmacy',
             'M+P': 'Main + Pharmacy',
             'IP+P': 'IP + Pharmacy',
-            'M3': 'M3 Shift',
-            'M4': 'M4 Shift',
+            'M3': 'M3 (7am-2pm)',
+            'M4': 'M4 (12pm-7pm)',
             'M3+P': 'M3 + Pharmacy',
             'DR+M': 'Doctor + Main',
             'V+P': 'V + Pharmacy',
@@ -172,6 +172,12 @@ class ScheduleDisplay:
             fill_value=''
         )
         
+        # Reorder employees: clinic people at the bottom
+        clinic_employees = ['Rasha', 'Hawra', 'Abdullah']  # clinic-only people
+        other_employees = [emp for emp in pivot_data.index if emp not in clinic_employees]
+        reordered_employees = other_employees + clinic_employees
+        pivot_data = pivot_data.reindex(reordered_employees)
+        
         # Get all dates in the month
         start_date = date(year, month, 1)
         if month == 12:
@@ -207,8 +213,15 @@ class ScheduleDisplay:
         for date in all_dates:
             day_name = date.strftime('%a').upper()
             if day_name == 'SUN':
-                day_name = 'SN'
-            html += f'<th style="border: 1px solid #000; padding: 3px; text-align: center; width: 30px; font-size: 10px;">{date.day}<br>{day_name}</th>'
+                day_name = 'SUN'
+            
+            # Different background color for weekends (Friday and Saturday)
+            if day_name in ['FRI', 'SAT']:
+                header_style = "border: 1px solid #000; padding: 3px; text-align: center; width: 30px; font-size: 10px; background-color: #D1E7DD;"
+            else:
+                header_style = "border: 1px solid #000; padding: 3px; text-align: center; width: 30px; font-size: 10px;"
+            
+            html += f'<th style="{header_style}">{date.day}<br>{day_name}</th>'
         
         html += "</tr></thead><tbody>"
         
@@ -222,35 +235,77 @@ class ScheduleDisplay:
             
             # Add shift cells with colors
             for date in all_dates:
+                day_name = date.strftime('%a').upper()
+                if day_name == 'SUN':
+                    day_name = 'SN'
+                
+                # Check if it's a weekend (Friday and Saturday)
+                is_weekend = day_name in ['FRI', 'SAT']
+                
                 if date in row.index and pd.notna(row[date]) and row[date] != '':
                     shift = row[date]
                     color = self.shift_colors.get(shift, '#FFFFFF')
-                    html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: {color}; font-weight: bold; font-size: 10px;">{shift}</td>'
+                    
+                    # For weekends, only apply green background to "O" shifts
+                    if is_weekend and shift == 'O':
+                        # Use weekend tint only for "O" shifts on weekends
+                        final_color = '#D1E7DD'  # Weekend green for "O"
+                    else:
+                        final_color = color  # Normal color for all other shifts
+                    
+                    html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: {final_color}; font-weight: bold; font-size: 10px;">{shift}</td>'
                 else:
-                    html += '<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: #FFFFFF; font-weight: bold; font-size: 10px;">0</td>'
+                    # Empty cell - use weekend tint for weekends, white for weekdays
+                    empty_color = '#D1E7DD' if is_weekend else '#FFFFFF'
+                    html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: {empty_color}; font-weight: bold; font-size: 10px;">0</td>'
             
             html += "</tr>"
         
-        # Add totals row
-        html += "<tr style='background-color: #f0f0f0; font-weight: bold;'>"
-        html += "<td style='border: 1px solid #000; padding: 5px; text-align: center;'>TOTAL</td>"
+        # Add TOTAL MAIN row
+        html += "<tr style='background-color: #663399; font-weight: bold;'>"
+        html += "<td style='border: 1px solid #000; padding: 5px; text-align: center; background-color: #663399; color: white; font-weight: bold;'>TOTAL MAIN</td>"
         html += "<td style='border: 1px solid #000; padding: 5px;'></td>"
         
         for date in all_dates:
-            count = 0
-            for _, row in pivot_data.iterrows():
-                if date in row.index and pd.notna(row[date]) and row[date] != '' and row[date] != '0':
-                    count += 1
+            day_name = date.strftime('%a').upper()
+            if day_name == 'SUN':
+                day_name = 'SUN'
             
-            # Color code totals
-            if count >= 4:
-                color = "#90EE90"  # Green
-            elif count >= 2:
-                color = "#FFFFE0"  # Yellow
-            else:
-                color = "#FFB6C1"  # Pink
-                
-            html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: {color}; font-weight: bold;">{count}</td>'
+            # Check if it's a weekend (Friday and Saturday)
+            is_weekend = day_name in ['FRI', 'SAT']
+            
+            # Count M shifts only
+            main_count = 0
+            for _, row in pivot_data.iterrows():
+                if date in row.index and pd.notna(row[date]) and row[date] == 'M':
+                    main_count += 1
+            
+            # Use dark purple for TOTAL MAIN cells
+            html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: #663399; color: white; font-weight: bold;">{main_count}</td>'
+        
+        html += "</tr>"
+        
+        # Add TOTAL IP row
+        html += "<tr style='background-color: #663399; font-weight: bold;'>"
+        html += "<td style='border: 1px solid #000; padding: 5px; text-align: center; background-color: #663399; color: white; font-weight: bold;'>TOTAL IP</td>"
+        html += "<td style='border: 1px solid #000; padding: 5px;'></td>"
+        
+        for date in all_dates:
+            day_name = date.strftime('%a').upper()
+            if day_name == 'SUN':
+                day_name = 'SUN'
+            
+            # Check if it's a weekend (Friday and Saturday)
+            is_weekend = day_name in ['FRI', 'SAT']
+            
+            # Count IP shifts only
+            ip_count = 0
+            for _, row in pivot_data.iterrows():
+                if date in row.index and pd.notna(row[date]) and row[date] == 'IP':
+                    ip_count += 1
+            
+            # Use dark purple for TOTAL IP cells
+            html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: #663399; color: white; font-weight: bold;">{ip_count}</td>'
         
         html += "</tr></tbody></table></div>"
         
@@ -269,20 +324,27 @@ class ScheduleDisplay:
         with col1:
             st.markdown("**Main Shifts:**")
             self._legend_item("M", "Main", "#FFFFFF")
-            self._legend_item("O", "Outpatient", "#E6F3FF")
             self._legend_item("IP", "Inpatient", "#F0F8FF")
+            self._legend_item("M3", "M3 (7am-2pm)", "#FFFFFF")
+            self._legend_item("M4", "M4 (12pm-7pm)", "#FFFFFF")
+            self._legend_item("A", "Afternoon (2:30-9:30 PM)", "#FFA500")
+            self._legend_item("N", "Night (9:30 PM-7 AM)", "#FFFF00")
         
         with col2:
-            st.markdown("**Time-based Shifts:**")
-            self._legend_item("A", "Evening (2:30-9:30 PM)", "#FFA500")
-            self._legend_item("N", "Night (9:30 PM-7 AM)", "#FFFF00")
+            st.markdown("**Special Shifts:**")
+            self._legend_item("H", "Harat Pharmacy", "#FFE4E1")
+            self._legend_item("CL", "Clinic", "#FFB6C1")
         
         with col3:
             st.markdown("**Leave Types:**")
             self._legend_item("DO", "Day Off", "#90EE90")
-            self._legend_item("CL", "Casual Leave", "#FFB6C1")
             self._legend_item("ML", "Maternity Leave", "#DDA0DD")
             self._legend_item("W", "Workshop", "#D8BFD8")
+            self._legend_item("UL", "Unpaid Leave", "#F5F5F5")
+            self._legend_item("APP", "Appointment", "#FF6B6B")
+            self._legend_item("STL", "Study Leave", "#B0E0E6")
+            self._legend_item("L", "Leave", "#F5F5F5")
+            self._legend_item("O", "Off", "#E6F3FF")
     
     def _legend_item(self, code: str, description: str, color: str):
         """Display a legend item with color swatch."""
@@ -335,7 +397,7 @@ class ScheduleDisplay:
         for date in all_dates:
             day_name = date.strftime('%a').upper()
             if day_name == 'SUN':
-                day_name = 'SN'
+                day_name = 'SUN'
             html += f'<th style="border: 1px solid #000; padding: 2px; text-align: center; width: 25px; font-weight: bold;">{date.day}<br>{day_name}</th>'
         
         html += "</tr></thead><tbody>"
@@ -376,23 +438,45 @@ class ScheduleDisplay:
         return html
     
     def _generate_totals_row(self, all_dates: pd.DatetimeIndex, pivot_data: pd.DataFrame) -> str:
-        """Generate totals row for the table."""
+        """Generate totals rows for the table."""
         
-        html = """
-        <tr style="background-color: #e0e0e0; font-weight: bold;">
-            <td style="border: 1px solid #ccc; padding: 4px; text-align: center;" colspan="2">TOTAL</td>
+        html = ""
+        
+        # TOTAL MAIN row
+        html += """
+        <tr style="background-color: #DDA0DD; font-weight: bold;">
+            <td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #DDA0DD !important; color: white; font-weight: bold;" colspan="2">TOTAL MAIN</td>
         """
         
         for date in all_dates:
-            # Count main shifts (M, M3, M4, M+P, etc.)
+            # Count M shifts only
             main_count = 0
             for employee, row in pivot_data.iterrows():
                 if date in row.index and pd.notna(row[date]):
                     shift = row[date]
-                    if shift and ('M' in shift or shift in ['M', 'M3', 'M4']):
+                    if shift == 'M':
                         main_count += 1
             
-            html += f'<td style="border: 1px solid #ccc; padding: 4px; text-align: center;">{main_count}</td>'
+            html += f'<td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #DDA0DD; color: white; font-weight: bold;">{main_count}</td>'
+        
+        html += "</tr>"
+        
+        # TOTAL IP row
+        html += """
+        <tr style="background-color: #9370DB; font-weight: bold;">
+            <td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #9370DB !important; color: white; font-weight: bold;" colspan="2">TOTAL IP</td>
+        """
+        
+        for date in all_dates:
+            # Count IP shifts only
+            ip_count = 0
+            for employee, row in pivot_data.iterrows():
+                if date in row.index and pd.notna(row[date]):
+                    shift = row[date]
+                    if shift == 'IP':
+                        ip_count += 1
+            
+            html += f'<td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #9370DB; color: white; font-weight: bold;">{ip_count}</td>'
         
         html += "</tr>"
         return html
@@ -504,7 +588,7 @@ class ScheduleDisplay:
             return go.Figure()
         
         # Count only actual working shifts (exclude empty, day off, and leave shifts)
-        working_shifts = ['M', 'O', 'IP', 'A', 'N', 'M3', 'M4', 'M+P', 'IP+P', 'M3+P', 'DR+M', 'V+P', 'C']
+        working_shifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL']
         
         # Filter to only working shifts
         working_data = month_data[month_data['shift'].isin(working_shifts)]

@@ -40,10 +40,7 @@ class RosterSolver:
         if not employees or not dates:
             return False, {}, {}
             
-        # Create decision variables
-        x = create_decision_variables(model, employees, dates, shifts)
-        
-        # Prepare constraint data
+        # Prepare constraint data first
         demands = {day: data.get_daily_requirement(day) for day in dates}
         skills = {emp: data.get_employee_skills(emp) for emp in employees}
         time_off = {
@@ -52,6 +49,9 @@ class RosterSolver:
             for day in dates
             if data.get_leave_code(emp, day) is not None
         }
+        
+        # Create decision variables with time_off data
+        x = create_decision_variables(model, employees, dates, shifts, time_off)
         locks = {
             (emp, day, shift): data.get_special_requirement_force(emp, day, shift)
             for emp in employees
@@ -69,7 +69,7 @@ class RosterSolver:
                 "maxA": emp_data.maxA
             }
             min_days_off[emp_data.employee] = emp_data.min_days_off
-            
+        
         # Add all constraints
         add_all_constraints(
             model, x, employees, dates, shifts,
@@ -117,7 +117,7 @@ class RosterSolver:
         for emp in employees:
             for day in dates:
                 # Find which shift this employee works on this day
-                for shift in ["M", "O", "IP", "A", "N", "DO", "CL", "ML", "W", "UL"]:
+                for shift in ["M", "O", "IP", "A", "N", "M3", "M4", "H", "DO", "CL", "ML", "W", "UL", "APP", "STL", "L"]:
                     if assignments.get((emp, day, shift), 0) == 1:
                         rows.append({
                             "date": day,
@@ -135,7 +135,7 @@ class RosterSolver:
         dates: List[date],
         demands: Dict[date, Dict[str, int]]
     ) -> pd.DataFrame:
-        """Create coverage report showing met/shortfall per area/day."""
+        """Create coverage report showing daily staffing levels."""
         rows = []
         
         for day in dates:
@@ -143,24 +143,20 @@ class RosterSolver:
                 continue
                 
             day_demand = demands[day]
+            row = {"date": day}
             
-            for shift_type in ["M", "O", "IP", "A", "N"]:
+            for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
                 if shift_type in day_demand:
                     assigned = sum(
                         assignments.get((emp, day, shift_type), 0)
                         for emp in employees
                     )
-                    shortfall = max(0, day_demand[shift_type] - assigned)
-                    
-                    rows.append({
-                        "date": day,
-                        "shift": shift_type,
-                        "needed": day_demand[shift_type],
-                        "assigned": assigned,
-                        "shortfall": shortfall,
-                        "met": shortfall == 0
-                    })
-                    
+                    row[f"{shift_type}_assigned"] = assigned
+                    row[f"{shift_type}_required"] = day_demand[shift_type]
+                    row[f"{shift_type}_shortfall"] = max(0, day_demand[shift_type] - assigned)
+            
+            rows.append(row)
+        
         return pd.DataFrame(rows)
     
     def create_employee_report(
@@ -169,111 +165,37 @@ class RosterSolver:
         employees: List[str],
         dates: List[date]
     ) -> pd.DataFrame:
-        """Create per-employee report with counts of shifts."""
+        """Create employee workload report."""
         rows = []
         
         for emp in employees:
-            stats = {
-                "employee": emp,
-                "nights": sum(assignments.get((emp, day, "N"), 0) for day in dates),
-                "evenings": sum(assignments.get((emp, day, "A"), 0) for day in dates),
-                "days_off": sum(assignments.get((emp, day, "DO"), 0) for day in dates),
-                "main_shifts": sum(assignments.get((emp, day, "M"), 0) for day in dates),
-                "outpatient_shifts": sum(assignments.get((emp, day, "O"), 0) for day in dates),
-                "inpatient_shifts": sum(assignments.get((emp, day, "IP"), 0) for day in dates),
-                "total_working_days": sum(
-                    assignments.get((emp, day, shift), 0)
-                    for day in dates
-                    for shift in ["M", "O", "IP", "A", "N"]
-                )
-            }
-            rows.append(stats)
+            total_working_days = 0
+            night_shifts = 0
+            afternoon_shifts = 0
+            weekend_shifts = 0
             
+            for day in dates:
+                # Count working shifts
+                working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
+                for shift in working_shifts:
+                    if assignments.get((emp, day, shift), 0) == 1:
+                        total_working_days += 1
+                        
+                        if shift == "N":
+                            night_shifts += 1
+                        elif shift == "A":
+                            afternoon_shifts += 1
+                        
+                        # Weekend shifts (Friday=4, Saturday=5)
+                        if day.weekday() in [4, 5]:
+                            weekend_shifts += 1
+            
+            rows.append({
+                "employee": emp,
+                "total_working_days": total_working_days,
+                "night_shifts": night_shifts,
+                "afternoon_shifts": afternoon_shifts,
+                "weekend_shifts": weekend_shifts
+            })
+        
         return pd.DataFrame(rows)
-
-
-def solve_roster(
-    data_dir: str,
-    month: str,
-    output_dir: str,
-    config_file: Optional[str] = None,
-    time_limit: int = 300
-) -> bool:
-    """
-    Solve roster for a given month and save results.
-    
-    Args:
-        data_dir: Path to directory containing CSV files
-        month: Month to solve (YYYY-MM format)
-        output_dir: Directory to save output files
-        config_file: Optional path to configuration file
-        time_limit: Time limit in seconds
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    from pathlib import Path
-    
-    # Load data
-    data = RosterData(Path(data_dir))
-    data.load_data()
-    
-    # Load config
-    config = RosterConfig(Path(config_file) if config_file else None)
-    
-    # Create solver
-    solver = RosterSolver(config)
-    
-    # Solve
-    success, assignments, metrics = solver.solve(data, time_limit)
-    
-    if not success:
-        print(f"Failed to solve roster for {month}")
-        return False
-        
-    # Create output directory
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Save results
-    employees = data.get_employee_names()
-    dates = data.get_all_dates()
-    
-    # Schedule CSV
-    schedule_df = solver.create_schedule_dataframe(assignments, employees, dates)
-    schedule_df.to_csv(output_path / "schedule.csv", index=False)
-    
-    # Coverage report
-    demands = {day: data.get_daily_demand(day) for day in dates}
-    coverage_df = solver.create_coverage_report(assignments, employees, dates, demands)
-    coverage_df.to_csv(output_path / "coverage_report.csv", index=False)
-    
-    # Employee report
-    employee_df = solver.create_employee_report(assignments, employees, dates)
-    employee_df.to_csv(output_path / "per_employee_report.csv", index=False)
-    
-    # Metrics summary
-    metrics_df = pd.DataFrame([{
-        "metric": "solve_time",
-        "value": metrics.get("solve_time", 0),
-        "unit": "seconds"
-    }, {
-        "metric": "status", 
-        "value": metrics.get("status", "unknown"),
-        "unit": "text"
-    }, {
-        "metric": "night_variance",
-        "value": metrics.get("fairness", {}).get("night_variance", 0),
-        "unit": "variance"
-    }, {
-        "metric": "evening_variance", 
-        "value": metrics.get("fairness", {}).get("evening_variance", 0),
-        "unit": "variance"
-    }])
-    metrics_df.to_csv(output_path / "metrics.csv", index=False)
-    
-    print(f"Successfully solved roster for {month}")
-    print(f"Solve time: {metrics.get('solve_time', 0):.2f} seconds")
-    print(f"Status: {metrics.get('status', 'unknown')}")
-    
-    return True

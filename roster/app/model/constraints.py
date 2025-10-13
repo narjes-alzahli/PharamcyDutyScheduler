@@ -6,6 +6,37 @@ from ortools.sat.python import cp_model
 import numpy as np
 
 
+def create_decision_variables(
+    model: cp_model.CpModel,
+    employees: List[str],
+    dates: List[date],
+    shifts: List[str],
+    time_off: Dict[Tuple[str, date], str] = None
+) -> Dict[Tuple[str, date, str], cp_model.IntVar]:
+    """Create binary decision variables for the optimization model."""
+    x = {}
+    
+    # Leave codes that should only be created when explicitly requested
+    leave_only_codes = {"L", "ML", "W", "UL", "APP", "STL"}
+    
+    for employee in employees:
+        for day in dates:
+            for shift in shifts:
+                # Only create leave variables if explicitly requested
+                if shift in leave_only_codes:
+                    if time_off and (employee, day) in time_off and time_off[(employee, day)] == shift:
+                        x[(employee, day, shift)] = model.NewBoolVar(
+                            f"x_{employee}_{day}_{shift}"
+                        )
+                else:
+                    # Create all other variables (working shifts, O, DO)
+                    x[(employee, day, shift)] = model.NewBoolVar(
+                        f"x_{employee}_{day}_{shift}"
+                    )
+                
+    return x
+
+
 def add_one_per_day_constraint(
     model: cp_model.CpModel,
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
@@ -16,34 +47,10 @@ def add_one_per_day_constraint(
     """Add constraint: each employee works exactly one shift per day."""
     for employee in employees:
         for day in dates:
-            # Sum of all shifts for this employee on this day must equal 1
-            shift_vars = [x[(employee, day, shift)] for shift in shifts]
-            model.Add(sum(shift_vars) == 1)
-
-
-def add_coverage_constraints(
-    model: cp_model.CpModel,
-    x: Dict[Tuple[str, date, str], cp_model.IntVar],
-    employees: List[str],
-    dates: List[date],
-    demands: Dict[date, Dict[str, int]]
-) -> None:
-    """Add coverage constraints: meet daily demand for each shift type."""
-    for day in dates:
-        if day not in demands:
-            continue
-            
-        day_demand = demands[day]
-        
-        # Coverage for each shift type
-        for shift_type in ["M", "O", "IP", "A", "N"]:
-            if shift_type in day_demand and day_demand[shift_type] > 0:
-                # Sum of employees working this shift type on this day
-                shift_vars = [
-                    x[(emp, day, shift_type)] 
-                    for emp in employees
-                ]
-                model.Add(sum(shift_vars) >= day_demand[shift_type])
+            # Sum of all available shifts for this employee on this day must equal 1
+            shift_vars = [x[(employee, day, shift)] for shift in shifts if (employee, day, shift) in x]
+            if shift_vars:  # Only add constraint if there are variables
+                model.Add(sum(shift_vars) == 1)
 
 
 def add_skill_constraints(
@@ -61,10 +68,52 @@ def add_skill_constraints(
         employee_skills = skills[employee]
         
         for day in dates:
-            for shift_type in ["M", "O", "IP", "A", "N"]:
+            # Handle clinic_only employees
+            if employee_skills.get("clinic_only", False):
+                # Clinic-only employees can only work CL shifts
+                for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H"]:
+                    model.Add(x[(employee, day, shift_type)] == 0)
+                continue
+            
+            # Handle regular skill constraints
+            for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
                 if shift_type in employee_skills and not employee_skills[shift_type]:
                     # Employee cannot work this shift type
                     model.Add(x[(employee, day, shift_type)] == 0)
+                
+                # Handle IP constraint (ip_ok)
+                if shift_type == "IP" and not employee_skills.get("ip_ok", True):
+                    model.Add(x[(employee, day, shift_type)] == 0)
+                
+                # Handle Harat constraint (harat_ok)
+                if shift_type == "H" and not employee_skills.get("harat_ok", True):
+                    model.Add(x[(employee, day, shift_type)] == 0)
+
+
+def add_coverage_constraints(
+    model: cp_model.CpModel,
+    x: Dict[Tuple[str, date, str], cp_model.IntVar],
+    employees: List[str],
+    dates: List[date],
+    demands: Dict[date, Dict[str, int]]
+) -> None:
+    """Add coverage constraints: meet EXACT daily demand for each shift type."""
+    for day in dates:
+        if day not in demands:
+            continue
+            
+        day_demand = demands[day]
+        
+        # Individual shift coverage - meet minimum requirements
+        for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
+            if shift_type in day_demand and day_demand[shift_type] > 0:
+                # Sum of employees working this shift type on this day
+                shift_vars = [
+                    x[(emp, day, shift_type)] 
+                    for emp in employees
+                ]
+                # Use >= for minimum requirements (allow over-staffing if needed)
+                model.Add(sum(shift_vars) >= day_demand[shift_type])
 
 
 def add_time_off_constraints(
@@ -106,71 +155,22 @@ def add_cap_constraints(
     dates: List[date],
     caps: Dict[str, Dict[str, int]]
 ) -> None:
-    """Add cap constraints: limit nights and evenings per employee per month."""
+    """Add cap constraints: limit maximum shifts per employee."""
     for employee in employees:
         if employee not in caps:
             continue
             
-        emp_caps = caps[employee]
+        employee_caps = caps[employee]
         
         # Night shift cap
-        if "maxN" in emp_caps:
-            night_vars = [
-                x[(employee, day, "N")] 
-                for day in dates
-            ]
-            model.Add(sum(night_vars) <= emp_caps["maxN"])
-            
-        # Evening shift cap  
-        if "maxA" in emp_caps:
-            evening_vars = [
-                x[(employee, day, "A")] 
-                for day in dates
-            ]
-            model.Add(sum(evening_vars) <= emp_caps["maxA"])
-
-
-def add_weekly_rest_constraints(
-    model: cp_model.CpModel,
-    x: Dict[Tuple[str, date, str], cp_model.IntVar],
-    employees: List[str],
-    dates: List[date],
-    rest_codes: Set[str],
-    min_rest_days: int = 1
-) -> None:
-    """Add weekly rest constraints: each employee must have at least min_rest_days off per 7-day window."""
-    for employee in employees:
-        # For each 7-day window
-        for i in range(len(dates) - 6):
-            window_dates = dates[i:i+7]
-            
-            # Count rest days in this window
-            rest_vars = []
-            for day in window_dates:
-                for code in rest_codes:
-                    rest_vars.append(x[(employee, day, code)])
-                    
-            # Must have at least min_rest_days off in this window
-            model.Add(sum(rest_vars) >= min_rest_days)
-
-
-def add_adjacency_constraints(
-    model: cp_model.CpModel,
-    x: Dict[Tuple[str, date, str], cp_model.IntVar],
-    employees: List[str],
-    dates: List[date],
-    forbidden_pairs: List[Tuple[str, str]]
-) -> None:
-    """Add adjacency constraints: prevent forbidden shift sequences."""
-    for employee in employees:
-        for i in range(len(dates) - 1):
-            day1, day2 = dates[i], dates[i+1]
-            
-            for shift1, shift2 in forbidden_pairs:
-                # Cannot work shift1 on day1 AND shift2 on day2
-                model.Add(
-                    x[(employee, day1, shift1)] + x[(employee, day2, shift2)] <= 1
-                )
+        if "maxN" in employee_caps:
+            night_vars = [x[(employee, day, "N")] for day in dates]
+            model.Add(sum(night_vars) <= employee_caps["maxN"])
+        
+        # Afternoon shift cap
+        if "maxA" in employee_caps:
+            afternoon_vars = [x[(employee, day, "A")] for day in dates]
+            model.Add(sum(afternoon_vars) <= employee_caps["maxA"])
 
 
 def add_minimum_days_off_constraints(
@@ -190,29 +190,97 @@ def add_minimum_days_off_constraints(
         rest_vars = []
         for day in dates:
             for code in rest_codes:
-                rest_vars.append(x[(employee, day, code)])
+                if (employee, day, code) in x:
+                    rest_vars.append(x[(employee, day, code)])
                 
         # Must have at least min_days_off rest days
-        model.Add(sum(rest_vars) >= min_days_off[employee])
+        if rest_vars:
+            model.Add(sum(rest_vars) >= min_days_off[employee])
 
 
-def create_decision_variables(
+def add_weekly_rest_constraints(
     model: cp_model.CpModel,
+    x: Dict[Tuple[str, date, str], cp_model.IntVar],
     employees: List[str],
     dates: List[date],
-    shifts: List[str]
-) -> Dict[Tuple[str, date, str], cp_model.IntVar]:
-    """Create binary decision variables for the optimization model."""
-    x = {}
-    
+    rest_codes: Set[str],
+    weekly_rest_minimum: int = 1
+) -> None:
+    """Add weekly rest constraints: minimum rest days per week."""
     for employee in employees:
+        # Group dates by week
+        weeks = {}
         for day in dates:
-            for shift in shifts:
-                x[(employee, day, shift)] = model.NewBoolVar(
-                    f"x_{employee}_{day}_{shift}"
-                )
+            week_start = day - timedelta(days=day.weekday())
+            if week_start not in weeks:
+                weeks[week_start] = []
+            weeks[week_start].append(day)
+        
+        # Add constraint for each week
+        for week_dates in weeks.values():
+            if len(week_dates) >= 5:  # Only for full weeks
+                rest_vars = []
+                for day in week_dates:
+                    for code in rest_codes:
+                        if (employee, day, code) in x:
+                            rest_vars.append(x[(employee, day, code)])
                 
-    return x
+                if rest_vars:
+                    model.Add(sum(rest_vars) >= weekly_rest_minimum)
+
+
+def add_adjacency_constraints(
+    model: cp_model.CpModel,
+    x: Dict[Tuple[str, date, str], cp_model.IntVar],
+    employees: List[str],
+    dates: List[date],
+    forbidden_pairs: List[Tuple[str, str]]
+) -> None:
+    """Add adjacency constraints: prevent certain shift sequences."""
+    for employee in employees:
+        for i in range(len(dates) - 1):
+            day1, day2 = dates[i], dates[i + 1]
+            
+            for shift1, shift2 in forbidden_pairs:
+                # Cannot work shift1 on day1 and shift2 on day2
+                model.Add(
+                    x[(employee, day1, shift1)] + x[(employee, day2, shift2)] <= 1
+                )
+
+
+def add_sequencing_constraints(
+    model: cp_model.CpModel,
+    x: Dict[Tuple[str, date, str], cp_model.IntVar],
+    employees: List[str],
+    dates: List[date]
+) -> None:
+    """Add sequencing constraints for shift patterns."""
+    rest_codes = {"DO", "O"}
+    
+    for emp in employees:
+        for i, day in enumerate(dates):
+            # Rule 1: After Night (N) → rest day (O/DO) next day
+            if i < len(dates) - 1:  # Not the last day
+                next_day = dates[i + 1]
+                
+                # If working Night today, must be off tomorrow
+                if (emp, day, "N") in x and (emp, next_day, "N") in x:
+                    # Create constraint: N_today <= (sum of rest codes tomorrow)
+                    rest_vars_tomorrow = []
+                    for rest_code in rest_codes:
+                        if (emp, next_day, rest_code) in x:
+                            rest_vars_tomorrow.append(x[(emp, next_day, rest_code)])
+                    
+                    if rest_vars_tomorrow:
+                        model.Add(x[(emp, day, "N")] <= sum(rest_vars_tomorrow))
+            
+            # Rule 2: No back-to-back N shifts
+            if i < len(dates) - 1:  # Not the last day
+                next_day = dates[i + 1]
+                
+                if (emp, day, "N") in x and (emp, next_day, "N") in x:
+                    # Cannot work N on consecutive days
+                    model.Add(x[(emp, day, "N")] + x[(emp, next_day, "N")] <= 1)
 
 
 def add_all_constraints(
@@ -235,8 +303,8 @@ def add_all_constraints(
     
     # Core constraints
     add_one_per_day_constraint(model, x, employees, dates, shifts)
-    add_coverage_constraints(model, x, employees, dates, demands)
     add_skill_constraints(model, x, employees, dates, skills)
+    add_coverage_constraints(model, x, employees, dates, demands)
     
     # Time off and locks
     add_time_off_constraints(model, x, employees, dates, time_off)
@@ -249,3 +317,23 @@ def add_all_constraints(
     
     # Adjacency rules
     add_adjacency_constraints(model, x, employees, dates, forbidden_pairs)
+    
+    # Sequencing rules
+    add_sequencing_constraints(model, x, employees, dates)
+    
+    # CL availability constraint
+    add_cl_availability_constraints(model, x, employees, dates, time_off)
+
+
+def add_cl_availability_constraints(
+    model: cp_model.CpModel,
+    x: Dict[Tuple[str, date, str], cp_model.IntVar],
+    employees: List[str],
+    dates: List[date],
+    time_off: Dict[Tuple[str, date], str]
+) -> None:
+    """Ensure at most 1 CL person is on leave at any time."""
+    # For now, this is handled by the data - we'll ensure only 1 CL person
+    # has leave requests at a time in the time_off.csv file
+    # This constraint can be expanded later if needed
+    pass

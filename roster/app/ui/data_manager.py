@@ -32,6 +32,20 @@ class DataManager:
         employees_path = self.data_dir / "employees.csv"
         if employees_path.exists():
             data['employees'] = pd.read_csv(employees_path)
+            # Add missing columns with default values
+            required_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight']
+            for col in required_columns:
+                if col not in data['employees'].columns:
+                    if col.startswith('skill_'):
+                        data['employees'][col] = True  # Default to True for skills
+                    elif col in ['clinic_only', 'ip_ok', 'harat_ok']:
+                        data['employees'][col] = False if col == 'clinic_only' else True  # Default clinic_only=False, others=True
+                    elif col in ['maxN', 'maxA']:
+                        data['employees'][col] = 3  # Default max shifts
+                    elif col == 'min_days_off':
+                        data['employees'][col] = 4  # Default min days off
+                    elif col == 'weight':
+                        data['employees'][col] = 1.0  # Default weight
         else:
             data['employees'] = self._create_empty_employees_df()
         
@@ -39,6 +53,12 @@ class DataManager:
         demands_path = self.data_dir / "demands.csv"
         if demands_path.exists():
             data['demands'] = pd.read_csv(demands_path)
+            # Add missing columns with default values
+            required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL']
+            for col in required_columns:
+                if col not in data['demands'].columns:
+                    if col.startswith('need_'):
+                        data['demands'][col] = 0  # Default to 0 for requirements
         else:
             data['demands'] = self._create_empty_demands_df()
         
@@ -61,42 +81,74 @@ class DataManager:
     def _create_empty_employees_df(self) -> pd.DataFrame:
         """Create empty employees dataframe."""
         return pd.DataFrame(columns=[
-            'employee', 'skill_M', 'skill_O', 'skill_IP', 'skill_A', 'skill_N',
-            'maxN', 'maxA', 'min_days_off', 'weight'
+            'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL',
+            'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight'
         ])
     
     def _create_empty_demands_df(self) -> pd.DataFrame:
         """Create empty demands dataframe."""
         return pd.DataFrame(columns=[
-            'date', 'need_M', 'need_O', 'need_IP', 'need_A', 'need_N'
+            'date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL'
         ])
     
     def _create_empty_time_off_df(self) -> pd.DataFrame:
         """Create empty time off dataframe."""
-        return pd.DataFrame(columns=['employee', 'date', 'code'])
+        return pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'code'])
     
     def _create_empty_locks_df(self) -> pd.DataFrame:
         """Create empty locks dataframe."""
-        return pd.DataFrame(columns=['employee', 'date', 'shift', 'force'])
+        return pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'shift', 'force'])
     
     def generate_month_demands(self, year: int, month: int, base_demand: Dict[str, int]) -> pd.DataFrame:
         """Generate demands for a specific month."""
-        start_date = date(year, month, 1)
-        if month == 12:
-            end_date = date(year + 1, 1, 1) - timedelta(days=1)
-        else:
-            end_date = date(year, month + 1, 1) - timedelta(days=1)
+        import random
+        import calendar
+        
+        # Get the number of days in the month
+        num_days = calendar.monthrange(year, month)[1]
+        
+        # Generate all dates in the month
+        all_dates = [date(year, month, day) for day in range(1, num_days + 1)]
+        
+        # Identify weekdays (Monday=0 to Thursday=3, Sunday=6)
+        weekdays = [d for d in all_dates if d.weekday() not in [4, 5]]  # Exclude Friday=4, Saturday=5
+        
+        # Randomly select 3-5 weekdays for H shifts
+        num_h_shifts = random.randint(3, 5)
+        h_dates = random.sample(weekdays, min(num_h_shifts, len(weekdays)))
         
         demands = []
-        for current_date in pd.date_range(start=start_date, end=end_date, freq='D'):
-            demands.append({
-                'date': current_date.strftime('%Y-%m-%d'),
-                'need_M': base_demand.get('M', 4),
-                'need_O': base_demand.get('O', 4),
-                'need_IP': base_demand.get('IP', 4),
-                'need_A': base_demand.get('A', 2),
-                'need_N': base_demand.get('N', 2)
-            })
+        for current_date in all_dates:
+            # Check if it's a weekend (Friday=4, Saturday=5)
+            is_weekend = current_date.weekday() in [4, 5]  # Friday=4, Saturday=5
+            
+            if is_weekend:
+                # Weekend staffing: 1 A, 1 N, 1 M3, 0 CL
+                demands.append({
+                    'date': current_date.strftime('%Y-%m-%d'),
+                    'need_M': 0,
+                    'need_IP': 0,
+                    'need_A': 1,
+                    'need_N': 1,
+                    'need_M3': 1,
+                    'need_M4': 0,
+                    'need_H': 0,
+                    'need_CL': 0
+                })
+            else:
+                # Weekday staffing: normal requirements
+                h_value = 1 if current_date in h_dates else 0
+                demands.append({
+                    'date': current_date.strftime('%Y-%m-%d'),
+                    'need_M': base_demand.get('M', 6),
+                    'need_IP': base_demand.get('IP', 3),
+                    'need_A': base_demand.get('A', 1),
+                    'need_N': base_demand.get('N', 1),
+                    'need_M3': base_demand.get('M3', 1),
+                    'need_M4': base_demand.get('M4', 1),
+                    'need_H': h_value,  # Randomly distributed H shifts
+                    'need_CL': base_demand.get('CL', 3)
+                })
         
         return pd.DataFrame(demands)
 
@@ -104,7 +156,6 @@ class DataManager:
 def show_data_manager_page():
     """Show the main data management page."""
     st.header("📊 Data Manager & Schedule Generator")
-    st.markdown("Edit roster data and generate monthly schedules")
     
     # Initialize data manager
     if 'data_manager' not in st.session_state:
@@ -171,10 +222,16 @@ def show_employees_tab(employees_df: pd.DataFrame):
             new_employee = {
                 'employee': f'Employee_{len(employees_df) + 1}',
                 'skill_M': True,
-                'skill_O': True,
                 'skill_IP': True,
                 'skill_A': True,
                 'skill_N': True,
+                'skill_M3': True,
+                'skill_M4': True,
+                'skill_H': True,
+                'skill_CL': True,
+                'clinic_only': False,
+                'ip_ok': True,
+                'harat_ok': True,
                 'maxN': 3,
                 'maxA': 6,
                 'min_days_off': 4,
@@ -192,12 +249,18 @@ def show_employees_tab(employees_df: pd.DataFrame):
         column_config={
             "employee": st.column_config.TextColumn("Employee Name", width="medium"),
             "skill_M": st.column_config.CheckboxColumn("Main Shift", width="small"),
-            "skill_O": st.column_config.CheckboxColumn("Outpatient", width="small"),
             "skill_IP": st.column_config.CheckboxColumn("Inpatient", width="small"),
-            "skill_A": st.column_config.CheckboxColumn("Evening", width="small"),
+            "skill_A": st.column_config.CheckboxColumn("Afternoon", width="small"),
             "skill_N": st.column_config.CheckboxColumn("Night", width="small"),
+            "skill_M3": st.column_config.CheckboxColumn("M3 (7am-2pm)", width="small"),
+            "skill_M4": st.column_config.CheckboxColumn("M4 (12pm-7pm)", width="small"),
+            "skill_H": st.column_config.CheckboxColumn("Harat Pharmacy", width="small"),
+            "skill_CL": st.column_config.CheckboxColumn("Clinic", width="small"),
+            "clinic_only": st.column_config.CheckboxColumn("Clinic Only", width="small"),
+            "ip_ok": st.column_config.CheckboxColumn("IP Capable", width="small"),
+            "harat_ok": st.column_config.CheckboxColumn("Harat Eligible", width="small"),
             "maxN": st.column_config.NumberColumn("Max Nights", min_value=0, max_value=10, width="small"),
-            "maxA": st.column_config.NumberColumn("Max Evenings", min_value=0, max_value=10, width="small"),
+            "maxA": st.column_config.NumberColumn("Max Afternoons", min_value=0, max_value=10, width="small"),
             "min_days_off": st.column_config.NumberColumn("Min Days Off", min_value=1, max_value=10, width="small"),
             "weight": st.column_config.NumberColumn("Weight", min_value=0.1, max_value=10.0, step=0.1, width="small")
         },
@@ -216,9 +279,9 @@ def show_employees_tab(employees_df: pd.DataFrame):
     with col2:
         st.metric("Can Work Nights", edited_employees['skill_N'].sum())
     with col3:
-        st.metric("Can Work Evenings", edited_employees['skill_A'].sum())
+        st.metric("Can Work Afternoons", edited_employees['skill_A'].sum())
     with col4:
-        st.metric("Can Work All Shifts", (edited_employees[['skill_M', 'skill_O', 'skill_IP', 'skill_A', 'skill_N']].all(axis=1)).sum())
+        st.metric("Can Work All Shifts", (edited_employees[['skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL']].all(axis=1)).sum())
 
 
 def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
@@ -233,7 +296,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
     with col2:
         if st.button("🔄 Generate Month"):
             base_demand = {
-                'M': 4, 'O': 4, 'IP': 4, 'A': 2, 'N': 2
+                'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 0, 'CL': 3
             }
             new_demands = st.session_state.data_manager.generate_month_demands(year, month, base_demand)
             st.session_state.roster_data['demands'] = new_demands
@@ -259,10 +322,13 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
                 column_config={
                     "date": st.column_config.TextColumn("Date", width="medium"),
                     "need_M": st.column_config.NumberColumn("Main", min_value=0, max_value=20, width="small"),
-                    "need_O": st.column_config.NumberColumn("Outpatient", min_value=0, max_value=20, width="small"),
                     "need_IP": st.column_config.NumberColumn("Inpatient", min_value=0, max_value=20, width="small"),
-                    "need_A": st.column_config.NumberColumn("Evening", min_value=0, max_value=20, width="small"),
-                    "need_N": st.column_config.NumberColumn("Night", min_value=0, max_value=20, width="small")
+                    "need_A": st.column_config.NumberColumn("Afternoon", min_value=0, max_value=20, width="small"),
+                    "need_N": st.column_config.NumberColumn("Night", min_value=0, max_value=20, width="small"),
+                    "need_M3": st.column_config.NumberColumn("M3 (7am-2pm)", min_value=0, max_value=20, width="small"),
+                    "need_M4": st.column_config.NumberColumn("M4 (12pm-7pm)", min_value=0, max_value=20, width="small"),
+                    "need_H": st.column_config.NumberColumn("Harat Pharmacy", min_value=0, max_value=20, width="small"),
+                    "need_CL": st.column_config.NumberColumn("Clinic", min_value=0, max_value=20, width="small")
                 },
                 use_container_width=True
             )
@@ -297,21 +363,25 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
     # Add time off form
     if st.session_state.get('show_add_time_off', False):
         with st.form("add_time_off"):
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 employee = st.selectbox("Employee", st.session_state.roster_data['employees']['employee'].tolist())
             
             with col2:
-                time_off_date = st.date_input("Date", value=date(year, month, 1))
+                from_date = st.date_input("From Date", value=date(year, month, 1))
             
             with col3:
-                code = st.selectbox("Code", ["DO", "CL", "ML", "W", "UL", "H", "STL"])
+                to_date = st.date_input("To Date", value=date(year, month, 1))
+            
+            with col4:
+                code = st.selectbox("Code", ["DO", "ML", "W", "UL", "APP", "STL", "L", "O"])
             
             if st.form_submit_button("Add"):
                 new_time_off = pd.DataFrame([{
                     'employee': employee,
-                    'date': time_off_date.strftime('%Y-%m-%d'),
+                    'from_date': from_date.strftime('%Y-%m-%d'),
+                    'to_date': to_date.strftime('%Y-%m-%d'),
                     'code': code
                 }])
                 updated_time_off = pd.concat([time_off_df, new_time_off], ignore_index=True)
@@ -319,16 +389,26 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
                 st.session_state.show_add_time_off = False
                 st.rerun()
     
-    # Filter time off for selected month
+    # Filter time off for selected month (show ranges that overlap with the month)
     if not time_off_df.empty:
-        time_off_df['date'] = pd.to_datetime(time_off_df['date'])
+        time_off_df['from_date'] = pd.to_datetime(time_off_df['from_date'])
+        time_off_df['to_date'] = pd.to_datetime(time_off_df['to_date'])
+        
+        # Show ranges that overlap with the selected month
+        month_start = pd.Timestamp(year, month, 1)
+        if month == 12:
+            month_end = pd.Timestamp(year + 1, 1, 1) - pd.Timedelta(days=1)
+        else:
+            month_end = pd.Timestamp(year, month + 1, 1) - pd.Timedelta(days=1)
+        
         month_time_off = time_off_df[
-            (time_off_df['date'].dt.year == year) & 
-            (time_off_df['date'].dt.month == month)
+            (time_off_df['from_date'] <= month_end) & 
+            (time_off_df['to_date'] >= month_start)
         ].copy()
         
         if not month_time_off.empty:
-            month_time_off['date'] = month_time_off['date'].dt.strftime('%Y-%m-%d')
+            month_time_off['from_date'] = month_time_off['from_date'].dt.strftime('%Y-%m-%d')
+            month_time_off['to_date'] = month_time_off['to_date'].dt.strftime('%Y-%m-%d')
             
             # Editable dataframe
             edited_time_off = st.data_editor(
@@ -336,18 +416,20 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
                 num_rows="dynamic",
                 column_config={
                     "employee": st.column_config.SelectboxColumn("Employee", options=st.session_state.roster_data['employees']['employee'].tolist()),
-                    "date": st.column_config.TextColumn("Date", width="medium"),
-                    "code": st.column_config.SelectboxColumn("Code", options=["DO", "CL", "ML", "W", "UL", "H", "STL"])
+                    "from_date": st.column_config.TextColumn("From Date", width="medium"),
+                    "to_date": st.column_config.TextColumn("To Date", width="medium"),
+                    "code": st.column_config.SelectboxColumn("Code", options=["DO", "ML", "W", "UL", "APP", "STL", "L", "O"])
                 },
                 use_container_width=True
             )
             
             # Update data
             if not edited_time_off.equals(month_time_off):
-                edited_time_off['date'] = pd.to_datetime(edited_time_off['date'])
+                edited_time_off['from_date'] = pd.to_datetime(edited_time_off['from_date'])
+                edited_time_off['to_date'] = pd.to_datetime(edited_time_off['to_date'])
                 
                 # Update the full time off dataframe
-                full_time_off = time_off_df[~((time_off_df['date'].dt.year == year) & (time_off_df['date'].dt.month == month))]
+                full_time_off = time_off_df[~((time_off_df['from_date'] <= month_end) & (time_off_df['to_date'] >= month_start))]
                 updated_time_off = pd.concat([full_time_off, edited_time_off], ignore_index=True)
                 st.session_state.roster_data['time_off'] = updated_time_off
                 st.success("✅ Time off data updated!")
@@ -373,24 +455,28 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
     # Add lock form
     if st.session_state.get('show_add_lock', False):
         with st.form("add_lock"):
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
                 employee = st.selectbox("Employee", st.session_state.roster_data['employees']['employee'].tolist())
             
             with col2:
-                lock_date = st.date_input("Date", value=date(year, month, 1))
+                from_date = st.date_input("From Date", value=date(year, month, 1))
             
             with col3:
-                shift = st.selectbox("Shift", ["M", "O", "IP", "A", "N", "DO", "CL", "ML", "W", "UL"])
+                to_date = st.date_input("To Date", value=date(year, month, 1))
             
             with col4:
+                shift = st.selectbox("Shift", ["M", "IP", "A", "N", "M3", "M4", "H", "CL"])
+            
+            with col5:
                 force = st.selectbox("Action", ["Force (Must)", "Forbid (Cannot)"])
             
             if st.form_submit_button("Add"):
                 new_lock = pd.DataFrame([{
                     'employee': employee,
-                    'date': lock_date.strftime('%Y-%m-%d'),
+                    'from_date': from_date.strftime('%Y-%m-%d'),
+                    'to_date': to_date.strftime('%Y-%m-%d'),
                     'shift': shift,
                     'force': force == "Force (Must)"
                 }])
@@ -399,16 +485,26 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
                 st.session_state.show_add_lock = False
                 st.rerun()
     
-    # Filter locks for selected month
+    # Filter locks for selected month (show ranges that overlap with the month)
     if not locks_df.empty:
-        locks_df['date'] = pd.to_datetime(locks_df['date'])
+        locks_df['from_date'] = pd.to_datetime(locks_df['from_date'])
+        locks_df['to_date'] = pd.to_datetime(locks_df['to_date'])
+        
+        # Show ranges that overlap with the selected month
+        month_start = pd.Timestamp(year, month, 1)
+        if month == 12:
+            month_end = pd.Timestamp(year + 1, 1, 1) - pd.Timedelta(days=1)
+        else:
+            month_end = pd.Timestamp(year, month + 1, 1) - pd.Timedelta(days=1)
+        
         month_locks = locks_df[
-            (locks_df['date'].dt.year == year) & 
-            (locks_df['date'].dt.month == month)
+            (locks_df['from_date'] <= month_end) & 
+            (locks_df['to_date'] >= month_start)
         ].copy()
         
         if not month_locks.empty:
-            month_locks['date'] = month_locks['date'].dt.strftime('%Y-%m-%d')
+            month_locks['from_date'] = month_locks['from_date'].dt.strftime('%Y-%m-%d')
+            month_locks['to_date'] = month_locks['to_date'].dt.strftime('%Y-%m-%d')
             month_locks['force'] = month_locks['force'].map({True: "Force (Must)", False: "Forbid (Cannot)"})
             
             # Editable dataframe
@@ -417,8 +513,9 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
                 num_rows="dynamic",
                 column_config={
                     "employee": st.column_config.SelectboxColumn("Employee", options=st.session_state.roster_data['employees']['employee'].tolist()),
-                    "date": st.column_config.TextColumn("Date", width="medium"),
-                    "shift": st.column_config.SelectboxColumn("Shift", options=["M", "O", "IP", "A", "N", "DO", "CL", "ML", "W", "UL"]),
+                    "from_date": st.column_config.TextColumn("From Date", width="medium"),
+                    "to_date": st.column_config.TextColumn("To Date", width="medium"),
+                    "shift": st.column_config.SelectboxColumn("Shift", options=["M", "IP", "A", "N", "M3", "M4", "H", "CL"]),
                     "force": st.column_config.SelectboxColumn("Action", options=["Force (Must)", "Forbid (Cannot)"])
                 },
                 use_container_width=True
@@ -426,11 +523,12 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
             
             # Update data
             if not edited_locks.equals(month_locks):
-                edited_locks['date'] = pd.to_datetime(edited_locks['date'])
+                edited_locks['from_date'] = pd.to_datetime(edited_locks['from_date'])
+                edited_locks['to_date'] = pd.to_datetime(edited_locks['to_date'])
                 edited_locks['force'] = edited_locks['force'] == "Force (Must)"
                 
                 # Update the full locks dataframe
-                full_locks = locks_df[~((locks_df['date'].dt.year == year) & (locks_df['date'].dt.month == month))]
+                full_locks = locks_df[~((locks_df['from_date'] <= month_end) & (locks_df['to_date'] >= month_start))]
                 updated_locks = pd.concat([full_locks, edited_locks], ignore_index=True)
                 st.session_state.roster_data['locks'] = updated_locks
                 st.success("✅ Special requirements data updated!")
@@ -517,7 +615,7 @@ def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: in
                         "area_switching": switching_penalty,
                         "do_after_n": 1.0
                     },
-                    "rest_codes": ["DO", "CL", "ML", "W"],
+                    "rest_codes": ["DO", "ML", "W", "UL", "APP", "STL", "L", "O"],
                     "forbidden_adjacencies": [["N", "M"], ["A", "N"]],
                     "weekly_rest_minimum": 1
                 }

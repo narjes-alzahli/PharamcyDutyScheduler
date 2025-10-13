@@ -29,7 +29,6 @@ def main():
     )
     
     st.title("📅 Staff Rostering System")
-    st.markdown("Generate optimal monthly duty rosters for pharmacy staff")
     
     # Sidebar for navigation
     page = st.sidebar.selectbox(
@@ -65,13 +64,13 @@ def show_input_page():
         employees_file = st.file_uploader(
             "Employees CSV",
             type=["csv"],
-            help="employee,skill_M,skill_O,skill_IP,skill_A,skill_N,maxN,maxA,min_days_off,weight"
+            help="employee,skill_M,skill_IP,skill_A,skill_N,skill_M3,skill_M4,skill_H,skill_CL,maxN,maxA,min_days_off,weight"
         )
         
         demands_file = st.file_uploader(
             "Daily Requirements CSV", 
             type=["csv"],
-            help="date,need_M,need_O,need_IP,need_A,need_N"
+            help="date,need_M,need_IP,need_A,need_N,need_M3,need_M4,need_H,need_CL"
         )
     
     with col2:
@@ -555,7 +554,10 @@ def load_sample_data():
     employees_data = {
         "employee": ["Idris", "Karima", "Rahma", "Noor", "Ameera", "Shatha", "Rasha", "Layla"],
         "skill_M": [1, 1, 1, 1, 1, 1, 1, 1],
-        "skill_O": [1, 1, 0, 1, 1, 1, 1, 1],
+        "skill_M3": [1, 1, 1, 1, 1, 1, 1, 1],
+        "skill_M4": [1, 1, 1, 1, 1, 1, 1, 1],
+        "skill_H": [1, 1, 1, 1, 1, 1, 1, 1],
+        "skill_CL": [1, 1, 1, 1, 1, 1, 1, 1],
         "skill_IP": [0, 1, 1, 1, 1, 1, 1, 1],
         "skill_A": [1, 1, 0, 1, 1, 1, 1, 1],
         "skill_N": [0, 1, 1, 1, 1, 1, 1, 1],
@@ -573,11 +575,14 @@ def load_sample_data():
         current_date = start_date + timedelta(days=i)
         demands_data.append({
             "date": current_date,
-            "need_M": 6,
-            "need_O": 6,
-            "need_IP": 6,
-            "need_A": 3,
-            "need_N": 3
+            "need_M": 2,
+            "need_IP": 2,
+            "need_A": 1,
+            "need_N": 1,
+            "need_M3": 2,
+            "need_M4": 2,
+            "need_H": 1,
+            "need_CL": 0
         })
     st.session_state["demands_df"] = pd.DataFrame(demands_data)
     

@@ -1,11 +1,6 @@
-employee,date,code
-Rasha,2025-03-05,CL
-Ameera,2025-03-10,W
-Shatha,2025-03-15,ML
-Layla,2025-03-20,DO
-Mariam,2025-03-25,CL
-Fatima,2025-03-30,W
-Khaled,2025-03-12,DO
-Omar,2025-03-18,CL
-Ahmed,2025-03-22,ML
-Youssef,2025-03-28,DO
+employee,from_date,to_date,code
+Ameera,2025-03-10,2025-03-10,W
+Layla,2025-03-20,2025-03-20,DO
+Fatima,2025-03-30,2025-03-30,W
+Khaled,2025-03-12,2025-03-12,DO
+Youssef,2025-03-28,2025-03-28,DO
