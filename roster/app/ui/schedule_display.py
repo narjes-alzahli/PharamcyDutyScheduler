@@ -190,6 +190,9 @@ class ScheduleDisplay:
         # Display color-coded table
         self._display_simple_table(pivot_data, all_dates, year, month)
         
+        # Add download button
+        self._add_download_button(pivot_data, all_dates, year, month)
+        
         # Add summary statistics
         self._display_summary_stats(month_data, all_dates)
     
@@ -198,30 +201,237 @@ class ScheduleDisplay:
         
         month_name = self._get_month_name(month)
         
-        # Start building the HTML
+        # Start building the HTML with simplified styling
         html = f"""
+        <style>
+        .schedule-table {{
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 14px;
+            border: 2px solid #000;
+        }}
+        .schedule-cell {{
+            border: 1px solid #000;
+            padding: 6px;
+            text-align: center;
+            font-weight: bold !important;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }}
+        .schedule-cell:hover {{
+            transform: scale(1.15);
+            filter: brightness(0.9);
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }}
+        .highlight-row {{
+            transform: scale(1.05) !important;
+            z-index: 5 !important;
+        }}
+        .highlight-col {{
+            transform: scale(1.05) !important;
+            z-index: 5 !important;
+        }}
+        .highlight-both {{
+            transform: scale(1.1) !important;
+            z-index: 10 !important;
+        }}
+        </style>
+        
+        <script>
+        // Simple highlighting system that works with Streamlit
+        function initTableHighlights() {{
+            const table = document.querySelector('.schedule-table');
+            if (!table) {{
+                console.log('Table not found, retrying...');
+                setTimeout(initTableHighlights, 100);
+                return;
+            }}
+            console.log('Table found, initializing highlights...');
+            
+            // Add data attributes to cells for easier targeting
+            const rows = table.querySelectorAll('tr');
+            rows.forEach((row, rowIndex) => {{
+                const cells = row.querySelectorAll('td, th');
+                cells.forEach((cell, cellIndex) => {{
+                    cell.setAttribute('data-row', rowIndex);
+                    cell.setAttribute('data-col', cellIndex);
+                }});
+            }});
+            
+            // Add hover events
+            table.addEventListener('mouseover', function(e) {{
+                const cell = e.target.closest('td, th');
+                if (!cell) return;
+                
+                const rowIndex = parseInt(cell.getAttribute('data-row'));
+                const colIndex = parseInt(cell.getAttribute('data-col'));
+                
+                // Clear previous highlights
+                table.querySelectorAll('.highlight-row, .highlight-col, .highlight-both').forEach(el => {{
+                    el.classList.remove('highlight-row', 'highlight-col', 'highlight-both');
+                }});
+                
+                // Highlight row (employee)
+                if (rowIndex > 0) {{
+                    const rowCells = rows[rowIndex].querySelectorAll('.schedule-cell');
+                    rowCells.forEach(c => c.classList.add('highlight-row'));
+                }}
+                
+                // Highlight column (date)
+                if (colIndex > 1) {{
+                    rows.forEach((row, idx) => {{
+                        if (idx > 0) {{
+                            const colCell = row.children[colIndex];
+                            if (colCell && colCell.classList.contains('schedule-cell')) {{
+                                colCell.classList.add('highlight-col');
+                            }}
+                        }}
+                    }});
+                }}
+                
+                // Highlight intersection
+                if (rowIndex > 0 && colIndex > 1) {{
+                    const intersectionCell = rows[rowIndex].children[colIndex];
+                    if (intersectionCell && intersectionCell.classList.contains('schedule-cell')) {{
+                        intersectionCell.classList.remove('highlight-row', 'highlight-col');
+                        intersectionCell.classList.add('highlight-both');
+                    }}
+                }}
+            }});
+            
+            // Clear highlights when mouse leaves table
+            table.addEventListener('mouseleave', function() {{
+                table.querySelectorAll('.highlight-row, .highlight-col, .highlight-both').forEach(el => {{
+                    el.classList.remove('highlight-row', 'highlight-col', 'highlight-both');
+                }});
+            }});
+        }}
+        
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', initTableHighlights);
+        }} else {{
+            initTableHighlights();
+        }}
+        </script>
+        
+        <style>
+        .header-cell {{
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: center;
+            background-color: #f0f0f0;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 12px;
+        }}
+        .header-cell:hover {{
+            transform: scale(1.15);
+            filter: brightness(0.9);
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }}
+        .staff-number-cell {{
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: center;
+            background-color: #f9f9f9;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 12px;
+        }}
+        .staff-number-cell:hover {{
+            transform: scale(1.15);
+            filter: brightness(0.9);
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }}
+        .employee-cell {{
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: left;
+            background-color: #f9f9f9;
+            font-weight: bold;
+            width: 120px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+        .employee-cell:hover {{
+            transform: scale(1.15);
+            filter: brightness(0.9);
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }}
+        .totals-cell {{
+            border: 1px solid #000;
+            padding: 6px;
+            text-align: center;
+            background-color: #B19CD9;
+            color: black;
+            font-weight: bold !important;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+        .totals-cell:hover {{
+            transform: scale(1.15);
+            filter: brightness(0.9);
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }}
+        .section-border-top {{
+            border-top: 2px solid #000 !important;
+        }}
+        .section-border-bottom {{
+            border-bottom: 2px solid #000 !important;
+        }}
+        .section-border-left {{
+            border-left: 2px solid #000 !important;
+        }}
+        .section-border-right {{
+            border-right: 2px solid #000 !important;
+        }}
+        .staff-section {{
+            border-right: 2px solid #000 !important;
+        }}
+        .date-section {{
+            border-right: 2px solid #000 !important;
+        }}
+        .date-row {{
+            border-bottom: 2px solid #000 !important;
+        }}
+        </style>
+        
         <div style="font-family: Arial, sans-serif; margin: 20px 0;">
-            <h3 style="text-align: center; margin-bottom: 15px;">PHARMACY DEPARTMENT DUTY ROSTER {year} - {month_name.upper()}</h3>
-            <table style="border-collapse: collapse; width: 100%; font-size: 12px; border: 2px solid #000;">
+            <h4 style="text-align: center; margin-bottom: 15px; font-size: 16px; font-weight: normal;">Pharmacy Schedule {year} - {month_name}</h4>
+            <table class="schedule-table">
                 <thead>
-                    <tr style="background-color: #f0f0f0;">
-                        <th style="border: 1px solid #000; padding: 5px; text-align: center; width: 60px;">STAFF No</th>
-                        <th style="border: 1px solid #000; padding: 5px; text-align: left; width: 120px;">Name</th>
+                    <tr style="background-color: #f0f0f0;" class="date-row">
+                        <th class="header-cell" style="width: 45px;">STAFF No</th>
+                        <th class="header-cell staff-section" style="width: 120px;">Name</th>
         """
         
         # Add date headers
-        for date in all_dates:
+        for i, date in enumerate(all_dates):
             day_name = date.strftime('%a').upper()
             if day_name == 'SUN':
                 day_name = 'SUN'
             
             # Different background color for weekends (Friday and Saturday)
             if day_name in ['FRI', 'SAT']:
-                header_style = "border: 1px solid #000; padding: 3px; text-align: center; width: 30px; font-size: 10px; background-color: #D1E7DD;"
+                header_style = "background-color: #D1E7DD; width: 30px; font-size: 12px;"
             else:
-                header_style = "border: 1px solid #000; padding: 3px; text-align: center; width: 30px; font-size: 10px;"
+                header_style = "width: 30px; font-size: 12px;"
             
-            html += f'<th style="{header_style}">{date.day}<br>{day_name}</th>'
+            # Add border class to the last date header
+            border_class = "date-section" if i == len(all_dates) - 1 else ""
+            html += f'<th class="header-cell {border_class}" style="{header_style}">{date.day}<br>{day_name}</th>'
         
         html += "</tr></thead><tbody>"
         
@@ -229,8 +439,8 @@ class ScheduleDisplay:
         for i, (employee, row) in enumerate(pivot_data.iterrows(), 1):
             html += f"""
             <tr>
-                <td style="border: 1px solid #000; padding: 5px; text-align: center; background-color: #f9f9f9; font-weight: bold;">{i}</td>
-                <td style="border: 1px solid #000; padding: 5px; background-color: #f9f9f9; font-weight: bold;">{employee}</td>
+                <td class="staff-number-cell">{i}</td>
+                <td class="employee-cell staff-section">{employee}</td>
             """
             
             # Add shift cells with colors
@@ -253,18 +463,17 @@ class ScheduleDisplay:
                     else:
                         final_color = color  # Normal color for all other shifts
                     
-                    html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: {final_color}; font-weight: bold; font-size: 10px;">{shift}</td>'
+                    html += f'<td class="schedule-cell" style="background-color: {final_color};">{shift}</td>'
                 else:
                     # Empty cell - use weekend tint for weekends, white for weekdays
                     empty_color = '#D1E7DD' if is_weekend else '#FFFFFF'
-                    html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: {empty_color}; font-weight: bold; font-size: 10px;">0</td>'
+                    html += f'<td class="schedule-cell" style="background-color: {empty_color};">0</td>'
             
             html += "</tr>"
         
         # Add TOTAL MAIN row
-        html += "<tr style='background-color: #663399; font-weight: bold;'>"
-        html += "<td style='border: 1px solid #000; padding: 5px; text-align: center; background-color: #663399; color: white; font-weight: bold;'>TOTAL MAIN</td>"
-        html += "<td style='border: 1px solid #000; padding: 5px;'></td>"
+        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-top'>"
+        html += "<td class='totals-cell' colspan='2'>TOTAL MAIN</td>"
         
         for date in all_dates:
             day_name = date.strftime('%a').upper()
@@ -280,15 +489,14 @@ class ScheduleDisplay:
                 if date in row.index and pd.notna(row[date]) and row[date] == 'M':
                     main_count += 1
             
-            # Use dark purple for TOTAL MAIN cells
-            html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: #663399; color: white; font-weight: bold;">{main_count}</td>'
+            # Use light purple for TOTAL MAIN cells
+            html += f'<td class="totals-cell">{main_count}</td>'
         
         html += "</tr>"
         
         # Add TOTAL IP row
-        html += "<tr style='background-color: #663399; font-weight: bold;'>"
-        html += "<td style='border: 1px solid #000; padding: 5px; text-align: center; background-color: #663399; color: white; font-weight: bold;'>TOTAL IP</td>"
-        html += "<td style='border: 1px solid #000; padding: 5px;'></td>"
+        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-bottom'>"
+        html += "<td class='totals-cell' colspan='2'>TOTAL IP</td>"
         
         for date in all_dates:
             day_name = date.strftime('%a').upper()
@@ -304,13 +512,14 @@ class ScheduleDisplay:
                 if date in row.index and pd.notna(row[date]) and row[date] == 'IP':
                     ip_count += 1
             
-            # Use dark purple for TOTAL IP cells
-            html += f'<td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: #663399; color: white; font-weight: bold;">{ip_count}</td>'
+            # Use light purple for TOTAL IP cells
+            html += f'<td class="totals-cell">{ip_count}</td>'
         
         html += "</tr></tbody></table></div>"
         
         # Display the table
         st.markdown(html, unsafe_allow_html=True)
+    
         
         # Add legend
         self._display_legend()
@@ -518,6 +727,250 @@ class ScheduleDisplay:
         """
         
         return html
+    
+    def _add_download_button(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int) -> None:
+        """Add a download button for the schedule."""
+        import streamlit as st
+        import io
+        from PIL import Image
+        import base64
+        
+        month_name = self._get_month_name(month)
+        
+        # Create HTML table as image
+        html_content = self._create_html_table(pivot_data, all_dates, year, month)
+        
+        # For now, just show a simple download button that copies the HTML
+        st.download_button(
+            label="Download Schedule as HTML",
+            data=html_content,
+            file_name=f"pharmacy_schedule_{year}_{month:02d}_{month_name}.html",
+            mime="text/html",
+            help="Download the current schedule as an HTML file that can be opened in any browser"
+        )
+    
+    def _create_html_table(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int) -> str:
+        """Create HTML table for download."""
+        month_name = self._get_month_name(month)
+        
+        # Use the same HTML generation as the display but as a complete HTML document
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pharmacy Schedule {year} - {month_name}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .schedule-table {{
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 14px;
+            border: 2px solid #000;
+        }}
+        .schedule-cell {{
+            border: 1px solid #000;
+            padding: 6px;
+            text-align: center;
+            font-weight: bold !important;
+            font-size: 12px;
+            position: relative;
+        }}
+        .header-cell {{
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: center;
+            background-color: #f0f0f0;
+            font-weight: bold;
+            font-size: 12px;
+        }}
+        .staff-number-cell {{
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: center;
+            background-color: #f9f9f9;
+            font-weight: bold;
+            font-size: 12px;
+        }}
+        .employee-cell {{
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: left;
+            background-color: #f9f9f9;
+            font-weight: bold;
+            width: 120px;
+            font-size: 12px;
+        }}
+        .totals-cell {{
+            border: 1px solid #000;
+            padding: 6px;
+            text-align: center;
+            background-color: #B19CD9;
+            color: black;
+            font-weight: bold !important;
+            font-size: 12px;
+        }}
+        .section-border-top {{
+            border-top: 2px solid #000 !important;
+        }}
+        .section-border-bottom {{
+            border-bottom: 2px solid #000 !important;
+        }}
+        .staff-section {{
+            border-right: 2px solid #000 !important;
+        }}
+        .date-section {{
+            border-right: 2px solid #000 !important;
+        }}
+        .date-row {{
+            border-bottom: 2px solid #000 !important;
+        }}
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center; font-size: 18px; font-weight: normal; margin-bottom: 20px;">Pharmacy Schedule {year} - {month_name}</h2>
+"""
+        
+        # Add the table HTML (reuse the existing table generation logic)
+        html_content += self._generate_table_html(pivot_data, all_dates, year, month)
+        
+        html_content += """
+</body>
+</html>
+"""
+        return html_content
+    
+    def _generate_table_html(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int) -> str:
+        """Generate the table HTML for download."""
+        month_name = self._get_month_name(month)
+        
+        html = f"""
+        <table class="schedule-table">
+            <thead>
+                <tr style="background-color: #f0f0f0;" class="date-row">
+                    <th class="header-cell" style="width: 45px;">STAFF No</th>
+                    <th class="header-cell staff-section" style="width: 120px;">Name</th>
+        """
+        
+        # Add date headers
+        for i, date in enumerate(all_dates):
+            day_name = date.strftime('%a').upper()
+            if day_name == 'SUN':
+                day_name = 'SUN'
+            
+            # Different background color for weekends (Friday and Saturday)
+            if day_name in ['FRI', 'SAT']:
+                header_style = "background-color: #D1E7DD; width: 30px; font-size: 12px;"
+            else:
+                header_style = "width: 30px; font-size: 12px;"
+            
+            # Add border class to the last date header
+            border_class = "date-section" if i == len(all_dates) - 1 else ""
+            html += f'<th class="header-cell {border_class}" style="{header_style}">{date.day}<br>{day_name}</th>'
+        
+        html += "</tr></thead><tbody>"
+        
+        # Add staff rows
+        for i, (employee, row) in enumerate(pivot_data.iterrows(), 1):
+            html += f"""
+            <tr>
+                <td class="staff-number-cell">{i}</td>
+                <td class="employee-cell staff-section">{employee}</td>
+            """
+            
+            # Add shift cells with colors
+            for date in all_dates:
+                day_name = date.strftime('%a').upper()
+                if day_name == 'SUN':
+                    day_name = 'SN'
+                
+                # Check if it's a weekend (Friday and Saturday)
+                is_weekend = day_name in ['FRI', 'SAT']
+                
+                if date in row.index and pd.notna(row[date]) and row[date] != '':
+                    shift = row[date]
+                    color = self.shift_colors.get(shift, '#FFFFFF')
+                    
+                    # For weekends, only apply green background to "O" shifts
+                    if is_weekend and shift == 'O':
+                        # Use weekend tint only for "O" shifts on weekends
+                        final_color = '#D1E7DD'  # Weekend green for "O"
+                    else:
+                        final_color = color  # Normal color for all other shifts
+                    
+                    html += f'<td class="schedule-cell" style="background-color: {final_color};">{shift}</td>'
+                else:
+                    # Empty cell - use weekend tint for weekends, white for weekdays
+                    empty_color = '#D1E7DD' if is_weekend else '#FFFFFF'
+                    html += f'<td class="schedule-cell" style="background-color: {empty_color};">0</td>'
+            
+            html += "</tr>"
+        
+        # Add TOTAL MAIN row
+        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-top'>"
+        html += "<td class='totals-cell' colspan='2'>TOTAL MAIN</td>"
+        
+        for date in all_dates:
+            # Count M shifts only
+            main_count = 0
+            for _, row in pivot_data.iterrows():
+                if date in row.index and pd.notna(row[date]) and row[date] == 'M':
+                    main_count += 1
+            
+            # Use light purple for TOTAL MAIN cells
+            html += f'<td class="totals-cell">{main_count}</td>'
+        
+        html += "</tr>"
+        
+        # Add TOTAL IP row
+        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-bottom'>"
+        html += "<td class='totals-cell' colspan='2'>TOTAL IP</td>"
+        
+        for date in all_dates:
+            # Count IP shifts only
+            ip_count = 0
+            for _, row in pivot_data.iterrows():
+                if date in row.index and pd.notna(row[date]) and row[date] == 'IP':
+                    ip_count += 1
+            
+            # Use light purple for TOTAL IP cells
+            html += f'<td class="totals-cell">{ip_count}</td>'
+        
+        html += "</tr></tbody></table>"
+        
+        return html
+    
+    def _create_csv_data(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int) -> str:
+        """Create CSV data from the schedule."""
+        import io
+        
+        # Create a new DataFrame for CSV export
+        csv_df = pivot_data.copy()
+        
+        # Add staff numbers as first column
+        csv_df.insert(0, 'Staff_No', range(1, len(csv_df) + 1))
+        
+        # Add totals rows
+        totals_main = ['TOTAL_MAIN', ''] + [self._count_shifts(pivot_data, date, 'M') for date in all_dates]
+        totals_ip = ['TOTAL_IP', ''] + [self._count_shifts(pivot_data, date, 'IP') for date in all_dates]
+        
+        # Create totals DataFrame with matching columns
+        totals_df = pd.DataFrame([totals_main, totals_ip], columns=csv_df.columns)
+        
+        # Combine data
+        final_df = pd.concat([csv_df, totals_df], ignore_index=True)
+        
+        # Convert to CSV string
+        csv_buffer = io.StringIO()
+        final_df.to_csv(csv_buffer, index=False)
+        return csv_buffer.getvalue()
+    
+    def _count_shifts(self, pivot_data: pd.DataFrame, date: pd.Timestamp, shift_type: str) -> int:
+        """Count specific shift type for a given date."""
+        count = 0
+        for _, row in pivot_data.iterrows():
+            if date in row.index and pd.notna(row[date]) and row[date] == shift_type:
+                count += 1
+        return count
     
     def _display_summary_stats(self, month_data: pd.DataFrame, all_dates: pd.DatetimeIndex) -> None:
         """Display summary statistics."""
