@@ -125,6 +125,57 @@ class RosterSolver:
         else:
             return False, {}, {"status": "INFEASIBLE", "solve_time": solve_time}
     
+    def _progressive_solve(
+        self,
+        data: RosterData,
+        time_limit_seconds: int = 300
+    ) -> Tuple[bool, Dict[str, Any], Dict[str, Any]]:
+        """
+        Progressive solving for large schedules by breaking into smaller chunks.
+        """
+        employees = data.get_employee_names()
+        dates = data.get_all_dates()
+        
+        if not employees or not dates:
+            return False, {}, {}
+        
+        # For large schedules, solve in weekly chunks
+        chunk_size = 7  # One week at a time
+        all_assignments = {}
+        total_metrics = {"solve_time": 0, "status": "FEASIBLE"}
+        
+        for i in range(0, len(dates), chunk_size):
+            chunk_dates = dates[i:i + chunk_size]
+            
+            # Create a temporary data object for this chunk
+            chunk_data = RosterData(data.data_path)
+            chunk_data.employees = data.employees
+            chunk_data.demands = [d for d in data.demands if d.date in chunk_dates]
+            chunk_data.time_off = [t for t in data.time_off if t.date in chunk_dates]
+            chunk_data.locks = [l for l in data.locks if l.date in chunk_dates]
+            
+            # Solve this chunk with reduced time limit
+            chunk_time_limit = max(30, time_limit_seconds // (len(dates) // chunk_size + 1))
+            
+            success, chunk_assignments, chunk_metrics = self.solve(
+                chunk_data, chunk_time_limit, progressive_solving=False
+            )
+            
+            if not success:
+                return False, {}, {"status": "INFEASIBLE", "solve_time": total_metrics["solve_time"]}
+            
+            # Merge assignments
+            all_assignments.update(chunk_assignments)
+            total_metrics["solve_time"] += chunk_metrics.get("solve_time", 0)
+        
+        # Calculate final metrics
+        demands = {day: data.get_daily_requirement(day) for day in dates}
+        final_metrics = calculate_roster_metrics(all_assignments, employees, dates, demands)
+        final_metrics["solve_time"] = total_metrics["solve_time"]
+        final_metrics["status"] = "FEASIBLE"
+        
+        return True, all_assignments, final_metrics
+    
     def create_schedule_dataframe(
         self,
         assignments: Dict[Tuple[str, date, str], int],
