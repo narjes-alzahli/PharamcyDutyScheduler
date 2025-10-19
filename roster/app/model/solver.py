@@ -21,7 +21,8 @@ class RosterSolver:
     def solve(
         self,
         data: RosterData,
-        time_limit_seconds: int = 300
+        time_limit_seconds: int = 300,
+        progressive_solving: bool = True
     ) -> Tuple[bool, Dict[str, Any], Dict[str, Any]]:
         """
         Solve the roster optimization problem.
@@ -39,6 +40,10 @@ class RosterSolver:
         
         if not employees or not dates:
             return False, {}, {}
+        
+        # Progressive solving for low-resource environments
+        if progressive_solving and len(dates) > 14:  # If more than 2 weeks
+            return self._progressive_solve(data, time_limit_seconds)
             
         # Prepare constraint data first
         demands = {day: data.get_daily_requirement(day) for day in dates}
@@ -81,9 +86,24 @@ class RosterSolver:
         # Add objective
         self.scoring.add_objective(model, x, employees, dates, demands, skills)
         
-        # Solve
+        # Solve with optimized parameters for low-resource servers
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = time_limit_seconds
+        
+        # Optimize for low-resource environments (KVM VMs, limited RAM/CPU)
+        solver.parameters.num_search_workers = 1  # Single thread to avoid memory pressure
+        solver.parameters.log_search_progress = False  # Reduce I/O overhead
+        solver.parameters.cp_model_presolve = True  # Enable presolving
+        solver.parameters.cp_model_probing_level = 1  # Reduced probing to save memory
+        solver.parameters.linearization_level = 1  # Reduced linearization
+        solver.parameters.max_presolve_iterations = 10  # Limit presolve iterations
+        
+        # Memory management
+        solver.parameters.max_memory_in_mb = 1024  # Limit to 1GB to prevent OOM
+        
+        # Early termination for better responsiveness
+        solver.parameters.stop_after_first_solution = False  # Keep searching for better solutions
+        solver.parameters.optimize_with_core = True  # Use core-based optimization
         
         start_time = time.time()
         status = solver.Solve(model)

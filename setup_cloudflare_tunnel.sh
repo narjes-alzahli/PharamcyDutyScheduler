@@ -1,49 +1,83 @@
 #!/bin/bash
+# Setup Cloudflare tunnel for external access to the scheduler app
 
-# Alternative: Use Cloudflare Tunnel (free, no signup required)
-# This creates a public URL that anyone can access
+echo "☁️ Setting up Cloudflare tunnel for external access..."
+echo "====================================================="
 
-echo "☁️  Setting up public access with Cloudflare Tunnel"
-echo "================================================="
-echo ""
+# Add Homebrew to PATH
+export PATH="/opt/homebrew/bin:$PATH"
 
 # Check if cloudflared is installed
 if ! command -v cloudflared &> /dev/null; then
-    echo "📥 Installing cloudflared..."
-    
-    # Download and install cloudflared for macOS
-    curl -L --output cloudflared.pkg https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.pkg
-    
-    echo "Installing cloudflared..."
-    sudo installer -pkg cloudflared.pkg -target /
-    
-    # Clean up
-    rm cloudflared.pkg
-    
-    echo "✅ cloudflared installed"
-else
-    echo "✅ cloudflared is already installed"
+    echo "❌ cloudflared is not installed!"
+    echo ""
+    echo "📥 To install cloudflared:"
+    echo "1. Visit: https://github.com/cloudflare/cloudflared/releases"
+    echo "2. Download the macOS version"
+    echo "3. Extract and move to /usr/local/bin/"
+    echo "4. Or install via Homebrew: brew install cloudflared"
+    echo ""
+    echo "🔑 After installation, you'll need to:"
+    echo "1. Sign up at https://dash.cloudflare.com"
+    echo "2. Go to Zero Trust > Access > Tunnels"
+    echo "3. Create a new tunnel and get your token"
+    echo ""
+    exit 1
 fi
 
+echo "✅ cloudflared is installed!"
 echo ""
 
-# Start Streamlit in background if not running
-if ! pgrep -f "streamlit run" > /dev/null; then
-    echo "🚀 Starting Streamlit app..."
-    cd /Users/narjes/scheduler
-    source scheduler_env/bin/activate
-    streamlit run roster/app/ui/streamlit_app.py --server.port=8501 --server.address=0.0.0.0 &
+# Function to start the app and tunnel
+start_with_tunnel() {
+    echo "🚀 Starting Streamlit app with Cloudflare tunnel..."
+    echo ""
+    
+    # Start Streamlit in background
+    echo "📱 Starting Streamlit app..."
+    python -m streamlit run roster/app/ui/streamlit_app.py --server.address 127.0.0.1 --server.port 8501 &
+    STREAMLIT_PID=$!
+    
+    # Wait a moment for Streamlit to start
+    sleep 3
+    
+    # Start Cloudflare tunnel
+    echo "☁️ Starting Cloudflare tunnel..."
+    echo "   This will create a public URL for your app"
+    echo ""
+    
+    # Use quick tunnel (no account required)
+    cloudflared tunnel --url http://localhost:8501 &
+    TUNNEL_PID=$!
+    
+    # Wait a moment for tunnel to establish
     sleep 5
-    echo "✅ Streamlit started"
-else
-    echo "✅ Streamlit is already running"
+    
+    echo ""
+    echo "✅ Your app should now be accessible via a public URL!"
+    echo "   Check the output above for the tunnel URL (usually starts with https://)"
+    echo "   🏠 Local URL: http://localhost:8501"
+    echo ""
+    echo "🛑 To stop the app and tunnel, press Ctrl+C"
+    echo "====================================================="
+    
+    # Wait for user to stop
+    wait $STREAMLIT_PID $TUNNEL_PID
+}
+
+# Check if virtual environment exists
+if [ ! -d "scheduler_env" ]; then
+    echo "❌ Virtual environment not found!"
+    echo "Please run: ./activate_env.sh first"
+    exit 1
 fi
 
-echo ""
-echo "🌍 Creating public tunnel with Cloudflare..."
-echo "   This will give you a public URL that anyone can access"
-echo "   The URL will be something like: https://random-words-1234.trycloudflare.com"
+# Activate virtual environment
+echo "🔧 Activating virtual environment..."
+source scheduler_env/bin/activate
+
+echo "✅ Environment activated!"
 echo ""
 
-# Start Cloudflare tunnel
-cloudflared tunnel --url http://localhost:8501
+# Start the app with tunnel
+start_with_tunnel
