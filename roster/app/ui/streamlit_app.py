@@ -11,8 +11,9 @@ import io
 import yaml
 import sys
 
-# Add the parent directory to the path to resolve imports
-sys.path.append(str(Path(__file__).parent.parent.parent))
+# Add the project root to the path to resolve imports
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from roster.app.model.schema import RosterData, RosterConfig
 from roster.app.model.solver import RosterSolver
