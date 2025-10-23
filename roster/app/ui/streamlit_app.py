@@ -565,17 +565,17 @@ def show_reports_page():
         # Night shift distribution
         fig = px.histogram(
             employee_df,
-            x="nights",
+            x="night_shifts",
             title="Distribution of Night Shifts",
             nbins=10
         )
         st.plotly_chart(fig, use_container_width=True)
         
-        # Evening shift distribution
+        # Afternoon shift distribution
         fig = px.histogram(
             employee_df,
-            x="evenings", 
-            title="Distribution of Evening Shifts",
+            x="afternoon_shifts", 
+            title="Distribution of Afternoon Shifts",
             nbins=10
         )
         st.plotly_chart(fig, use_container_width=True)
