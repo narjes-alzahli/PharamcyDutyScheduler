@@ -10,8 +10,8 @@ weights:
 # Codes that count as rest days for weekly rest constraints
 rest_codes:
   - "DO"  # Day off
-  - "CL"  # Casual leave
-  - "ML"  # Medical leave
+  - "O"   # Off
+  - "ML"  # Maternity leave
   - "W"   # Weekend
 
 # Forbidden shift sequences (from shift -> to shift)
