@@ -537,35 +537,68 @@ class ScheduleDisplay:
         self._display_legend()
     
     def _display_legend(self):
-        """Display the shift legend with colors."""
+        """Display the shift legend with colors and color pickers."""
         st.markdown("**📋 Shift Legend:**")
+        
+        # Initialize custom colors in session state if not exists
+        if 'custom_shift_colors' not in st.session_state:
+            st.session_state.custom_shift_colors = self.shift_colors.copy()
+        
+        # Update shift colors with custom colors
+        self.shift_colors.update(st.session_state.custom_shift_colors)
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
             st.markdown("**Main Shifts:**")
-            self._legend_item("M", "Main", "#FFFFFF")
-            self._legend_item("IP", "Inpatient", "#F0F8FF")
-            self._legend_item("M3", "M3 (7am-2pm)", "#FFFFFF")
-            self._legend_item("M4", "M4 (12pm-7pm)", "#FFFFFF")
-            self._legend_item("A", "Afternoon (2:30pm-9:30pm)", "#FFA500")
-            self._legend_item("N", "Night (9:30pm-7am)", "#FFFF00")
+            self._legend_item_with_picker("M", "Main", "#FFFFFF")
+            self._legend_item_with_picker("IP", "Inpatient", "#F0F8FF")
+            self._legend_item_with_picker("M3", "M3 (7am-2pm)", "#FFFFFF")
+            self._legend_item_with_picker("M4", "M4 (12pm-7pm)", "#FFFFFF")
+            self._legend_item_with_picker("A", "Afternoon (2:30pm-9:30pm)", "#FFA500")
+            self._legend_item_with_picker("N", "Night (9:30pm-7am)", "#FFFF00")
         
         with col2:
             st.markdown("**Special Shifts:**")
-            self._legend_item("H", "Harat Pharmacy", "#FFE4E1")
-            self._legend_item("CL", "Clinic", "#FFB6C1")
+            self._legend_item_with_picker("H", "Harat Pharmacy", "#FFE4E1")
+            self._legend_item_with_picker("CL", "Clinic", "#FFB6C1")
         
         with col3:
             st.markdown("**Leave Types:**")
-            self._legend_item("DO", "Day Off", "#90EE90")
-            self._legend_item("ML", "Maternity Leave", "#DDA0DD")
-            self._legend_item("W", "Workshop", "#D8BFD8")
-            self._legend_item("UL", "Unpaid Leave", "#F5F5F5")
-            self._legend_item("APP", "Appointment", "#FF6B6B")
-            self._legend_item("STL", "Study Leave", "#B0E0E6")
-            self._legend_item("L", "Leave", "#F5F5F5")
-            self._legend_item("O", "Off", "#E6F3FF")
+            self._legend_item_with_picker("DO", "Day Off", "#90EE90")
+            self._legend_item_with_picker("ML", "Maternity Leave", "#DDA0DD")
+            self._legend_item_with_picker("W", "Workshop", "#D8BFD8")
+            self._legend_item_with_picker("UL", "Unpaid Leave", "#F5F5F5")
+            self._legend_item_with_picker("APP", "Appointment", "#FF6B6B")
+            self._legend_item_with_picker("STL", "Study Leave", "#B0E0E6")
+            self._legend_item_with_picker("L", "Leave", "#F5F5F5")
+            self._legend_item_with_picker("O", "Off", "#E6F3FF")
+    
+    def _legend_item_with_picker(self, code: str, description: str, default_color: str):
+        """Display a legend item with color picker and immediate refresh."""
+        # Get current color from session state or use default
+        current_color = st.session_state.custom_shift_colors.get(code, default_color)
+        
+        # Create ultra compact layout
+        col_picker, col_desc = st.columns([1, 10])
+        
+        with col_picker:
+            new_color = st.color_picker(
+                "",
+                value=current_color,
+                key=f"color_picker_{code}",
+                label_visibility="collapsed"
+            )
+            
+            # Update session state immediately when color changes
+            if new_color != current_color:
+                st.session_state.custom_shift_colors[code] = new_color
+                # Force immediate update of shift_colors
+                self.shift_colors[code] = new_color
+                st.rerun()
+        
+        with col_desc:
+            st.markdown(f"<small><strong>{code}</strong>: {description}</small>", unsafe_allow_html=True)
     
     def _legend_item(self, code: str, description: str, color: str):
         """Display a legend item with color swatch."""
