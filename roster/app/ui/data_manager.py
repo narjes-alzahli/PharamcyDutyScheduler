@@ -33,12 +33,12 @@ class DataManager:
         if employees_path.exists():
             data['employees'] = pd.read_csv(employees_path)
             # Add missing columns with default values
-            required_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off']
+            required_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off']
             for col in required_columns:
                 if col not in data['employees'].columns:
                     if col.startswith('skill_'):
                         data['employees'][col] = True  # Default to True for skills
-                    elif col in ['clinic_only', 'ip_ok', 'harat_ok']:
+                    elif col in ['clinic_only']:
                         data['employees'][col] = False if col == 'clinic_only' else True  # Default clinic_only=False, others=True
                     elif col in ['maxN', 'maxA']:
                         data['employees'][col] = 3  # Default max shifts
@@ -89,7 +89,7 @@ class DataManager:
         """Create empty employees dataframe."""
         return pd.DataFrame(columns=[
             'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL',
-            'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
+            'clinic_only', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
         ])
     
     def _create_empty_demands_df(self) -> pd.DataFrame:
@@ -236,59 +236,102 @@ def show_employees_tab(employees_df: pd.DataFrame):
                 'skill_M4': True,
                 'skill_H': True,
                 'skill_CL': True,
-                'clinic_only': False,
-                'ip_ok': True,
-                'harat_ok': True,
-                'maxN': 3,
-                'maxA': 6,
-                'min_days_off': 4,
-                'weight': 1.0
+                'min_days_off': 4
             }
             new_row = pd.DataFrame([new_employee])
             employees_df = pd.concat([employees_df, new_row], ignore_index=True)
+            
+            # Apply inference logic to the new employee
+            employees_df = employees_df.copy()
+            last_idx = len(employees_df) - 1
+            
+            # Infer values for the new employee
+            
+            # Infer clinic_only
+            skill_columns = ['skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H']
+            employees_df.loc[last_idx, 'clinic_only'] = (
+                employees_df.loc[last_idx, 'skill_CL'] & 
+                ~employees_df.loc[last_idx, skill_columns].any()
+            )
+            
+            # Set maxN and maxA based on skills
+            employees_df.loc[last_idx, 'maxN'] = 3 if employees_df.loc[last_idx, 'skill_N'] else 0
+            employees_df.loc[last_idx, 'maxA'] = 6 if employees_df.loc[last_idx, 'skill_A'] else 0
+            
+            # Set default weight
+            employees_df.loc[last_idx, 'weight'] = 1.0
+            
             st.session_state.roster_data['employees'] = employees_df
             st.rerun()
     
+    # Filter columns to show only the ones we want in the UI
+    ui_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'min_days_off']
+    employees_df_ui = employees_df[ui_columns].copy()
+    
     # Editable dataframe
-    edited_employees = st.data_editor(
-        employees_df,
+    edited_employees_ui = st.data_editor(
+        employees_df_ui,
         num_rows="dynamic",
         column_config={
-            "employee": st.column_config.TextColumn("Employee Name", width="medium"),
-            "skill_M": st.column_config.CheckboxColumn("Main Shift", width="small"),
-            "skill_IP": st.column_config.CheckboxColumn("Inpatient", width="small"),
-            "skill_A": st.column_config.CheckboxColumn("Afternoon", width="small"),
+            "employee": st.column_config.TextColumn("Employee", width=100),
+            "skill_M": st.column_config.CheckboxColumn("Main", width="small"),
+            "skill_IP": st.column_config.CheckboxColumn("Inpatient", width=100),
+            "skill_A": st.column_config.CheckboxColumn("Afternoon", width=100),
             "skill_N": st.column_config.CheckboxColumn("Night", width="small"),
-            "skill_M3": st.column_config.CheckboxColumn("M3 (7am-2pm)", width="small"),
-            "skill_M4": st.column_config.CheckboxColumn("M4 (12pm-7pm)", width="small"),
-            "skill_H": st.column_config.CheckboxColumn("Harat Pharmacy", width="small"),
+            "skill_M3": st.column_config.CheckboxColumn("M3", width="small"),
+            "skill_M4": st.column_config.CheckboxColumn("M4", width="small"),
+            "skill_H": st.column_config.CheckboxColumn("Harat", width="small"),
             "skill_CL": st.column_config.CheckboxColumn("Clinic", width="small"),
-            "clinic_only": st.column_config.CheckboxColumn("Clinic Only", width="small"),
-            "ip_ok": st.column_config.CheckboxColumn("IP Capable", width="small"),
-            "harat_ok": st.column_config.CheckboxColumn("Harat Eligible", width="small"),
-            "maxN": st.column_config.NumberColumn("Max Nights", min_value=0, max_value=10, width="small"),
-            "maxA": st.column_config.NumberColumn("Max Afternoons", min_value=0, max_value=10, width="small"),
-            "min_days_off": st.column_config.NumberColumn("Min Days Off", min_value=1, max_value=10, width="small"),
-            "weight": st.column_config.NumberColumn("Weight", min_value=0.1, max_value=10.0, step=0.1, width="small")
+            "min_days_off": st.column_config.NumberColumn("Min Days Off", min_value=1, max_value=10, width=120)
         },
         use_container_width=True
     )
     
     # Update data
-    if not edited_employees.equals(employees_df):
+    if not edited_employees_ui.equals(employees_df_ui):
+        # Merge the edited UI data back with the full dataframe
+        edited_employees = employees_df.copy()
+        for col in ui_columns:
+            edited_employees[col] = edited_employees_ui[col]
+        
+        # Auto-infer values based on skills
+        edited_employees = edited_employees.copy()
+        
+        
+        # Infer clinic_only: True if only Clinic is checked, False otherwise
+        skill_columns = ['skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H']
+        edited_employees['clinic_only'] = (
+            edited_employees['skill_CL'] & 
+            ~edited_employees[skill_columns].any(axis=1)
+        )
+        
+        # Set maxN to 3 if Night skill is checked, otherwise keep existing value
+        edited_employees['maxN'] = edited_employees.apply(
+            lambda row: 3 if row['skill_N'] else row.get('maxN', 0), axis=1
+        )
+        
+        # Set maxA to 6 if Afternoon skill is checked, otherwise keep existing value
+        edited_employees['maxA'] = edited_employees.apply(
+            lambda row: 6 if row['skill_A'] else row.get('maxA', 0), axis=1
+        )
+        
+        # Keep weight as default 1.0 (no need to change)
+        if 'weight' not in edited_employees.columns:
+            edited_employees['weight'] = 1.0
+        
         st.session_state.roster_data['employees'] = edited_employees
         st.success("✅ Employee data updated!")
     
     # Summary stats
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Employees", len(edited_employees))
+        st.metric("Total Employees", len(edited_employees_ui))
     with col2:
-        st.metric("Can Work Nights", edited_employees['skill_N'].sum())
+        st.metric("Can Work Nights", edited_employees_ui['skill_N'].sum())
     with col3:
-        st.metric("Can Work Afternoons", edited_employees['skill_A'].sum())
+        st.metric("Can Work Afternoons", edited_employees_ui['skill_A'].sum())
     with col4:
-        st.metric("Can Work All Shifts", (edited_employees[['skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL']].all(axis=1)).sum())
+        st.metric("Can Work All Shifts", (edited_employees_ui[['skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL']].all(axis=1)).sum())
 
 
 def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):

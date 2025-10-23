@@ -18,8 +18,8 @@ class ScheduleDisplay:
             'M': '#FFFFFF',      # White - Main shift
             'O': '#E6F3FF',      # Light blue - Off (from schedule)
             'IP': '#F0F8FF',     # Very light blue - Inpatient
-            'A': '#FFA500',      # Orange - Afternoon (2:30 PM - 9:30 PM)
-            'N': '#FFFF00',      # Yellow - Night (9:30 PM - 7 AM)
+            'A': '#FFA500',      # Orange - Afternoon (2:30pm - 9:30pm)
+            'N': '#FFFF00',      # Yellow - Night (9:30pm - 7am)
             'DO': '#90EE90',     # Light green - Day Off
             'CL': '#FFB6C1',     # Light pink - Clinic
             'ML': '#DDA0DD',     # Plum - Maternity Leave
@@ -48,8 +48,8 @@ class ScheduleDisplay:
             'M': 'Main',
             'O': 'Off', 
             'IP': 'Inpatient',
-            'A': 'Afternoon (2:30-9:30 PM)',
-            'N': 'Night (9:30 PM-7 AM)',
+            'A': 'Afternoon (2:30pm-9:30pm)',
+            'N': 'Night (9:30pm-7am)',
             'DO': 'Day Off',
             'CL': 'Clinic',
             'ML': 'Maternity Leave',
@@ -401,6 +401,9 @@ class ScheduleDisplay:
         .staff-section {{
             border-right: 2px solid #000 !important;
         }}
+        .employee-cell.pending-off-data {{
+            border-left: 1px solid #000 !important;
+        }}
         .date-section {{
             border-right: 2px solid #000 !important;
         }}
@@ -415,7 +418,7 @@ class ScheduleDisplay:
                 <thead>
                     <tr style="background-color: #f0f0f0;" class="date-row">
                         <th class="header-cell" style="width: 30px;">#</th>
-                        <th class="header-cell staff-section" style="width: 100px;">Name</th>
+                        <th class="header-cell" style="width: 100px;">Name</th>
                         <th class="header-cell staff-section" style="width: 40px;">P/O</th>
         """
         
@@ -448,8 +451,8 @@ class ScheduleDisplay:
             html += f"""
             <tr>
                 <td class="staff-number-cell">{i}</td>
-                <td class="employee-cell staff-section">{employee}</td>
-                <td class="employee-cell staff-section">{pending_off_value}</td>
+                <td class="employee-cell">{employee}</td>
+                <td class="employee-cell staff-section pending-off-data" style="text-align: center; font-weight: bold;">{pending_off_value}</td>
             """
             
             # Add shift cells with colors
@@ -545,8 +548,8 @@ class ScheduleDisplay:
             self._legend_item("IP", "Inpatient", "#F0F8FF")
             self._legend_item("M3", "M3 (7am-2pm)", "#FFFFFF")
             self._legend_item("M4", "M4 (12pm-7pm)", "#FFFFFF")
-            self._legend_item("A", "Afternoon (2:30-9:30 PM)", "#FFA500")
-            self._legend_item("N", "Night (9:30 PM-7 AM)", "#FFFF00")
+            self._legend_item("A", "Afternoon (2:30pm-9:30pm)", "#FFA500")
+            self._legend_item("N", "Night (9:30pm-7am)", "#FFFF00")
         
         with col2:
             st.markdown("**Special Shifts:**")
@@ -833,6 +836,9 @@ class ScheduleDisplay:
         .staff-section {{
             border-right: 2px solid #000 !important;
         }}
+        .employee-cell.pending-off-data {{
+            border-left: 1px solid #000 !important;
+        }}
         .date-section {{
             border-right: 2px solid #000 !important;
         }}
@@ -895,8 +901,8 @@ class ScheduleDisplay:
             html += f"""
             <tr>
                 <td class="staff-number-cell">{i}</td>
-                <td class="employee-cell staff-section">{employee}</td>
-                <td class="employee-cell staff-section">{pending_off_value}</td>
+                <td class="employee-cell">{employee}</td>
+                <td class="employee-cell staff-section pending-off-data" style="text-align: center; font-weight: bold;">{pending_off_value}</td>
             """
             
             # Add shift cells with colors

@@ -81,12 +81,12 @@ def add_skill_constraints(
                     # Employee cannot work this shift type
                     model.Add(x[(employee, day, shift_type)] == 0)
                 
-                # Handle IP constraint (ip_ok)
-                if shift_type == "IP" and not employee_skills.get("ip_ok", True):
+                # Handle IP constraint (skill_IP)
+                if shift_type == "IP" and not employee_skills.get("skill_IP", True):
                     model.Add(x[(employee, day, shift_type)] == 0)
                 
-                # Handle Harat constraint (harat_ok)
-                if shift_type == "H" and not employee_skills.get("harat_ok", True):
+                # Handle Harat constraint (skill_H)
+                if shift_type == "H" and not employee_skills.get("skill_H", True):
                     model.Add(x[(employee, day, shift_type)] == 0)
 
 
