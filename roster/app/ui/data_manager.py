@@ -162,7 +162,7 @@ class DataManager:
 
 def show_data_manager_page():
     """Show the main data management page."""
-    st.header("📊 Data Manager & Schedule Generator")
+    #st.header("📊 Data Manager & Schedule Generator")
     
     # Initialize data manager
     if 'data_manager' not in st.session_state:

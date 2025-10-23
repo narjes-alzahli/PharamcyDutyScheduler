@@ -373,7 +373,7 @@ class ScheduleDisplay:
             border: 1px solid #000;
             padding: 6px;
             text-align: center;
-            background-color: #B19CD9;
+            background-color: #9CA3AF;
             color: black;
             font-weight: bold !important;
             font-size: 12px;
@@ -413,7 +413,7 @@ class ScheduleDisplay:
         </style>
         
         <div style="font-family: Arial, sans-serif; margin: 20px 0;">
-            <h4 style="text-align: center; margin-bottom: 15px; font-size: 16px; font-weight: normal;">Pharmacy Schedule {year} - {month_name}</h4>
+            <h4 style="text-align: center; margin-bottom: 15px; font-size: 16px; font-weight: normal;">Pharmacy Schedule | {month_name} {year}</h4>
             <table class="schedule-table">
                 <thead>
                     <tr style="background-color: #f0f0f0;" class="date-row">
@@ -484,7 +484,7 @@ class ScheduleDisplay:
             html += "</tr>"
         
         # Add TOTAL MAIN row
-        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-top'>"
+        html += "<tr style='background-color: #9CA3AF; font-weight: bold;' class='section-border-top'>"
         html += "<td class='totals-cell' colspan='3'>TOTAL MAIN</td>"
         
         for date in all_dates:
@@ -507,7 +507,7 @@ class ScheduleDisplay:
         html += "</tr>"
         
         # Add TOTAL IP row
-        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-bottom'>"
+        html += "<tr style='background-color: #9CA3AF; font-weight: bold;' class='section-border-bottom'>"
         html += "<td class='totals-cell' colspan='3'>TOTAL IP</td>"
         
         for date in all_dates:
@@ -579,8 +579,8 @@ class ScheduleDisplay:
         # Get current color from session state or use default
         current_color = st.session_state.custom_shift_colors.get(code, default_color)
         
-        # Create ultra compact layout
-        col_picker, col_desc = st.columns([1, 10])
+        # Create less compact layout with smaller color pickers
+        col_picker, col_desc = st.columns([1, 4])
         
         with col_picker:
             new_color = st.color_picker(
@@ -598,7 +598,7 @@ class ScheduleDisplay:
                 st.rerun()
         
         with col_desc:
-            st.markdown(f"<small><strong>{code}</strong>: {description}</small>", unsafe_allow_html=True)
+            st.markdown(f"<strong>{code}</strong>: {description}", unsafe_allow_html=True)
     
     def _legend_item(self, code: str, description: str, color: str):
         """Display a legend item with color swatch."""
@@ -643,8 +643,9 @@ class ScheduleDisplay:
             <table style="border-collapse: collapse; width: 100%; font-size: 10px; border: 2px solid #000;">
                 <thead>
                     <tr style="background-color: #f0f0f0;">
-                        <th style="border: 1px solid #000; padding: 3px; text-align: center; width: 50px; font-weight: bold;">STAFF No</th>
+                        <th style="border: 1px solid #000; padding: 3px; text-align: center; width: 50px; font-weight: bold;">#</th>
                         <th style="border: 1px solid #000; padding: 3px; text-align: left; width: 100px; font-weight: bold;">Name</th>
+                        <th style="border: 1px solid #000; padding: 3px; text-align: center; width: 40px; font-weight: bold;">P/O</th>
         """
         
         # Add date headers
@@ -671,6 +672,9 @@ class ScheduleDisplay:
                 </td>
                 <td style="border: 1px solid #000; padding: 3px; background-color: #f9f9f9; font-weight: bold;">
                     {employee}
+                </td>
+                <td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: #f9f9f9; font-weight: bold;">
+                    {pending_off_value}
                 </td>
             """
             
@@ -705,7 +709,7 @@ class ScheduleDisplay:
         # TOTAL MAIN row
         html += """
         <tr style="background-color: #DDA0DD; font-weight: bold;">
-            <td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #DDA0DD !important; color: white; font-weight: bold;" colspan="2">TOTAL MAIN</td>
+            <td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #DDA0DD !important; color: white; font-weight: bold;" colspan="3">TOTAL MAIN</td>
         """
         
         for date in all_dates:
@@ -724,7 +728,7 @@ class ScheduleDisplay:
         # TOTAL IP row
         html += """
         <tr style="background-color: #9370DB; font-weight: bold;">
-            <td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #9370DB !important; color: white; font-weight: bold;" colspan="2">TOTAL IP</td>
+            <td style="border: 1px solid #ccc; padding: 4px; text-align: center; background-color: #9370DB !important; color: white; font-weight: bold;" colspan="3">TOTAL IP</td>
         """
         
         for date in all_dates:
@@ -809,7 +813,7 @@ class ScheduleDisplay:
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pharmacy Schedule {year} - {month_name}</title>
+    <title>Pharmacy Duty Roster | {month_name} {year} </title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
         .schedule-table {{
@@ -855,7 +859,7 @@ class ScheduleDisplay:
             border: 1px solid #000;
             padding: 6px;
             text-align: center;
-            background-color: #B19CD9;
+            background-color: #9CA3AF;
             color: black;
             font-weight: bold !important;
             font-size: 12px;
@@ -881,7 +885,7 @@ class ScheduleDisplay:
     </style>
 </head>
 <body>
-    <h2 style="text-align: center; font-size: 18px; font-weight: normal; margin-bottom: 20px;">Pharmacy Schedule {year} - {month_name}</h2>
+    <h2 style="text-align: center; font-size: 18px; font-weight: normal; margin-bottom: 20px;">Pharmacy Schedule | {month_name} {year}</h2>
 """
         
         # Add the table HTML (reuse the existing table generation logic)
@@ -901,8 +905,9 @@ class ScheduleDisplay:
         <table class="schedule-table">
             <thead>
                 <tr style="background-color: #f0f0f0;" class="date-row">
-                    <th class="header-cell" style="width: 45px;">STAFF No</th>
+                    <th class="header-cell" style="width: 45px;">#</th>
                     <th class="header-cell staff-section" style="width: 120px;">Name</th>
+                    <th class="header-cell staff-section" style="width: 40px;">P/O</th>
         """
         
         # Add date headers
@@ -967,7 +972,7 @@ class ScheduleDisplay:
             html += "</tr>"
         
         # Add TOTAL MAIN row
-        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-top'>"
+        html += "<tr style='background-color: #9CA3AF; font-weight: bold;' class='section-border-top'>"
         html += "<td class='totals-cell' colspan='3'>TOTAL MAIN</td>"
         
         for date in all_dates:
@@ -983,7 +988,7 @@ class ScheduleDisplay:
         html += "</tr>"
         
         # Add TOTAL IP row
-        html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-bottom'>"
+        html += "<tr style='background-color: #9CA3AF; font-weight: bold;' class='section-border-bottom'>"
         html += "<td class='totals-cell' colspan='3'>TOTAL IP</td>"
         
         for date in all_dates:
@@ -1077,7 +1082,8 @@ class ScheduleDisplay:
                 x=shift_counts.index,
                 y=shift_counts.values,
                 title="Shift Counts",
-                labels={'x': 'Shift', 'y': 'Total'}
+                labels={'x': 'Shift', 'y': 'Total'},
+                color_discrete_sequence=['#6B7280']  # Professional grey
             )
             fig.update_xaxes(title="Shift", tickangle=45)
             fig.update_yaxes(title="Total")
