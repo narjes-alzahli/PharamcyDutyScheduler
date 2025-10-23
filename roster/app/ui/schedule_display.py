@@ -148,7 +148,8 @@ class ScheduleDisplay:
         self, 
         schedule_df: pd.DataFrame, 
         month: int, 
-        year: int
+        year: int,
+        employee_df: pd.DataFrame = None
     ) -> None:
         """Create an enhanced HTML table with color coding similar to the pharmacy rosters."""
         
@@ -188,15 +189,15 @@ class ScheduleDisplay:
         all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
         
         # Display color-coded table
-        self._display_simple_table(pivot_data, all_dates, year, month)
+        self._display_simple_table(pivot_data, all_dates, year, month, employee_df)
         
         # Add download button
-        self._add_download_button(pivot_data, all_dates, year, month)
+        self._add_download_button(pivot_data, all_dates, year, month, employee_df)
         
         # Add summary statistics
         self._display_summary_stats(month_data, all_dates)
     
-    def _display_simple_table(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int):
+    def _display_simple_table(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int, employee_df: pd.DataFrame = None):
         """Display a simple color-coded table using HTML."""
         
         month_name = self._get_month_name(month)
@@ -413,8 +414,9 @@ class ScheduleDisplay:
             <table class="schedule-table">
                 <thead>
                     <tr style="background-color: #f0f0f0;" class="date-row">
-                        <th class="header-cell" style="width: 45px;">STAFF No</th>
-                        <th class="header-cell staff-section" style="width: 120px;">Name</th>
+                        <th class="header-cell" style="width: 30px;">#</th>
+                        <th class="header-cell staff-section" style="width: 100px;">Name</th>
+                        <th class="header-cell staff-section" style="width: 40px;">P/O</th>
         """
         
         # Add date headers
@@ -437,10 +439,17 @@ class ScheduleDisplay:
         
         # Add staff rows
         for i, (employee, row) in enumerate(pivot_data.iterrows(), 1):
+            # Get pending off value for this employee
+            pending_off_value = 0
+            if employee_df is not None and 'pending_off' in employee_df.columns:
+                emp_data = employee_df[employee_df['employee'] == employee]
+                if not emp_data.empty:
+                    pending_off_value = int(emp_data['pending_off'].iloc[0])
             html += f"""
             <tr>
                 <td class="staff-number-cell">{i}</td>
                 <td class="employee-cell staff-section">{employee}</td>
+                <td class="employee-cell staff-section">{pending_off_value}</td>
             """
             
             # Add shift cells with colors
@@ -473,7 +482,7 @@ class ScheduleDisplay:
         
         # Add TOTAL MAIN row
         html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-top'>"
-        html += "<td class='totals-cell' colspan='2'>TOTAL MAIN</td>"
+        html += "<td class='totals-cell' colspan='3'>TOTAL MAIN</td>"
         
         for date in all_dates:
             day_name = date.strftime('%a').upper()
@@ -496,7 +505,7 @@ class ScheduleDisplay:
         
         # Add TOTAL IP row
         html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-bottom'>"
-        html += "<td class='totals-cell' colspan='2'>TOTAL IP</td>"
+        html += "<td class='totals-cell' colspan='3'>TOTAL IP</td>"
         
         for date in all_dates:
             day_name = date.strftime('%a').upper()
@@ -613,6 +622,12 @@ class ScheduleDisplay:
         
         # Add staff rows
         for i, (employee, row) in enumerate(pivot_data.iterrows(), 1):
+            # Get pending off value for this employee
+            pending_off_value = 0
+            if employee_df is not None and 'pending_off' in employee_df.columns:
+                emp_data = employee_df[employee_df['employee'] == employee]
+                if not emp_data.empty:
+                    pending_off_value = int(emp_data['pending_off'].iloc[0])
             html += f"""
             <tr>
                 <td style="border: 1px solid #000; padding: 3px; text-align: center; background-color: #f9f9f9; font-weight: bold;">
@@ -728,7 +743,7 @@ class ScheduleDisplay:
         
         return html
     
-    def _add_download_button(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int) -> None:
+    def _add_download_button(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int, employee_df: pd.DataFrame = None) -> None:
         """Add a download button for the schedule."""
         import streamlit as st
         import io
@@ -738,7 +753,7 @@ class ScheduleDisplay:
         month_name = self._get_month_name(month)
         
         # Create HTML table as image
-        html_content = self._create_html_table(pivot_data, all_dates, year, month)
+        html_content = self._create_html_table(pivot_data, all_dates, year, month, employee_df)
         
         # For now, just show a simple download button that copies the HTML
         st.download_button(
@@ -749,7 +764,7 @@ class ScheduleDisplay:
             help="Download the current schedule as an HTML file that can be opened in any browser"
         )
     
-    def _create_html_table(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int) -> str:
+    def _create_html_table(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int, employee_df: pd.DataFrame = None) -> str:
         """Create HTML table for download."""
         month_name = self._get_month_name(month)
         
@@ -831,7 +846,7 @@ class ScheduleDisplay:
 """
         
         # Add the table HTML (reuse the existing table generation logic)
-        html_content += self._generate_table_html(pivot_data, all_dates, year, month)
+        html_content += self._generate_table_html(pivot_data, all_dates, year, month, employee_df)
         
         html_content += """
 </body>
@@ -839,7 +854,7 @@ class ScheduleDisplay:
 """
         return html_content
     
-    def _generate_table_html(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int) -> str:
+    def _generate_table_html(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int, employee_df: pd.DataFrame = None) -> str:
         """Generate the table HTML for download."""
         month_name = self._get_month_name(month)
         
@@ -871,10 +886,17 @@ class ScheduleDisplay:
         
         # Add staff rows
         for i, (employee, row) in enumerate(pivot_data.iterrows(), 1):
+            # Get pending off value for this employee
+            pending_off_value = 0
+            if employee_df is not None and 'pending_off' in employee_df.columns:
+                emp_data = employee_df[employee_df['employee'] == employee]
+                if not emp_data.empty:
+                    pending_off_value = int(emp_data['pending_off'].iloc[0])
             html += f"""
             <tr>
                 <td class="staff-number-cell">{i}</td>
                 <td class="employee-cell staff-section">{employee}</td>
+                <td class="employee-cell staff-section">{pending_off_value}</td>
             """
             
             # Add shift cells with colors
@@ -907,7 +929,7 @@ class ScheduleDisplay:
         
         # Add TOTAL MAIN row
         html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-top'>"
-        html += "<td class='totals-cell' colspan='2'>TOTAL MAIN</td>"
+        html += "<td class='totals-cell' colspan='3'>TOTAL MAIN</td>"
         
         for date in all_dates:
             # Count M shifts only
@@ -923,7 +945,7 @@ class ScheduleDisplay:
         
         # Add TOTAL IP row
         html += "<tr style='background-color: #B19CD9; font-weight: bold;' class='section-border-bottom'>"
-        html += "<td class='totals-cell' colspan='2'>TOTAL IP</td>"
+        html += "<td class='totals-cell' colspan='3'>TOTAL IP</td>"
         
         for date in all_dates:
             # Count IP shifts only
@@ -1006,7 +1028,8 @@ class ScheduleDisplay:
             fig = px.pie(
                 values=shift_counts.values,
                 names=shift_counts.index,
-                title="Shift Distribution"
+                title="Shift Distribution",
+                labels={'names': 'Shift', 'values': 'Total'}
             )
             st.plotly_chart(fig, use_container_width=True)
         
@@ -1014,9 +1037,11 @@ class ScheduleDisplay:
             fig = px.bar(
                 x=shift_counts.index,
                 y=shift_counts.values,
-                title="Shift Counts"
+                title="Shift Counts",
+                labels={'x': 'Shift', 'y': 'Total'}
             )
-            fig.update_xaxes(tickangle=45)
+            fig.update_xaxes(title="Shift", tickangle=45)
+            fig.update_yaxes(title="Total")
             st.plotly_chart(fig, use_container_width=True)
     
     def _get_month_name(self, month: int) -> str:

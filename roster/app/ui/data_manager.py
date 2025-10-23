@@ -578,17 +578,14 @@ def show_schedule_view_tab(year: int, month: int):
     schedule_df = st.session_state.generated_schedule
     
     # Display options
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        show_table = st.checkbox("Show Color-Coded Table", value=True)
-    with col2:
-        show_workload = st.checkbox("Show Employee Workload", value=False)
+    show_table = st.checkbox("Show Color-Coded Table", value=True)
+    show_workload = st.checkbox("Show Employee Workload", value=False)
     
     # Display the schedule
     if show_table:
         st.subheader("Detailed Schedule Table")
-        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year)
+        employee_df = st.session_state.get('employee_df', None)
+        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year, employee_df)
     
     if show_workload:
         st.subheader("Employee Workload Analysis")
