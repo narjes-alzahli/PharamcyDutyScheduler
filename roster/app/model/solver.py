@@ -207,7 +207,7 @@ class RosterSolver:
             # Calculate pending_off: (weekend_shifts + night_shifts + previous_pending_off) - (DOs_given + previous_DOs)
             previous_pending_off = initial_pending_off.get(emp, 0.0) if initial_pending_off else 0.0
             previous_DOs = 0.0  # Set to 0 for now as requested
-            pending_off = max(0, weekend_shifts + night_shifts + previous_pending_off - DOs_given - previous_DOs)
+            pending_off = weekend_shifts + night_shifts + previous_pending_off - DOs_given - previous_DOs
             
             rows.append({
                 "employee": emp,

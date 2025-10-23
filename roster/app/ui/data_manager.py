@@ -569,7 +569,7 @@ def show_generate_tab(roster_data: Dict[str, pd.DataFrame], year: int, month: in
 
 def show_schedule_view_tab(year: int, month: int):
     """Show schedule view tab."""
-    st.subheader("📅 Schedule View")
+    st.subheader("Schedule View")
     
     if 'generated_schedule' not in st.session_state:
         st.info("Generate a schedule first using the 'Generate' tab.")
@@ -587,18 +587,18 @@ def show_schedule_view_tab(year: int, month: int):
     
     # Display the schedule
     if show_table:
-        st.subheader("📋 Detailed Schedule Table")
+        st.subheader("Detailed Schedule Table")
         st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year)
     
     if show_workload:
-        st.subheader("👥 Employee Workload Analysis")
+        st.subheader("Employee Workload Analysis")
         fig = st.session_state.data_manager.schedule_display.create_employee_workload_chart(schedule_df, month, year)
         if fig.data:
             st.plotly_chart(fig, use_container_width=True)
     
     # Display employee report with pending_off
     if 'employee_df' in st.session_state and st.session_state.employee_df is not None:
-        st.subheader("📊 Employee Report with Pending Off")
+        st.subheader("Employee Report with Pending Off")
         employee_df = st.session_state.employee_df
         
         # Show key metrics
