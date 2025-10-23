@@ -33,7 +33,7 @@ class DataManager:
         if employees_path.exists():
             data['employees'] = pd.read_csv(employees_path)
             # Add missing columns with default values
-            required_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight']
+            required_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off']
             for col in required_columns:
                 if col not in data['employees'].columns:
                     if col.startswith('skill_'):
@@ -46,6 +46,8 @@ class DataManager:
                         data['employees'][col] = 4  # Default min days off
                     elif col == 'weight':
                         data['employees'][col] = 1.0  # Default weight
+                    elif col == 'pending_off':
+                        data['employees'][col] = 0.0  # Default pending off
         else:
             data['employees'] = self._create_empty_employees_df()
         
@@ -54,11 +56,16 @@ class DataManager:
         if demands_path.exists():
             data['demands'] = pd.read_csv(demands_path)
             # Add missing columns with default values
-            required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL']
+            required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL', 'holiday']
             for col in required_columns:
                 if col not in data['demands'].columns:
                     if col.startswith('need_'):
                         data['demands'][col] = 0  # Default to 0 for requirements
+                    elif col == 'holiday':
+                        data['demands'][col] = None  # Default to None for holiday
+                elif col == 'holiday':
+                    # Handle nan values in existing holiday column
+                    data['demands'][col] = data['demands'][col].fillna(None)
         else:
             data['demands'] = self._create_empty_demands_df()
         
@@ -82,13 +89,13 @@ class DataManager:
         """Create empty employees dataframe."""
         return pd.DataFrame(columns=[
             'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL',
-            'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight'
+            'clinic_only', 'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
         ])
     
     def _create_empty_demands_df(self) -> pd.DataFrame:
         """Create empty demands dataframe."""
         return pd.DataFrame(columns=[
-            'date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL'
+            'date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL', 'holiday'
         ])
     
     def _create_empty_time_off_df(self) -> pd.DataFrame:
@@ -588,6 +595,28 @@ def show_schedule_view_tab(year: int, month: int):
         fig = st.session_state.data_manager.schedule_display.create_employee_workload_chart(schedule_df, month, year)
         if fig.data:
             st.plotly_chart(fig, use_container_width=True)
+    
+    # Display employee report with pending_off
+    if 'employee_df' in st.session_state and st.session_state.employee_df is not None:
+        st.subheader("📊 Employee Report with Pending Off")
+        employee_df = st.session_state.employee_df
+        
+        # Show key metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Employees", len(employee_df))
+        with col2:
+            avg_pending = employee_df['pending_off'].mean()
+            st.metric("Avg Pending Off", f"{avg_pending:.1f}")
+        with col3:
+            max_pending = employee_df['pending_off'].max()
+            st.metric("Max Pending Off", f"{max_pending:.1f}")
+        with col4:
+            total_nights = employee_df['night_shifts'].sum()
+            st.metric("Total Night Shifts", total_nights)
+        
+        # Display the employee report table
+        st.dataframe(employee_df, use_container_width=True)
 
 
 def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: int, 
@@ -639,9 +668,22 @@ def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: in
                     dates = data.get_all_dates()
                     schedule_df = solver.create_schedule_dataframe(assignments, employees, dates)
                     
+                    # Create additional reports
+                    demands = {day: data.get_daily_requirement(day) for day in dates}
+                    coverage_df = solver.create_coverage_report(assignments, employees, dates, demands)
+                    
+                    # Get initial pending_off values from employee data
+                    initial_pending_off = {}
+                    for emp_data in data.employees:
+                        initial_pending_off[emp_data.employee] = emp_data.pending_off
+                    
+                    employee_df = solver.create_employee_report(assignments, employees, dates, demands, initial_pending_off)
+                    
                     # Store results
                     st.session_state.generated_schedule = schedule_df
                     st.session_state.schedule_metrics = metrics
+                    st.session_state.coverage_df = coverage_df
+                    st.session_state.employee_df = employee_df
                     
                     st.success(f"✅ Schedule generated successfully!")
                     st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")

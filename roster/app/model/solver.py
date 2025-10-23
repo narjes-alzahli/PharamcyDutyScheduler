@@ -163,9 +163,11 @@ class RosterSolver:
         self,
         assignments: Dict[Tuple[str, date, str], int],
         employees: List[str],
-        dates: List[date]
+        dates: List[date],
+        demands: Dict[date, Dict[str, int]] = None,
+        initial_pending_off: Dict[str, float] = None
     ) -> pd.DataFrame:
-        """Create employee workload report."""
+        """Create employee workload report with pending_off calculation."""
         rows = []
         
         for emp in employees:
@@ -173,6 +175,7 @@ class RosterSolver:
             night_shifts = 0
             afternoon_shifts = 0
             weekend_shifts = 0
+            DOs_given = 0  # Only count "DO" (Day Off) codes
             
             for day in dates:
                 # Count working shifts
@@ -182,20 +185,38 @@ class RosterSolver:
                         total_working_days += 1
                         
                         if shift == "N":
-                            night_shifts += 1
+                            # Night shift counting logic: Friday/Saturday/vacation counts as 2
+                            is_weekend = day.weekday() in [4, 5]  # Friday=4, Saturday=5
+                            is_vacation = demands and demands.get(day, {}).get('holiday') is not None
+                            
+                            if is_weekend or is_vacation:
+                                night_shifts += 2  # Count as 2 for pending_off calculation
+                            else:
+                                night_shifts += 1
                         elif shift == "A":
                             afternoon_shifts += 1
                         
-                        # Weekend shifts (Friday=4, Saturday=5)
+                        # Weekend shifts (Friday=4, Saturday=5) - any shift on weekend
                         if day.weekday() in [4, 5]:
                             weekend_shifts += 1
+                
+                # Count only "DO" (Day Off) codes for pending_off calculation
+                if assignments.get((emp, day, "DO"), 0) == 1:
+                    DOs_given += 1
+            
+            # Calculate pending_off: (weekend_shifts + night_shifts + previous_pending_off) - (DOs_given + previous_DOs)
+            previous_pending_off = initial_pending_off.get(emp, 0.0) if initial_pending_off else 0.0
+            previous_DOs = 0.0  # Set to 0 for now as requested
+            pending_off = max(0, weekend_shifts + night_shifts + previous_pending_off - DOs_given - previous_DOs)
             
             rows.append({
                 "employee": emp,
                 "total_working_days": total_working_days,
                 "night_shifts": night_shifts,
                 "afternoon_shifts": afternoon_shifts,
-                "weekend_shifts": weekend_shifts
+                "weekend_shifts": weekend_shifts,
+                "DOs_given": DOs_given,
+                "pending_off": pending_off
             })
         
         return pd.DataFrame(rows)

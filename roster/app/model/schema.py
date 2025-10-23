@@ -26,6 +26,7 @@ class Employee(BaseModel):
     maxA: int = Field(ge=0, alias="maxA")
     min_days_off: int = Field(ge=1, alias="min_days_off")
     weight: float = Field(ge=0.0, alias="weight")
+    pending_off: float = Field(default=0.0, alias="pending_off")
 
     class Config:
         populate_by_name = True
@@ -42,6 +43,14 @@ class DailyRequirement(BaseModel):
     need_M4: int = Field(ge=0, alias="need_M4")
     need_H: int = Field(ge=0, alias="need_H")
     need_CL: int = Field(ge=0, alias="need_CL")
+    holiday: Optional[str] = Field(default=None, alias="holiday")
+
+    @validator('holiday', pre=True)
+    def handle_nan_holiday(cls, v):
+        """Handle nan values from pandas."""
+        if pd.isna(v) or v is None:
+            return None
+        return str(v)
 
     class Config:
         populate_by_name = True

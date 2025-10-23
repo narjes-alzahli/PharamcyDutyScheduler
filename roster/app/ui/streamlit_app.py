@@ -65,13 +65,13 @@ def show_input_page():
         employees_file = st.file_uploader(
             "Employees CSV",
             type=["csv"],
-            help="employee,skill_M,skill_IP,skill_A,skill_N,skill_M3,skill_M4,skill_H,skill_CL,clinic_only,ip_ok,harat_ok,maxN,maxA,min_days_off,weight"
+            help="employee,skill_M,skill_IP,skill_A,skill_N,skill_M3,skill_M4,skill_H,skill_CL,clinic_only,ip_ok,harat_ok,maxN,maxA,min_days_off,weight,pending_off"
         )
         
         demands_file = st.file_uploader(
             "Daily Requirements CSV", 
             type=["csv"],
-            help="date,need_M,need_IP,need_A,need_N,need_M3,need_M4,need_H,need_CL"
+            help="date,need_M,need_IP,need_A,need_N,need_M3,need_M4,need_H,need_CL,holiday"
         )
     
     with col2:
@@ -603,7 +603,8 @@ def load_sample_data():
         "maxN": [0, 3, 3, 3, 3, 3, 3, 3],
         "maxA": [6, 6, 5, 6, 6, 6, 6, 6],
         "min_days_off": [4, 4, 4, 4, 4, 4, 4, 4],
-        "weight": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        "weight": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        "pending_off": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     }
     st.session_state["employees_df"] = pd.DataFrame(employees_data)
     
@@ -613,32 +614,50 @@ def load_sample_data():
     demands_data = []
     for i in range(7):
         current_date = start_date + timedelta(days=i)
-        demands_data.append({
-            "date": current_date,
-            "from_date": start_date,
-            "to_date": end_date,
-            "need_M": 2,
-            "need_IP": 2,
-            "need_A": 1,
-            "need_N": 1,
-            "need_M3": 2,
-            "need_M4": 2,
-            "need_H": 1,
-            "need_CL": 0
-        })
+        # Vary demands by day of week
+        if current_date.weekday() in [5, 6]:  # Weekend
+            demands_data.append({
+                "date": current_date,
+                "from_date": start_date,
+                "to_date": end_date,
+                "need_M": 1,
+                "need_IP": 1,
+                "need_A": 1,
+                "need_N": 1,
+                "need_M3": 1,
+                "need_M4": 1,
+                "need_H": 0,
+                "need_CL": 0,
+                "holiday": None
+            })
+        else:  # Weekday
+            demands_data.append({
+                "date": current_date,
+                "from_date": start_date,
+                "to_date": end_date,
+                "need_M": 2,
+                "need_IP": 2,
+                "need_A": 1,
+                "need_N": 1,
+                "need_M3": 2,
+                "need_M4": 2,
+                "need_H": 1,
+                "need_CL": 0,
+                "holiday": None
+            })
     st.session_state["demands_df"] = pd.DataFrame(demands_data)
     
-    # Sample time off
+    # Sample time off (within the date range)
     time_off_data = [
-        {"employee": "Rasha", "from_date": date(2025, 3, 5), "to_date": date(2025, 3, 5), "code": "CL"},
-        {"employee": "Ameera", "from_date": date(2025, 3, 10), "to_date": date(2025, 3, 10), "code": "W"}
+        {"employee": "Rasha", "from_date": date(2025, 3, 3), "to_date": date(2025, 3, 3), "code": "ML"},
+        {"employee": "Ameera", "from_date": date(2025, 3, 6), "to_date": date(2025, 3, 6), "code": "W"}
     ]
     st.session_state["time_off_df"] = pd.DataFrame(time_off_data)
     
-    # Sample locks
+    # Sample locks (within the date range, using valid shifts)
     locks_data = [
-        {"employee": "Ameera", "from_date": date(2025, 3, 12), "to_date": date(2025, 3, 12), "shift": "APP", "force": 1},
-        {"employee": "Shatha", "from_date": date(2025, 3, 14), "to_date": date(2025, 3, 14), "shift": "N", "force": 0}
+        {"employee": "Ameera", "from_date": date(2025, 3, 2), "to_date": date(2025, 3, 2), "shift": "M", "force": 1},
+        {"employee": "Shatha", "from_date": date(2025, 3, 4), "to_date": date(2025, 3, 4), "shift": "N", "force": 0}
     ]
     st.session_state["locks_df"] = pd.DataFrame(locks_data)
 
@@ -697,7 +716,7 @@ def solve_roster_ui(time_limit: int):
                 )
                 
                 st.session_state["employee_df"] = solver.create_employee_report(
-                    assignments, employees, dates
+                    assignments, employees, dates, demands
                 )
                 
             else:
