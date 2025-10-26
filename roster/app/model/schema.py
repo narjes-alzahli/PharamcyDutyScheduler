@@ -109,23 +109,35 @@ class RosterData:
     def _load_daily_requirements(self) -> None:
         """Load daily requirements from CSV."""
         df = pd.read_csv(self.data_dir / "demands.csv")
-        df["date"] = pd.to_datetime(df["date"]).dt.date
+        # Clean data - remove rows with empty dates
+        df = df.dropna(subset=['date'])
+        df["date"] = pd.to_datetime(df["date"], errors='coerce').dt.date
+        # Remove any rows that still have NaT dates
+        df = df.dropna(subset=['date'])
         self.daily_requirements = [DailyRequirement(**row) for row in df.to_dict("records")]
         
     def _load_leave(self) -> None:
         """Load leave from CSV."""
         if (self.data_dir / "time_off.csv").exists():
             df = pd.read_csv(self.data_dir / "time_off.csv")
-            df["from_date"] = pd.to_datetime(df["from_date"]).dt.date
-            df["to_date"] = pd.to_datetime(df["to_date"]).dt.date
+            # Clean data - remove rows with empty dates
+            df = df.dropna(subset=['from_date', 'to_date'])
+            df["from_date"] = pd.to_datetime(df["from_date"], errors='coerce').dt.date
+            df["to_date"] = pd.to_datetime(df["to_date"], errors='coerce').dt.date
+            # Remove any rows that still have NaT dates
+            df = df.dropna(subset=['from_date', 'to_date'])
             self.leave = [Leave(**row) for row in df.to_dict("records")]
             
     def _load_special_requirements(self) -> None:
         """Load special requirements from CSV."""
         if (self.data_dir / "locks.csv").exists():
             df = pd.read_csv(self.data_dir / "locks.csv")
-            df["from_date"] = pd.to_datetime(df["from_date"]).dt.date
-            df["to_date"] = pd.to_datetime(df["to_date"]).dt.date
+            # Clean data - remove rows with empty dates
+            df = df.dropna(subset=['from_date', 'to_date'])
+            df["from_date"] = pd.to_datetime(df["from_date"], errors='coerce').dt.date
+            df["to_date"] = pd.to_datetime(df["to_date"], errors='coerce').dt.date
+            # Remove any rows that still have NaT dates
+            df = df.dropna(subset=['from_date', 'to_date'])
             self.special_requirements = [SpecialRequirement(**row) for row in df.to_dict("records")]
             
     def _build_dictionaries(self) -> None:

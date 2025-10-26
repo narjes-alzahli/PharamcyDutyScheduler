@@ -1,0 +1,31 @@
+{
+  "leave_requests": [
+    {
+      "employee": "Rahma",
+      "from_date": "2025-10-27",
+      "to_date": "2025-10-27",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-10-27T01:49:34.733170",
+      "request_id": "LR_1",
+      "approved_by": "Admin",
+      "approved_at": "2025-10-27T02:37:24.904656"
+    }
+  ],
+  "shift_requests": [
+    {
+      "employee": "Shatha",
+      "from_date": "2025-10-27",
+      "to_date": "2025-10-27",
+      "shift": "M",
+      "force": true,
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-10-27T01:49:51.684956",
+      "request_id": "SR_1",
+      "approved_by": "Admin",
+      "approved_at": "2025-10-27T02:37:24.904667"
+    }
+  ]
+}

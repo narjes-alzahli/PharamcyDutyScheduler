@@ -73,6 +73,8 @@ class DataManager:
         time_off_path = self.data_dir / "time_off.csv"
         if time_off_path.exists():
             data['time_off'] = pd.read_csv(time_off_path)
+            # Clean data - remove rows with empty dates
+            data['time_off'] = data['time_off'].dropna(subset=['from_date', 'to_date'])
         else:
             data['time_off'] = self._create_empty_time_off_df()
         
@@ -80,6 +82,11 @@ class DataManager:
         locks_path = self.data_dir / "locks.csv"
         if locks_path.exists():
             data['locks'] = pd.read_csv(locks_path)
+            # Clean data - remove rows with empty dates
+            data['locks'] = data['locks'].dropna(subset=['from_date', 'to_date'])
+            # Ensure force field is integer (not boolean)
+            if 'force' in data['locks'].columns:
+                data['locks']['force'] = data['locks']['force'].astype(int)
         else:
             data['locks'] = self._create_empty_locks_df()
         
@@ -177,7 +184,7 @@ def show_data_manager_page():
     roster_data = st.session_state.roster_data
     
     # Sidebar for month/year selection
-    st.sidebar.header("📅 Month Selection")
+    st.sidebar.header("Month Selection")
     
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -348,7 +355,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
     
     # Filter demands for selected month
     if not demands_df.empty:
-        demands_df['date'] = pd.to_datetime(demands_df['date'])
+        demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce')
         month_demands = demands_df[
             (demands_df['date'].dt.year == year) & 
             (demands_df['date'].dt.month == month)
@@ -380,7 +387,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
             # Update data
             if not edited_demands.equals(month_demands):
                 # Convert back to datetime for storage
-                edited_demands['date'] = pd.to_datetime(edited_demands['date'])
+                edited_demands['date'] = pd.to_datetime(edited_demands['date'], errors='coerce')
                 
                 # Update the full demands dataframe
                 full_demands = demands_df[~((demands_df['date'].dt.year == year) & (demands_df['date'].dt.month == month))]
@@ -393,12 +400,15 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
 
 def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
     """Show time off editing tab."""
-    st.subheader("🏖️ Leave & Time Off")
+    st.subheader("🏖️ Leave Requests")
+    
+    # Check if user is admin/manager
+    is_admin = st.session_state.current_user['employee_type'] == 'Manager'
     
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.markdown(f"**Manage time off and leave for {month:02d}/{year}**")
+        st.markdown("**Manage Time Off and Leave**")
     
     with col2:
         if st.button("➕ Add Leave"):
@@ -435,8 +445,8 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
     
     # Filter time off for selected month (show ranges that overlap with the month)
     if not time_off_df.empty:
-        time_off_df['from_date'] = pd.to_datetime(time_off_df['from_date'])
-        time_off_df['to_date'] = pd.to_datetime(time_off_df['to_date'])
+        time_off_df['from_date'] = pd.to_datetime(time_off_df['from_date'], errors='coerce')
+        time_off_df['to_date'] = pd.to_datetime(time_off_df['to_date'], errors='coerce')
         
         # Show ranges that overlap with the selected month
         month_start = pd.Timestamp(year, month, 1)
@@ -469,8 +479,8 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
             
             # Update data
             if not edited_time_off.equals(month_time_off):
-                edited_time_off['from_date'] = pd.to_datetime(edited_time_off['from_date'])
-                edited_time_off['to_date'] = pd.to_datetime(edited_time_off['to_date'])
+                edited_time_off['from_date'] = pd.to_datetime(edited_time_off['from_date'], errors='coerce')
+                edited_time_off['to_date'] = pd.to_datetime(edited_time_off['to_date'], errors='coerce')
                 
                 # Update the full time off dataframe
                 full_time_off = time_off_df[~((time_off_df['from_date'] <= month_end) & (time_off_df['to_date'] >= month_start))]
@@ -481,16 +491,24 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
             st.info(f"No time off data for {month:02d}/{year}")
     else:
         st.info("No time off data available")
+    
+    # Show staff requests for admin (after normal assignments)
+    if is_admin:
+        st.markdown("---")
+        show_staff_leave_requests(year, month)
 
 
 def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
     """Show locks editing tab."""
-    st.subheader("🔒 Special Requirements")
+    st.subheader("🔒 Shift Requests")
+    
+    # Check if user is admin/manager
+    is_admin = st.session_state.current_user['employee_type'] == 'Manager'
     
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.markdown(f"**Force or forbid specific assignments for {month:02d}/{year}**")
+        st.markdown("**Force or Forbid Specific Assignments**")
     
     with col2:
         if st.button("➕ Add Lock"):
@@ -531,8 +549,8 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
     
     # Filter locks for selected month (show ranges that overlap with the month)
     if not locks_df.empty:
-        locks_df['from_date'] = pd.to_datetime(locks_df['from_date'])
-        locks_df['to_date'] = pd.to_datetime(locks_df['to_date'])
+        locks_df['from_date'] = pd.to_datetime(locks_df['from_date'], errors='coerce')
+        locks_df['to_date'] = pd.to_datetime(locks_df['to_date'], errors='coerce')
         
         # Show ranges that overlap with the selected month
         month_start = pd.Timestamp(year, month, 1)
@@ -549,7 +567,13 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
         if not month_locks.empty:
             month_locks['from_date'] = month_locks['from_date'].dt.strftime('%Y-%m-%d')
             month_locks['to_date'] = month_locks['to_date'].dt.strftime('%Y-%m-%d')
-            month_locks['force'] = month_locks['force'].map({True: "Force (Must)", False: "Forbid (Cannot)"})
+            
+            # Convert force field properly (ensure it's integer first)
+            month_locks['force'] = month_locks['force'].astype(int).map({1: "Force (Must)", 0: "Forbid (Cannot)"})
+            
+            # Remove the extra 'date' column if it exists
+            if 'date' in month_locks.columns:
+                month_locks = month_locks.drop('date', axis=1)
             
             # Editable dataframe
             edited_locks = st.data_editor(
@@ -567,8 +591,8 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
             
             # Update data
             if not edited_locks.equals(month_locks):
-                edited_locks['from_date'] = pd.to_datetime(edited_locks['from_date'])
-                edited_locks['to_date'] = pd.to_datetime(edited_locks['to_date'])
+                edited_locks['from_date'] = pd.to_datetime(edited_locks['from_date'], errors='coerce')
+                edited_locks['to_date'] = pd.to_datetime(edited_locks['to_date'], errors='coerce')
                 edited_locks['force'] = edited_locks['force'] == "Force (Must)"
                 
                 # Update the full locks dataframe
@@ -580,6 +604,11 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
             st.info(f"No locks data for {month:02d}/{year}")
     else:
         st.info("No locks data available")
+    
+    # Show staff requests for admin (after normal assignments)
+    if is_admin:
+        st.markdown("---")
+        show_staff_shift_requests(year, month)
 
 
 def show_generate_tab(roster_data: Dict[str, pd.DataFrame], year: int, month: int):
@@ -714,7 +743,7 @@ def show_schedule_view_tab(year: int, month: int):
     # Commit button section
     st.markdown("---")
     st.subheader("Commit Schedule")
-    st.markdown("Once you're satisfied with the generated schedule, commit it to make it available in the main Schedule View page.")
+    st.markdown("Once satisfied with generated schedule, commit it to make available to staff.")
     
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -814,14 +843,7 @@ def commit_schedule(schedule_df: pd.DataFrame, coverage_df: pd.DataFrame,
             'committed_at': pd.Timestamp.now()
         }
         
-        st.success(f"✅ Schedule for {year}-{month:02d} committed successfully!")
-        st.info("The committed schedule is now available in Schedule View and Reports pages.")
-        
-        # Auto-navigate to Schedule View page
-        st.markdown("**🎯 Schedule committed!** You can now view it in the Schedule View page.")
-        if st.button("📅 Go to Schedule View", type="secondary"):
-            st.session_state.navigate_to = "Schedule View"
-            st.rerun()
+        st.success(f"✅ Schedule committed successfully! View in Schedule View and Reports pages.")
         
     except Exception as e:
         st.error(f"❌ Error committing schedule: {e}")
@@ -920,3 +942,371 @@ def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: in
             st.error(f"❌ Error generating schedule: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+
+def load_staff_requests():
+    """Load staff requests from file."""
+    import json
+    from pathlib import Path
+    from datetime import datetime, date
+    
+    requests_file = Path("roster/app/data/staff_requests.json")
+    
+    if requests_file.exists():
+        try:
+            with open(requests_file, 'r') as f:
+                content = f.read().strip()
+                if content:
+                    data = json.loads(content)
+                    # Convert string dates back to date objects
+                    leave_requests = []
+                    for req in data.get('leave_requests', []):
+                        req['submitted_at'] = datetime.fromisoformat(req['submitted_at'])
+                        req['from_date'] = date.fromisoformat(req['from_date'])
+                        req['to_date'] = date.fromisoformat(req['to_date'])
+                        leave_requests.append(req)
+                    
+                    shift_requests = []
+                    for req in data.get('shift_requests', []):
+                        req['submitted_at'] = datetime.fromisoformat(req['submitted_at'])
+                        req['from_date'] = date.fromisoformat(req['from_date'])
+                        req['to_date'] = date.fromisoformat(req['to_date'])
+                        shift_requests.append(req)
+                    
+                    return {
+                        'leave_requests': leave_requests,
+                        'shift_requests': shift_requests
+                    }
+        except (json.JSONDecodeError, ValueError):
+            requests_file.unlink()
+    
+    return {'leave_requests': [], 'shift_requests': []}
+
+
+def show_staff_leave_requests(year: int, month: int):
+    """Show staff leave requests for admin approval."""
+    
+    # Initialize staff_requests in session state if not exists
+    if 'staff_requests' not in st.session_state:
+        st.session_state.staff_requests = load_staff_requests()
+    
+    # Load staff requests
+    import json
+    from pathlib import Path
+    from datetime import datetime, date
+    
+    requests_file = Path("roster/app/data/staff_requests.json")
+    
+    if requests_file.exists():
+        try:
+            with open(requests_file, 'r') as f:
+                content = f.read().strip()
+                if content:
+                    data = json.loads(content)
+                    leave_requests = []
+                    for req in data.get('leave_requests', []):
+                        req['submitted_at'] = datetime.fromisoformat(req['submitted_at'])
+                        req['from_date'] = date.fromisoformat(req['from_date'])
+                        req['to_date'] = date.fromisoformat(req['to_date'])
+                        leave_requests.append(req)
+                    
+                    if leave_requests:
+                        # Filter requests by selected month/year
+                        month_start = date(year, month, 1)
+                        if month == 12:
+                            month_end = date(year + 1, 1, 1)
+                        else:
+                            month_end = date(year, month + 1, 1)
+                        
+                        # Filter requests that overlap with the selected month
+                        filtered_requests = []
+                        for req in leave_requests:
+                            req_from = req['from_date']
+                            req_to = req['to_date']
+                            # Check if request overlaps with selected month
+                            if req_from <= month_end and req_to >= month_start:
+                                filtered_requests.append(req)
+                        
+                        # Separate pending and processed requests
+                        pending_requests = [req for req in filtered_requests if req['status'] == 'Pending']
+                        processed_requests = [req for req in filtered_requests if req['status'] != 'Pending']
+                        
+                        # Pending Requests Section
+                        st.markdown("**Pending Requests**")
+                        
+                        if pending_requests:
+                            for i, req in enumerate(pending_requests):
+                                with st.expander(f"{req['employee']} - {req['from_date']} to {req['to_date']} ({req['leave_type']})"):
+                                    col1, col2 = st.columns([2, 1])
+                                    
+                                    with col1:
+                                        st.write(f"**Employee:** {req['employee']}")
+                                        st.write(f"**Date Range:** {req['from_date']} to {req['to_date']}")
+                                        st.write(f"**Leave Type:** {req['leave_type']}")
+                                        st.write(f"**Reason:** {req['reason']}")
+                                        st.write(f"**Submitted:** {req['submitted_at'].strftime('%Y-%m-%d %H:%M')}")
+                                    
+                                    with col2:
+                                        if st.button("Approve", key=f"approve_lr_{i}", type="primary"):
+                                            req['status'] = 'Approved'
+                                            req['approved_by'] = st.session_state.current_user['employee_name']
+                                            req['approved_at'] = datetime.now()
+                                            
+                                            add_approved_leave_to_roster(req)
+                                            save_staff_requests()
+                                            st.success(f"Approved leave request for {req['employee']}")
+                                            st.rerun()
+                                        
+                                        if st.button("Reject", key=f"reject_lr_{i}"):
+                                            req['status'] = 'Rejected'
+                                            req['approved_by'] = st.session_state.current_user['employee_name']
+                                            req['approved_at'] = datetime.now()
+                                            
+                                            save_staff_requests()
+                                            st.success(f"Rejected leave request for {req['employee']}")
+                                            st.rerun()
+                        else:
+                            st.info("No pending leave requests.")
+                        
+                        st.markdown("---")
+                        
+                        # Processed Requests Section
+                        if processed_requests:
+                            st.markdown("**Processed Requests**")
+                            
+                            # Create a summary table
+                            processed_data = []
+                            for req in processed_requests:
+                                processed_data.append({
+                                    'Employee': req['employee'],
+                                    'Date Range': f"{req['from_date']} to {req['to_date']}",
+                                    'Type': req['leave_type'],
+                                    'Status': req['status'],
+                                    'Processed By': req.get('approved_by', 'N/A'),
+                                    'Processed On': req.get('approved_at', req['submitted_at']).strftime('%Y-%m-%d %H:%M') if isinstance(req.get('approved_at', req['submitted_at']), datetime) else 'N/A'
+                                })
+                            
+                            processed_df = pd.DataFrame(processed_data)
+                            st.dataframe(processed_df, use_container_width=True)
+                    else:
+                        st.info("No leave requests submitted yet.")
+        except (json.JSONDecodeError, ValueError):
+            st.error("Error loading staff requests.")
+    else:
+        st.info("No staff requests file found.")
+
+
+def show_staff_shift_requests(year: int, month: int):
+    """Show staff shift requests for admin approval."""
+    
+    # Initialize staff_requests in session state if not exists
+    if 'staff_requests' not in st.session_state:
+        st.session_state.staff_requests = load_staff_requests()
+    
+    # Load staff requests
+    import json
+    from pathlib import Path
+    from datetime import datetime, date
+    
+    requests_file = Path("roster/app/data/staff_requests.json")
+    
+    if requests_file.exists():
+        try:
+            with open(requests_file, 'r') as f:
+                content = f.read().strip()
+                if content:
+                    data = json.loads(content)
+                    shift_requests = []
+                    for req in data.get('shift_requests', []):
+                        req['submitted_at'] = datetime.fromisoformat(req['submitted_at'])
+                        req['from_date'] = date.fromisoformat(req['from_date'])
+                        req['to_date'] = date.fromisoformat(req['to_date'])
+                        shift_requests.append(req)
+                    
+                    if shift_requests:
+                        # Filter requests by selected month/year
+                        month_start = date(year, month, 1)
+                        if month == 12:
+                            month_end = date(year + 1, 1, 1)
+                        else:
+                            month_end = date(year, month + 1, 1)
+                        
+                        # Filter requests that fall within the selected month
+                        filtered_requests = []
+                        for req in shift_requests:
+                            req_date = req['from_date']
+                            # Check if request falls within selected month
+                            if month_start <= req_date < month_end:
+                                filtered_requests.append(req)
+                        
+                        # Separate pending and processed requests
+                        pending_requests = [req for req in filtered_requests if req['status'] == 'Pending']
+                        processed_requests = [req for req in filtered_requests if req['status'] != 'Pending']
+                        
+                        # Pending Requests Section
+                        st.markdown("**Pending Requests**")
+                        
+                        if pending_requests:
+                            for i, req in enumerate(pending_requests):
+                                request_type = "Force (Must)" if req['force'] else "Forbid (Cannot)"
+                                with st.expander(f"{req['employee']} - {req['from_date']} ({req['shift']}) - {request_type}"):
+                                    col1, col2 = st.columns([2, 1])
+                                    
+                                    with col1:
+                                        st.write(f"**Employee:** {req['employee']}")
+                                        st.write(f"**Date:** {req['from_date']}")
+                                        st.write(f"**Shift:** {req['shift']}")
+                                        st.write(f"**Request Type:** {request_type}")
+                                        st.write(f"**Reason:** {req['reason']}")
+                                        st.write(f"**Submitted:** {req['submitted_at'].strftime('%Y-%m-%d %H:%M')}")
+                                    
+                                    with col2:
+                                        if st.button("Approve", key=f"approve_sr_{i}", type="primary"):
+                                            req['status'] = 'Approved'
+                                            req['approved_by'] = st.session_state.current_user['employee_name']
+                                            req['approved_at'] = datetime.now()
+                                            
+                                            add_approved_shift_to_roster(req)
+                                            save_staff_requests()
+                                            st.success(f"Approved shift request for {req['employee']}")
+                                            st.rerun()
+                                        
+                                        if st.button("Reject", key=f"reject_sr_{i}"):
+                                            req['status'] = 'Rejected'
+                                            req['approved_by'] = st.session_state.current_user['employee_name']
+                                            req['approved_at'] = datetime.now()
+                                            
+                                            save_staff_requests()
+                                            st.success(f"Rejected shift request for {req['employee']}")
+                                            st.rerun()
+                        else:
+                            st.info("No pending shift requests.")
+                        
+                        st.markdown("---")
+                        
+                        # Processed Requests Section
+                        if processed_requests:
+                            st.markdown("**Processed Requests**")
+                            
+                            # Create a summary table
+                            processed_data = []
+                            for req in processed_requests:
+                                request_type = "Force (Must)" if req['force'] else "Forbid (Cannot)"
+                                processed_data.append({
+                                    'Employee': req['employee'],
+                                    'Date': req['from_date'],
+                                    'Shift': req['shift'],
+                                    'Type': request_type,
+                                    'Status': req['status'],
+                                    'Processed By': req.get('approved_by', 'N/A'),
+                                    'Processed On': req.get('approved_at', req['submitted_at']).strftime('%Y-%m-%d %H:%M') if isinstance(req.get('approved_at', req['submitted_at']), datetime) else 'N/A'
+                                })
+                            
+                            processed_df = pd.DataFrame(processed_data)
+                            st.dataframe(processed_df, use_container_width=True)
+                    else:
+                        st.info("No shift requests submitted yet.")
+        except (json.JSONDecodeError, ValueError):
+            st.error("Error loading staff requests.")
+    else:
+        st.info("No staff requests file found.")
+
+
+def save_staff_requests():
+    """Save staff requests to file for persistence."""
+    import json
+    from pathlib import Path
+    from datetime import datetime, date
+    
+    requests_file = Path("roster/app/data/staff_requests.json")
+    requests_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Convert datetime objects to strings for JSON serialization
+    serializable_requests = {
+        'leave_requests': [],
+        'shift_requests': []
+    }
+    
+    for req in st.session_state.staff_requests.get('leave_requests', []):
+        serializable_req = req.copy()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
+        serializable_req['from_date'] = req['from_date'].isoformat()
+        serializable_req['to_date'] = req['to_date'].isoformat()
+        if 'approved_at' in req:
+            serializable_req['approved_at'] = req['approved_at'].isoformat()
+        serializable_requests['leave_requests'].append(serializable_req)
+    
+    for req in st.session_state.staff_requests.get('shift_requests', []):
+        serializable_req = req.copy()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
+        serializable_req['from_date'] = req['from_date'].isoformat()
+        serializable_req['to_date'] = req['to_date'].isoformat()
+        if 'approved_at' in req:
+            serializable_req['approved_at'] = req['approved_at'].isoformat()
+        serializable_requests['shift_requests'].append(serializable_req)
+    
+    with open(requests_file, 'w') as f:
+        json.dump(serializable_requests, f, indent=2)
+
+
+def add_approved_leave_to_roster(leave_request):
+    """Add approved leave request to roster time_off data."""
+    from datetime import date
+    
+    # Get current roster data
+    roster_data = st.session_state.roster_data
+    
+    # Create new time_off entry with consistent date format (with time)
+    new_entry = {
+        'employee': leave_request['employee'],
+        'from_date': leave_request['from_date'].strftime('%Y-%m-%d 00:00:00'),
+        'to_date': leave_request['to_date'].strftime('%Y-%m-%d 00:00:00'),
+        'code': leave_request['leave_type']
+    }
+    
+    # Add to time_off DataFrame
+    if roster_data['time_off'].empty:
+        roster_data['time_off'] = pd.DataFrame([new_entry])
+    else:
+        roster_data['time_off'] = pd.concat([roster_data['time_off'], pd.DataFrame([new_entry])], ignore_index=True)
+    
+    # Clean the data - remove rows with empty dates
+    roster_data['time_off'] = roster_data['time_off'].dropna(subset=['from_date', 'to_date'])
+    
+    # Save to CSV
+    roster_data['time_off'].to_csv('roster/app/data/time_off.csv', index=False)
+    
+    # Update session state
+    st.session_state.roster_data = roster_data
+
+
+def add_approved_shift_to_roster(shift_request):
+    """Add approved shift request to roster locks data."""
+    from datetime import date
+    
+    # Get current roster data
+    roster_data = st.session_state.roster_data
+    
+    # Create new lock entry with consistent date format (with time)
+    new_entry = {
+        'employee': shift_request['employee'],
+        'from_date': shift_request['from_date'].strftime('%Y-%m-%d 00:00:00'),
+        'to_date': shift_request['from_date'].strftime('%Y-%m-%d 00:00:00'),  # Same date for single-day shift
+        'shift': shift_request['shift'],
+        'force': shift_request['force']
+    }
+    
+    # Add to locks DataFrame
+    if roster_data['locks'].empty:
+        roster_data['locks'] = pd.DataFrame([new_entry])
+    else:
+        roster_data['locks'] = pd.concat([roster_data['locks'], pd.DataFrame([new_entry])], ignore_index=True)
+    
+    # Clean the data - remove rows with empty dates
+    roster_data['locks'] = roster_data['locks'].dropna(subset=['from_date', 'to_date'])
+    
+    # Save to CSV
+    roster_data['locks'].to_csv('roster/app/data/locks.csv', index=False)
+    
+    # Update session state
+    st.session_state.roster_data = roster_data

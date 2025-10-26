@@ -1,0 +1,170 @@
+{
+  "admin": {
+    "username": "admin",
+    "password": "admin123",
+    "employee_type": "Manager",
+    "employee_name": "Admin"
+  },
+  "idris": {
+    "username": "idris",
+    "password": "idris123",
+    "employee_type": "Staff",
+    "employee_name": "Idris"
+  },
+  "karima": {
+    "username": "karima",
+    "password": "karima123",
+    "employee_type": "Staff",
+    "employee_name": "Karima"
+  },
+  "rahma": {
+    "username": "rahma",
+    "password": "rahma123",
+    "employee_type": "Staff",
+    "employee_name": "Rahma"
+  },
+  "noor": {
+    "username": "noor",
+    "password": "noor123",
+    "employee_type": "Staff",
+    "employee_name": "Noor"
+  },
+  "ameera": {
+    "username": "ameera",
+    "password": "ameera123",
+    "employee_type": "Staff",
+    "employee_name": "Ameera"
+  },
+  "shatha": {
+    "username": "shatha",
+    "password": "shatha123",
+    "employee_type": "Staff",
+    "employee_name": "Shatha"
+  },
+  "rasha": {
+    "username": "rasha",
+    "password": "rasha123",
+    "employee_type": "Staff",
+    "employee_name": "Rasha"
+  },
+  "hawra": {
+    "username": "hawra",
+    "password": "hawra123",
+    "employee_type": "Staff",
+    "employee_name": "Hawra"
+  },
+  "abdullah": {
+    "username": "abdullah",
+    "password": "abdullah123",
+    "employee_type": "Staff",
+    "employee_name": "Abdullah"
+  },
+  "layla": {
+    "username": "layla",
+    "password": "layla123",
+    "employee_type": "Staff",
+    "employee_name": "Layla"
+  },
+  "mariam": {
+    "username": "mariam",
+    "password": "mariam123",
+    "employee_type": "Staff",
+    "employee_name": "Mariam"
+  },
+  "fatima": {
+    "username": "fatima",
+    "password": "fatima123",
+    "employee_type": "Staff",
+    "employee_name": "Fatima"
+  },
+  "khaled": {
+    "username": "khaled",
+    "password": "khaled123",
+    "employee_type": "Staff",
+    "employee_name": "Khaled"
+  },
+  "omar": {
+    "username": "omar",
+    "password": "omar123",
+    "employee_type": "Staff",
+    "employee_name": "Omar"
+  },
+  "ahmed": {
+    "username": "ahmed",
+    "password": "ahmed123",
+    "employee_type": "Staff",
+    "employee_name": "Ahmed"
+  },
+  "youssef": {
+    "username": "youssef",
+    "password": "youssef123",
+    "employee_type": "Staff",
+    "employee_name": "Youssef"
+  },
+  "hassan": {
+    "username": "hassan",
+    "password": "hassan123",
+    "employee_type": "Staff",
+    "employee_name": "Hassan"
+  },
+  "sara": {
+    "username": "sara",
+    "password": "sara123",
+    "employee_type": "Staff",
+    "employee_name": "Sara"
+  },
+  "dina": {
+    "username": "dina",
+    "password": "dina123",
+    "employee_type": "Staff",
+    "employee_name": "Dina"
+  },
+  "nada": {
+    "username": "nada",
+    "password": "nada123",
+    "employee_type": "Staff",
+    "employee_name": "Nada"
+  },
+  "hala": {
+    "username": "hala",
+    "password": "hala123",
+    "employee_type": "Staff",
+    "employee_name": "Hala"
+  },
+  "mona": {
+    "username": "mona",
+    "password": "mona123",
+    "employee_type": "Staff",
+    "employee_name": "Mona"
+  },
+  "yasmin": {
+    "username": "yasmin",
+    "password": "yasmin123",
+    "employee_type": "Staff",
+    "employee_name": "Yasmin"
+  },
+  "nour": {
+    "username": "nour",
+    "password": "nour123",
+    "employee_type": "Staff",
+    "employee_name": "Nour"
+  },
+  "dalia": {
+    "username": "dalia",
+    "password": "dalia123",
+    "employee_type": "Staff",
+    "employee_name": "Dalia"
+  },
+  "rana": {
+    "username": "rana",
+    "password": "rana123",
+    "employee_type": "Staff",
+    "employee_name": "Rana"
+  },
+  "zeinab": {
+    "username": "zeinab",
+    "password": "zeinab123",
+    "employee_type": "Staff",
+    "employee_name": "Zeinab"
+  }
+}

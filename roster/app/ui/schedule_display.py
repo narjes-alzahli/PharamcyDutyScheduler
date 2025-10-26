@@ -91,7 +91,7 @@ class ScheduleDisplay:
         ].copy()
         
         if month_data.empty:
-            st.warning(f"No data found for {year}-{month:02d}")
+            st.warning(f"No schedule data found for {year}-{month:02d}. Please populate the month with daily shift requirements first.")
             return go.Figure()
         
         # Create pivot table
@@ -162,7 +162,7 @@ class ScheduleDisplay:
         ].copy()
         
         if month_data.empty:
-            st.warning(f"No data found for {year}-{month:02d}")
+            st.warning(f"No schedule data found for {year}-{month:02d}. Please populate the month with daily shift requirements first.")
             return
         
         # Create pivot table

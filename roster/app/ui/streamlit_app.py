@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 import tempfile
 import io
+import json
 import yaml
 import sys
 
@@ -21,6 +22,241 @@ from roster.app.ui.schedule_display import ScheduleDisplay
 from roster.app.ui.data_manager import show_data_manager_page
 
 
+def save_user_data():
+    """Save user data to file for persistence."""
+    user_data_file = Path("roster/app/data/user_data.json")
+    user_data_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(user_data_file, 'w') as f:
+        json.dump(st.session_state.user_data, f, indent=2)
+
+
+def load_user_data():
+    """Load user data from file."""
+    user_data_file = Path("roster/app/data/user_data.json")
+    
+    if user_data_file.exists():
+        try:
+            with open(user_data_file, 'r') as f:
+                content = f.read().strip()
+                if content:  # Check if file is not empty
+                    return json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            # If file is corrupted, delete it and return None
+            user_data_file.unlink()
+    return None
+
+
+def save_login_state(username):
+    """Save login state to file."""
+    login_file = Path("roster/app/data/login_state.json")
+    login_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    login_data = {
+        'username': username,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    with open(login_file, 'w') as f:
+        json.dump(login_data, f, indent=2)
+
+
+def load_login_state():
+    """Load login state from file."""
+    login_file = Path("roster/app/data/login_state.json")
+    
+    if login_file.exists():
+        try:
+            with open(login_file, 'r') as f:
+                content = f.read().strip()
+                if content:  # Check if file is not empty
+                    return json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            # If file is corrupted, delete it and return None
+            login_file.unlink()
+    return None
+
+
+def clear_login_state():
+    """Clear login state file."""
+    login_file = Path("roster/app/data/login_state.json")
+    if login_file.exists():
+        login_file.unlink()
+
+
+def save_staff_requests():
+    """Save staff requests to file for persistence."""
+    requests_file = Path("roster/app/data/staff_requests.json")
+    requests_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Convert datetime objects to strings for JSON serialization
+    serializable_requests = {
+        'leave_requests': [],
+        'shift_requests': []
+    }
+    
+    for req in st.session_state.staff_requests.get('leave_requests', []):
+        serializable_req = req.copy()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
+        serializable_req['from_date'] = req['from_date'].isoformat()
+        serializable_req['to_date'] = req['to_date'].isoformat()
+        serializable_requests['leave_requests'].append(serializable_req)
+    
+    for req in st.session_state.staff_requests.get('shift_requests', []):
+        serializable_req = req.copy()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
+        serializable_req['from_date'] = req['from_date'].isoformat()
+        serializable_req['to_date'] = req['to_date'].isoformat()
+        serializable_requests['shift_requests'].append(serializable_req)
+    
+    with open(requests_file, 'w') as f:
+        json.dump(serializable_requests, f, indent=2)
+
+
+def load_staff_requests():
+    """Load staff requests from file."""
+    requests_file = Path("roster/app/data/staff_requests.json")
+    
+    if requests_file.exists():
+        try:
+            with open(requests_file, 'r') as f:
+                content = f.read().strip()
+                if content:
+                    data = json.loads(content)
+                    # Convert string dates back to date objects
+                    leave_requests = []
+                    for req in data.get('leave_requests', []):
+                        req['submitted_at'] = datetime.fromisoformat(req['submitted_at'])
+                        req['from_date'] = date.fromisoformat(req['from_date'])
+                        req['to_date'] = date.fromisoformat(req['to_date'])
+                        leave_requests.append(req)
+                    
+                    shift_requests = []
+                    for req in data.get('shift_requests', []):
+                        req['submitted_at'] = datetime.fromisoformat(req['submitted_at'])
+                        req['from_date'] = date.fromisoformat(req['from_date'])
+                        req['to_date'] = date.fromisoformat(req['to_date'])
+                        shift_requests.append(req)
+                    
+                    return {
+                        'leave_requests': leave_requests,
+                        'shift_requests': shift_requests
+                    }
+        except (json.JSONDecodeError, ValueError):
+            requests_file.unlink()
+    
+    return {'leave_requests': [], 'shift_requests': []}
+
+
+def check_authentication():
+    """Check if user is logged in, if not show login form."""
+    # Initialize session state
+    if 'user_logged_in' not in st.session_state:
+        st.session_state.user_logged_in = False
+        st.session_state.current_user = None
+    
+    # Check for persistent login from file
+    if not st.session_state.user_logged_in:
+        login_state = load_login_state()
+        if login_state:
+            # Load user data from file
+            saved_user_data = load_user_data()
+            if saved_user_data and login_state['username'] in saved_user_data:
+                st.session_state.user_logged_in = True
+                st.session_state.current_user = saved_user_data[login_state['username']]
+                return True
+    
+    if not st.session_state.user_logged_in:
+        show_login_form()
+        return False
+    return True
+
+def show_login_form():
+    """Show login form."""
+    st.title("🏥 Staff Rostering System")
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.subheader("🔐 Login")
+        
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            remember_me = st.checkbox("Remember Me", help="Keep me logged in when I refresh the page")
+            submitted = st.form_submit_button("Login", type="primary")
+            
+            if submitted:
+                # Load user data
+                from roster.app.ui.data_manager import DataManager
+                if 'data_manager' not in st.session_state:
+                    st.session_state.data_manager = DataManager()
+                
+                data_manager = st.session_state.data_manager
+                if 'roster_data' not in st.session_state:
+                    st.session_state.roster_data = data_manager.load_initial_data()
+                
+                employees_df = st.session_state.roster_data['employees']
+                
+                # Load or initialize user data
+                saved_user_data = load_user_data()
+                if saved_user_data:
+                    st.session_state.user_data = saved_user_data
+                else:
+                    # Initialize user data if not exists
+                    st.session_state.user_data = {
+                        'admin': {
+                            'username': 'admin',
+                            'password': 'admin123',
+                            'employee_type': 'Manager',
+                            'employee_name': 'Admin'
+                        }
+                    }
+                    
+                    # Auto-create accounts for all employees
+                    for _, employee in employees_df.iterrows():
+                        username_emp = employee['employee'].lower().replace(' ', '_')
+                        if username_emp not in st.session_state.user_data:
+                            # Make first letter lowercase for password
+                            employee_name = employee['employee']
+                            employee_password = f"{employee_name[0].lower()}{employee_name[1:]}123"
+                            st.session_state.user_data[username_emp] = {
+                                'username': username_emp,
+                                'password': employee_password,
+                                'employee_type': 'Staff',
+                                'employee_name': employee['employee']
+                            }
+                    
+                    # Save initial user data
+                    save_user_data()
+                
+                # Check credentials
+                if username in st.session_state.user_data:
+                    user_data = st.session_state.user_data[username]
+                    if user_data['password'] == password:
+                        st.session_state.user_logged_in = True
+                        st.session_state.current_user = user_data
+                        
+                        # Save login state if "Remember Me" is checked
+                        if remember_me:
+                            save_login_state(username)
+                        
+                        st.success(f"Welcome, {user_data['employee_name']}!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid password")
+                else:
+                    st.error("Invalid username")
+
+def get_navigation_options():
+    """Get navigation options based on user role."""
+    if st.session_state.current_user['employee_type'] == 'Manager':
+        return ["Roster Manager", "User Management", "Roster Configuration", "Schedule View", "Reports"]
+    else:  # Staff
+        return ["Roster Requests", "Schedule View", "Reports"]
+
+
 def main():
     """Main Streamlit application."""
     st.set_page_config(
@@ -29,6 +265,10 @@ def main():
         layout="wide"
     )
     
+    # Check authentication first
+    if not check_authentication():
+        return
+    
     st.title("📅 Staff Rostering System")
     
     # Handle navigation from other pages
@@ -36,19 +276,17 @@ def main():
     if st.session_state.get("navigate_to"):
         navigate_to = st.session_state.navigate_to
         del st.session_state.navigate_to
-        if navigate_to == "Schedule View":
-            default_index = 3
-        elif navigate_to == "Reports":
-            default_index = 4
-        elif navigate_to == "User Management":
-            default_index = 1
-        elif navigate_to == "Roster Configuration":
-            default_index = 2
+        
+        nav_options = get_navigation_options()
+        if navigate_to in nav_options:
+            default_index = nav_options.index(navigate_to)
     
     # Sidebar for navigation
+    st.sidebar.header("Navigate")
+    nav_options = get_navigation_options()
     page = st.sidebar.selectbox(
-        "Navigate",
-        ["Roster Manager", "User Management", "Roster Configuration", "Schedule View", "Reports"],
+        "",
+        nav_options,
         index=default_index
     )
     
@@ -58,10 +296,63 @@ def main():
         show_user_management_page()
     elif page == "Roster Configuration":
         show_config_page()
+    elif page == "Roster Requests":
+        show_roster_requests_page()
     elif page == "Schedule View":
         show_schedule_page()
     elif page == "Reports":
         show_reports_page()
+
+    # Show user info at bottom of sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"## {st.session_state.current_user['employee_name']}")
+    st.sidebar.markdown(f"*{st.session_state.current_user['employee_type']}*")
+    
+    if st.sidebar.button("Change Password"):
+        st.session_state.show_password_form = True
+    
+    if st.sidebar.button("Logout"):
+        st.session_state.user_logged_in = False
+        st.session_state.current_user = None
+        clear_login_state()
+        st.rerun()
+    
+    # Show password change form if requested
+    if st.session_state.get('show_password_form', False):
+        st.sidebar.markdown("---")
+        with st.sidebar.expander("🔒 Change Password", expanded=True):
+            with st.form("change_password_form"):
+                current_password = st.text_input("Current Password", type="password")
+                new_password = st.text_input("New Password", type="password")
+                confirm_password = st.text_input("Confirm New Password", type="password")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    submit = st.form_submit_button("Update", type="primary")
+                with col2:
+                    cancel = st.form_submit_button("Cancel")
+                
+                if submit:
+                    # Validate password change
+                    username = st.session_state.current_user['employee_name'].lower().replace(' ', '_')
+                    if username == 'admin':
+                        username = 'admin'
+                    
+                    if current_password == st.session_state.user_data[username]['password']:
+                        if new_password == confirm_password and new_password:
+                            st.session_state.user_data[username]['password'] = new_password
+                            save_user_data()  # Save to file
+                            st.success("✅ Password updated successfully!")
+                            st.session_state.show_password_form = False
+                            st.rerun()
+                        else:
+                            st.error("New passwords don't match or are empty.")
+                    else:
+                        st.error("Current password is incorrect.")
+                
+                if cancel:
+                    st.session_state.show_password_form = False
+                    st.rerun()
 
 
 
@@ -187,7 +478,7 @@ def show_config_page():
 def show_schedule_page():
     """Show schedule visualization page."""
     st.header("📅 Schedule View")
-
+    
     from roster.app.ui.data_manager import load_committed_schedules
     committed_schedules = load_committed_schedules()
 
@@ -195,7 +486,7 @@ def show_schedule_page():
     if not committed_schedules:
         st.warning("No committed schedules available. Please generate and commit a schedule in the Roster Manager first.")
         return
-
+    
     # Use the most recent committed schedule by default
     committed_schedule = committed_schedules[-1]  # Get the last (most recent) schedule
     schedule_df = committed_schedule['schedule_df']
@@ -215,13 +506,13 @@ def show_schedule_page():
         month_options = [month_names[m-1] for m in available_months_for_year]
         selected_month_name = st.selectbox("Select Month", month_options, index=len(month_options) - 1)
         selected_month = available_months_for_year[month_options.index(selected_month_name)]
-
+    
     # Check if there's data for the selected year/month combination
     month_data = schedule_df[
-        (schedule_df['date'].dt.month == selected_month) &
+        (schedule_df['date'].dt.month == selected_month) & 
         (schedule_df['date'].dt.year == selected_year)
     ]
-    
+            
     if month_data.empty:
         st.warning(f"No schedule data available for {selected_month_name} {selected_year}")
         return
@@ -273,7 +564,7 @@ def show_reports_page():
     if month_coverage.empty:
         st.warning(f"No report data available for {selected_month_name} {selected_year}")
         return
-
+    
     # Coverage analysis
     st.subheader("Coverage Analysis")
     # Coverage by shift type - create summary from individual shift columns
@@ -296,27 +587,27 @@ def show_reports_page():
                 "required": total_required,
                 "shortfall": total_shortfall
             })
-    
-    if shift_summary:
-        shift_coverage = pd.DataFrame(shift_summary)
         
-        fig = px.bar(
-            shift_coverage,
-            x="shift",
-            y=["required", "assigned", "shortfall"],
-            title="Coverage by Shift Type",
-            barmode="group",
-            color_discrete_sequence=['#2E8B57', '#FF6B6B', '#4ECDC4']
-        )
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(size=12),
-            title_font_size=16,
-            xaxis_title="Shift Type",
-            yaxis_title="Number of Shifts"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        if shift_summary:
+            shift_coverage = pd.DataFrame(shift_summary)
+            
+            fig = px.bar(
+                shift_coverage,
+                x="shift",
+                y=["required", "assigned", "shortfall"],
+                title="Coverage by Shift Type",
+                barmode="group",
+                color_discrete_sequence=['#2E8B57', '#FF6B6B', '#4ECDC4']
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                title_font_size=16,
+                xaxis_title="Shift Type",
+                yaxis_title="Number of Shifts"
+            )
+            st.plotly_chart(fig, use_container_width=True)
     
     # Daily coverage trends - sum all shortfalls per day
     if not month_coverage.empty:
@@ -352,7 +643,7 @@ def show_reports_page():
             )
             fig.update_traces(line=dict(width=3))
             st.plotly_chart(fig, use_container_width=True)
-
+    
     # Employee workload analysis
     st.subheader("Employee Workload Analysis")
     if employee_df is not None:
@@ -511,6 +802,139 @@ def show_user_management_page():
                     st.error("Passwords do not match.")
                 else:
                     st.error("Please enter a new password.")
+
+
+def show_roster_requests_page():
+    """Show roster requests page for staff members."""
+    st.header("📝 Roster Requests")
+    
+    # Load requests data from file
+    if 'staff_requests' not in st.session_state:
+        st.session_state.staff_requests = load_staff_requests()
+    
+    # Create tabs
+    tab1, tab2 = st.tabs(["🏖️ Leave Requests", "🔒 Shift Requests"])
+    
+    with tab1:
+        st.subheader("Request Leave")
+        st.write("Submit a request for time off or leave.")
+        
+        with st.form("leave_request_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                from_date = st.date_input("From Date", value=date.today())
+                leave_type = st.selectbox(
+                    "Leave Type",
+                    ["DO", "CL", "ML", "W", "UL", "STL"],
+                    help="DO: Day Off, CL: Casual Leave, ML: Maternity Leave, W: Workshop, UL: Unpaid Leave, STL: Study Leave"
+                )
+            
+            with col2:
+                to_date = st.date_input("To Date", value=date.today())
+                reason = st.text_area("Reason (Optional)", height=100)
+            
+            submitted = st.form_submit_button("Submit Leave Request", type="primary")
+            
+            if submitted:
+                if from_date > to_date:
+                    st.error("From date cannot be after to date.")
+                else:
+                    request = {
+                        'employee': st.session_state.current_user['employee_name'],
+                        'from_date': from_date,
+                        'to_date': to_date,
+                        'leave_type': leave_type,
+                        'reason': reason,
+                        'status': 'Pending',
+                        'submitted_at': datetime.now(),
+                        'request_id': f"LR_{len(st.session_state.staff_requests['leave_requests']) + 1}"
+                    }
+                    st.session_state.staff_requests['leave_requests'].append(request)
+                    save_staff_requests()  # Save to file
+                    st.success("✅ Leave request submitted successfully!")
+                    st.rerun()
+        
+        # Show submitted requests
+        if st.session_state.staff_requests['leave_requests']:
+            st.subheader("Your Leave Requests")
+            leave_df_data = []
+            for req in st.session_state.staff_requests['leave_requests']:
+                if req['employee'] == st.session_state.current_user['employee_name']:
+                    leave_df_data.append({
+                        'From Date': req['from_date'],
+                        'To Date': req['to_date'],
+                        'Type': req['leave_type'],
+                        'Reason': req['reason'],
+                        'Status': req['status'],
+                        'Submitted': req['submitted_at'].strftime('%Y-%m-%d %H:%M')
+                    })
+            
+            if leave_df_data:
+                leave_df = pd.DataFrame(leave_df_data)
+                st.dataframe(leave_df, use_container_width=True)
+    
+    with tab2:
+        st.subheader("Request Special Shift")
+        st.write("Submit a request for a specific shift assignment.")
+        
+        with st.form("shift_request_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                request_date = st.date_input("Date", value=date.today())
+                shift_type = st.selectbox(
+                    "Shift Type",
+                    ["M", "IP", "A", "N", "M3", "M4", "H", "CL"],
+                    help="M: Main, IP: Inpatient, A: Afternoon, N: Night, M3: M3, M4: M4, H: Harat, CL: Clinic"
+                )
+            
+            with col2:
+                request_type = st.selectbox(
+                    "Request Type",
+                    ["Force (Must)", "Forbid (Cannot)"],
+                    help="Force: I must work this shift, Forbid: I cannot work this shift"
+                )
+                reason = st.text_area("Reason (Optional)", height=100)
+            
+            submitted = st.form_submit_button("Submit Shift Request", type="primary")
+            
+            if submitted:
+                force = request_type == "Force (Must)"
+                request = {
+                    'employee': st.session_state.current_user['employee_name'],
+                    'from_date': request_date,
+                    'to_date': request_date,
+                    'shift': shift_type,
+                    'force': force,
+                    'reason': reason,
+                    'status': 'Pending',
+                    'submitted_at': datetime.now(),
+                    'request_id': f"SR_{len(st.session_state.staff_requests['shift_requests']) + 1}"
+                }
+                st.session_state.staff_requests['shift_requests'].append(request)
+                save_staff_requests()  # Save to file
+                st.success("✅ Shift request submitted successfully!")
+                st.rerun()
+        
+        # Show submitted requests
+        if st.session_state.staff_requests['shift_requests']:
+            st.subheader("Your Shift Requests")
+            shift_df_data = []
+            for req in st.session_state.staff_requests['shift_requests']:
+                if req['employee'] == st.session_state.current_user['employee_name']:
+                    shift_df_data.append({
+                        'Date': req['from_date'],
+                        'Shift': req['shift'],
+                        'Type': 'Force' if req['force'] else 'Forbid',
+                        'Reason': req['reason'],
+                        'Status': req['status'],
+                        'Submitted': req['submitted_at'].strftime('%Y-%m-%d %H:%M')
+                    })
+            
+            if shift_df_data:
+                shift_df = pd.DataFrame(shift_df_data)
+                st.dataframe(shift_df, use_container_width=True)
 
 
 if __name__ == "__main__":
