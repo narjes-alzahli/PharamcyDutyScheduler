@@ -97,7 +97,7 @@ def main():
     st.sidebar.subheader("Display Options")
     
     show_heatmap = st.sidebar.checkbox("Show Heatmap", value=True)
-    show_table = st.sidebar.checkbox("Show Color-Coded Table", value=True)
+    show_table = st.sidebar.checkbox("Show Schedule Table", value=True)
     show_workload = st.sidebar.checkbox("Show Employee Workload", value=False)
     show_stats = st.sidebar.checkbox("Show Statistics", value=True)
     
@@ -115,7 +115,7 @@ def main():
     
     if show_table:
         st.subheader("📋 Detailed Schedule Table")
-        schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year)
+        schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year, show_summary=True)
     
     if show_workload:
         st.subheader("👥 Employee Workload Analysis")

@@ -31,139 +31,38 @@ def main():
     
     st.title("📅 Staff Rostering System")
     
+    # Handle navigation from other pages
+    default_index = 0
+    if st.session_state.get("navigate_to"):
+        navigate_to = st.session_state.navigate_to
+        del st.session_state.navigate_to
+        if navigate_to == "Schedule View":
+            default_index = 3
+        elif navigate_to == "Reports":
+            default_index = 4
+        elif navigate_to == "User Management":
+            default_index = 1
+        elif navigate_to == "Roster Configuration":
+            default_index = 2
+    
     # Sidebar for navigation
     page = st.sidebar.selectbox(
         "Navigate",
-        ["Data Manager", "Input Data", "Configuration", "Solve & Results", "Schedule View", "Reports"]
+        ["Roster Manager", "User Management", "Roster Configuration", "Schedule View", "Reports"],
+        index=default_index
     )
     
-    if page == "Data Manager":
+    if page == "Roster Manager":
         show_data_manager_page()
-    elif page == "Input Data":
-        show_input_page()
-    elif page == "Configuration":
+    elif page == "User Management":
+        show_user_management_page()
+    elif page == "Roster Configuration":
         show_config_page()
-    elif page == "Solve & Results":
-        show_solve_page()
     elif page == "Schedule View":
         show_schedule_page()
     elif page == "Reports":
         show_reports_page()
 
-
-def show_input_page():
-    """Show input data upload and management page."""
-    st.header("📊 Input Data")
-    
-    # File upload section
-    st.subheader("Upload CSV Files")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Required Files**")
-        employees_file = st.file_uploader(
-            "Employees CSV",
-            type=["csv"],
-            help="employee,skill_M,skill_IP,skill_A,skill_N,skill_M3,skill_M4,skill_H,skill_CL,clinic_only,ip_ok,harat_ok,maxN,maxA,min_days_off,weight,pending_off"
-        )
-        
-        demands_file = st.file_uploader(
-            "Daily Requirements CSV", 
-            type=["csv"],
-            help="date,need_M,need_IP,need_A,need_N,need_M3,need_M4,need_H,need_CL,holiday"
-        )
-    
-    with col2:
-        st.markdown("**Optional Files**")
-        time_off_file = st.file_uploader(
-            "Leave CSV",
-            type=["csv"],
-            help="employee,from_date,to_date,code (or employee,date,code)"
-        )
-        
-        locks_file = st.file_uploader(
-            "Special Requirements CSV",
-            type=["csv"], 
-            help="employee,from_date,to_date,shift,force (or employee,date,shift,force)"
-        )
-    
-    # Process uploaded files
-    if employees_file is not None:
-        try:
-            st.session_state["employees_df"] = pd.read_csv(employees_file)
-            st.success("✅ Employees data loaded!")
-        except Exception as e:
-            st.error(f"Error loading employees file: {e}")
-    
-    if demands_file is not None:
-        try:
-            demands_df = pd.read_csv(demands_file)
-            demands_df['date'] = pd.to_datetime(demands_df['date']).dt.date
-            st.session_state["demands_df"] = demands_df
-            st.success("✅ Demands data loaded!")
-        except Exception as e:
-            st.error(f"Error loading demands file: {e}")
-    
-    if time_off_file is not None:
-        try:
-            time_off_df = pd.read_csv(time_off_file)
-            # Handle different date column formats
-            if 'date' in time_off_df.columns:
-                time_off_df['date'] = pd.to_datetime(time_off_df['date']).dt.date
-            elif 'from_date' in time_off_df.columns:
-                # Convert from_date to date for compatibility
-                time_off_df['date'] = pd.to_datetime(time_off_df['from_date']).dt.date
-            st.session_state["time_off_df"] = time_off_df
-            st.success("✅ Time off data loaded!")
-        except Exception as e:
-            st.error(f"Error loading time off file: {e}")
-    
-    if locks_file is not None:
-        try:
-            locks_df = pd.read_csv(locks_file)
-            # Handle different date column formats
-            if 'date' in locks_df.columns:
-                locks_df['date'] = pd.to_datetime(locks_df['date']).dt.date
-            elif 'from_date' in locks_df.columns:
-                # Convert from_date to date for compatibility
-                locks_df['date'] = pd.to_datetime(locks_df['from_date']).dt.date
-            st.session_state["locks_df"] = locks_df
-            st.success("✅ Locks data loaded!")
-        except Exception as e:
-            st.error(f"Error loading locks file: {e}")
-    
-    # Sample data section
-    st.subheader("📋 Sample Data")
-    if st.button("Load Sample Data"):
-        load_sample_data()
-        st.success("Sample data loaded! You can now proceed to Configuration.")
-    
-    # Data preview
-    if st.session_state.get("employees_df") is not None:
-        st.subheader("Data Preview")
-        
-        tab1, tab2, tab3, tab4 = st.tabs(["Employees", "Daily Requirements", "Leave", "Special Requirements"])
-        
-        with tab1:
-            if st.session_state.get("employees_df") is not None:
-                st.dataframe(st.session_state["employees_df"])
-                
-        with tab2:
-            if st.session_state.get("demands_df") is not None:
-                st.dataframe(st.session_state["demands_df"])
-                
-        with tab3:
-            if st.session_state.get("time_off_df") is not None:
-                st.dataframe(st.session_state["time_off_df"])
-            else:
-                st.info("No time off data loaded")
-                
-        with tab4:
-            if st.session_state.get("locks_df") is not None:
-                st.dataframe(st.session_state["locks_df"])
-            else:
-                st.info("No locks data loaded")
 
 
 def show_config_page():
@@ -273,301 +172,205 @@ def show_config_page():
                 st.session_state.config["forbidden_adjacencies"].pop(i)
                 st.rerun()
     
-    # Save/Load config
-    st.subheader("Configuration Management")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Save Configuration"):
-            config_yaml = yaml.dump(st.session_state.config)
-            st.download_button(
-                "Download Config",
-                config_yaml,
-                "config.yaml",
-                "text/yaml"
-            )
-    
-    with col2:
-        config_file = st.file_uploader("Load Configuration", type=["yaml", "yml"])
-        if config_file:
-            try:
-                config_data = yaml.safe_load(config_file)
-                st.session_state.config.update(config_data)
-                st.success("Configuration loaded successfully!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error loading configuration: {e}")
-
-
-def show_solve_page():
-    """Show solve and results page."""
-    st.header("🔧 Solve & Results")
-    
-    # Check if data is loaded
-    if st.session_state.get("employees_df") is None:
-        st.warning("Please load input data first in the Input Data page.")
-        return
-    
-    # Solve parameters
-    st.subheader("Solve Parameters")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        time_limit = st.slider(
-            "Time Limit (seconds)",
-            min_value=30,
-            max_value=1800,
-            value=300,
-            step=30,
-            help="Maximum time to spend solving"
+    # Save configuration
+    st.subheader("Save Configuration")
+    if st.button("Save Configuration"):
+        config_yaml = yaml.dump(st.session_state.config)
+        st.download_button(
+            "Download Config",
+            config_yaml,
+            "config.yaml",
+            "text/yaml"
         )
-    
-    with col2:
-        if st.button("🚀 Solve Roster", type="primary"):
-            solve_roster_ui(time_limit)
-    
-    # Results display
-    if st.session_state.get("solution_success"):
-        st.success("✅ Roster solved successfully!")
-        
-        # Solution metrics
-        metrics = st.session_state.get("solution_metrics", {})
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
-        with col2:
-            st.metric("Status", metrics.get('status', 'Unknown'))
-        with col3:
-            st.metric("Night Variance", f"{metrics.get('fairness', {}).get('night_variance', 0):.2f}")
-        with col4:
-            st.metric("Evening Variance", f"{metrics.get('fairness', {}).get('evening_variance', 0):.2f}")
-        
-        # Download buttons
-        st.subheader("📥 Download Results")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            schedule_csv = st.session_state.get("schedule_df").to_csv(index=False)
-            st.download_button(
-                "Download Schedule",
-                schedule_csv,
-                "schedule.csv",
-                "text/csv"
-            )
-        
-        with col2:
-            coverage_csv = st.session_state.get("coverage_df").to_csv(index=False)
-            st.download_button(
-                "Download Coverage Report",
-                coverage_csv,
-                "coverage_report.csv",
-                "text/csv"
-            )
-        
-        with col3:
-            employee_csv = st.session_state.get("employee_df").to_csv(index=False)
-            st.download_button(
-                "Download Employee Report",
-                employee_csv,
-                "per_employee_report.csv",
-                "text/csv"
-            )
-        
-        with col4:
-            metrics_csv = pd.DataFrame([metrics]).to_csv(index=False)
-            st.download_button(
-                "Download Metrics",
-                metrics_csv,
-                "metrics.csv",
-                "text/csv"
-            )
-    
-    elif st.session_state.get("solution_success") is False:
-        st.error("❌ Failed to solve roster. Check constraints and try again.")
 
 
 def show_schedule_page():
     """Show schedule visualization page."""
     st.header("📅 Schedule View")
-    
-    if not st.session_state.get("solution_success"):
-        st.warning("Please solve a roster first to view the schedule.")
+
+    from roster.app.ui.data_manager import load_committed_schedules
+    committed_schedules = load_committed_schedules()
+
+    # Check if there are any committed schedules
+    if not committed_schedules:
+        st.warning("No committed schedules available. Please generate and commit a schedule in the Roster Manager first.")
         return
-    
-    schedule_df = st.session_state.get("schedule_df")
-    if schedule_df is None:
-        st.error("No schedule data available.")
-        return
-    
-    # Initialize schedule display
-    schedule_display = ScheduleDisplay()
+
+    # Use the most recent committed schedule by default
+    committed_schedule = committed_schedules[-1]  # Get the last (most recent) schedule
+    schedule_df = committed_schedule['schedule_df']
     
     # Month and year selection
     col1, col2 = st.columns(2)
-    
     with col1:
-        # Extract available months and years from the data
         schedule_df['date'] = pd.to_datetime(schedule_df['date'])
-        available_months = sorted(schedule_df['date'].dt.month.unique())
         available_years = sorted(schedule_df['date'].dt.year.unique())
-        
-        selected_year = st.selectbox(
-            "Select Year",
-            available_years,
-            index=len(available_years) - 1  # Default to latest year
-        )
+        selected_year = st.selectbox("Select Year", available_years, index=len(available_years) - 1)
     
     with col2:
-        month_names = [
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ]
-        
-        # Filter months available for selected year
+        month_names = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
         year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
         available_months_for_year = sorted(year_data['date'].dt.month.unique())
-        
         month_options = [month_names[m-1] for m in available_months_for_year]
-        selected_month_name = st.selectbox(
-            "Select Month",
-            month_options,
-            index=len(month_options) - 1  # Default to latest month
-        )
-        
+        selected_month_name = st.selectbox("Select Month", month_options, index=len(month_options) - 1)
         selected_month = available_months_for_year[month_options.index(selected_month_name)]
+
+    # Check if there's data for the selected year/month combination
+    month_data = schedule_df[
+        (schedule_df['date'].dt.month == selected_month) &
+        (schedule_df['date'].dt.year == selected_year)
+    ]
     
-    # Display options
-    st.subheader("Display Options")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        show_table = st.checkbox("Show Color-Coded Table", value=True)
-    
-    with col2:
-        show_workload = st.checkbox("Show Employee Workload", value=False)
-    
-    # Display the schedule
-    if show_table:
-        st.subheader("📋 Detailed Schedule Table")
-        schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year)
-    
-    if show_workload:
-        st.subheader("👥 Employee Workload Analysis")
-        fig = schedule_display.create_employee_workload_chart(schedule_df, selected_month, selected_year)
-        if fig.data:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning(f"No workload data available for {selected_month_name} {selected_year}")
-    
-    # Additional controls
-    st.subheader("🔧 Additional Controls")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🔄 Refresh Display"):
-            st.rerun()
-    
-    with col2:
-        # Export options
-        if st.button("📥 Export Schedule"):
-            # Create a filtered dataframe for the selected month
-            month_data = schedule_df[
-                (schedule_df['date'].dt.month == selected_month) & 
-                (schedule_df['date'].dt.year == selected_year)
-            ]
-            
-            csv = month_data.to_csv(index=False)
-            st.download_button(
-                "Download CSV",
-                csv,
-                f"schedule_{selected_year}_{selected_month:02d}.csv",
-                "text/csv"
-            )
+    if month_data.empty:
+        st.warning(f"No schedule data available for {selected_month_name} {selected_year}")
+        return
+
+    # Display the schedule (simple - just the table with legend and download)
+    schedule_display = ScheduleDisplay()
+    schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year, show_summary=False)
 
 
 def show_reports_page():
     """Show reports and visualization page."""
     st.header("📈 Reports & Visualization")
     
-    if not st.session_state.get("solution_success"):
-        st.warning("Please solve a roster first to view reports.")
+    from roster.app.ui.data_manager import load_committed_schedules
+    committed_schedules = load_committed_schedules()
+
+    # Check if there are any committed schedules
+    if not committed_schedules:
+        st.warning("No committed schedules available. Please generate and commit a schedule in the Roster Manager first.")
         return
+
+    # Use the most recent committed schedule by default
+    committed_schedule = committed_schedules[-1]  # Get the last (most recent) schedule
+    coverage_df = committed_schedule['coverage_df']
+    employee_df = committed_schedule['employee_df']
     
+    # Month and year selection
+    col1, col2 = st.columns(2)
+    with col1:
+        coverage_df['date'] = pd.to_datetime(coverage_df['date'])
+        available_years = sorted(coverage_df['date'].dt.year.unique())
+        selected_year = st.selectbox("Select Year", available_years, index=len(available_years) - 1)
+    
+    with col2:
+        month_names = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
+        year_data = coverage_df[coverage_df['date'].dt.year == selected_year]
+        available_months_for_year = sorted(year_data['date'].dt.month.unique())
+        month_options = [month_names[m-1] for m in available_months_for_year]
+        selected_month_name = st.selectbox("Select Month", month_options, index=len(month_options) - 1)
+        selected_month = available_months_for_year[month_options.index(selected_month_name)]
+
+    # Filter data for selected year/month
+    month_coverage = coverage_df[
+        (coverage_df['date'].dt.month == selected_month) &
+        (coverage_df['date'].dt.year == selected_year)
+    ]
+    
+    if month_coverage.empty:
+        st.warning(f"No report data available for {selected_month_name} {selected_year}")
+        return
+
     # Coverage analysis
-    st.subheader("📊 Coverage Analysis")
-    coverage_df = st.session_state.get("coverage_df")
-    if coverage_df is not None:
-        # Coverage by shift type - create summary from individual shift columns
-        shift_types = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
-        shift_summary = []
-        
-        for shift in shift_types:
-            assigned_col = f"{shift}_assigned"
-            required_col = f"{shift}_required"
-            shortfall_col = f"{shift}_shortfall"
-            
-            if assigned_col in coverage_df.columns:
-                total_assigned = coverage_df[assigned_col].sum()
-                total_required = coverage_df[required_col].sum()
-                total_shortfall = coverage_df[shortfall_col].sum()
-                
-                shift_summary.append({
-                    "shift": shift,
-                    "assigned": total_assigned,
-                    "required": total_required,
-                    "shortfall": total_shortfall
-                })
-        
-        if shift_summary:
-            shift_coverage = pd.DataFrame(shift_summary)
-            
-            fig = px.bar(
-                shift_coverage,
-                x="shift",
-                y=["required", "assigned", "shortfall"],
-                title="Coverage by Shift Type",
-                barmode="group"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Daily coverage trends - sum all shortfalls per day
-        if coverage_df is not None and not coverage_df.empty:
-            daily_shortfall = []
-            for _, row in coverage_df.iterrows():
-                total_shortfall = sum(
-                    row.get(f"{shift}_shortfall", 0) 
-                    for shift in shift_types 
-                    if f"{shift}_shortfall" in coverage_df.columns
-                )
-                daily_shortfall.append({
-                    "date": row["date"],
-                    "shortfall": total_shortfall
-                })
-            
-            if daily_shortfall:
-                daily_coverage = pd.DataFrame(daily_shortfall)
-                
-                fig = px.line(
-                    daily_coverage,
-                    x="date",
-                    y="shortfall",
-                    title="Daily Coverage Shortfall"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Coverage Analysis")
+    # Coverage by shift type - create summary from individual shift columns
+    shift_types = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
+    shift_summary = []
     
+    for shift in shift_types:
+        assigned_col = f"{shift}_assigned"
+        required_col = f"{shift}_required"
+        shortfall_col = f"{shift}_shortfall"
+        
+        if assigned_col in month_coverage.columns:
+            total_assigned = month_coverage[assigned_col].sum()
+            total_required = month_coverage[required_col].sum()
+            total_shortfall = month_coverage[shortfall_col].sum()
+            
+            shift_summary.append({
+                "shift": shift,
+                "assigned": total_assigned,
+                "required": total_required,
+                "shortfall": total_shortfall
+            })
+    
+    if shift_summary:
+        shift_coverage = pd.DataFrame(shift_summary)
+        
+        fig = px.bar(
+            shift_coverage,
+            x="shift",
+            y=["required", "assigned", "shortfall"],
+            title="Coverage by Shift Type",
+            barmode="group",
+            color_discrete_sequence=['#2E8B57', '#FF6B6B', '#4ECDC4']
+        )
+        fig.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=12),
+            title_font_size=16,
+            xaxis_title="Shift Type",
+            yaxis_title="Number of Shifts"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Daily coverage trends - sum all shortfalls per day
+    if not month_coverage.empty:
+        daily_shortfall = []
+        for _, row in month_coverage.iterrows():
+            total_shortfall = sum(
+                row.get(f"{shift}_shortfall", 0) 
+                for shift in shift_types 
+                if f"{shift}_shortfall" in month_coverage.columns
+            )
+            daily_shortfall.append({
+                "date": row["date"],
+                "shortfall": total_shortfall
+            })
+        
+        if daily_shortfall:
+            daily_coverage = pd.DataFrame(daily_shortfall)
+            
+            fig = px.line(
+                daily_coverage,
+                x="date",
+                y="shortfall",
+                title="Daily Coverage Shortfall",
+                color_discrete_sequence=['#FF6B6B']
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                title_font_size=16,
+                xaxis_title="Date",
+                yaxis_title="Shortfall"
+            )
+            fig.update_traces(line=dict(width=3))
+            st.plotly_chart(fig, use_container_width=True)
+
     # Employee workload analysis
-    st.subheader("👥 Employee Workload Analysis")
-    employee_df = st.session_state.get("employee_df")
+    st.subheader("Employee Workload Analysis")
     if employee_df is not None:
         # Night shift distribution
         fig = px.histogram(
             employee_df,
             x="night_shifts",
             title="Distribution of Night Shifts",
-            nbins=10
+            nbins=10,
+            color_discrete_sequence=['#4ECDC4']
+        )
+        fig.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=12),
+            title_font_size=16,
+            xaxis_title="Number of Night Shifts",
+            yaxis_title="Number of Employees"
         )
         st.plotly_chart(fig, use_container_width=True)
         
@@ -576,155 +379,138 @@ def show_reports_page():
             employee_df,
             x="afternoon_shifts", 
             title="Distribution of Afternoon Shifts",
-            nbins=10
+            nbins=10,
+            color_discrete_sequence=['#2E8B57']
+        )
+        fig.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=12),
+            title_font_size=16,
+            xaxis_title="Number of Afternoon Shifts",
+            yaxis_title="Number of Employees"
         )
         st.plotly_chart(fig, use_container_width=True)
         
         # Employee workload table
+        st.write("**Employee Workload Details**")
         st.dataframe(employee_df)
 
 
-def load_sample_data():
-    """Load sample data for demonstration."""
-    # Sample employees
-    employees_data = {
-        "employee": ["Idris", "Karima", "Rahma", "Noor", "Ameera", "Shatha", "Rasha", "Layla"],
-        "skill_M": [1, 1, 1, 1, 1, 1, 1, 1],
-        "skill_M3": [1, 1, 1, 1, 1, 1, 1, 1],
-        "skill_M4": [1, 1, 1, 1, 1, 1, 1, 1],
-        "skill_H": [1, 1, 1, 1, 1, 1, 1, 1],
-        "skill_CL": [1, 1, 1, 1, 1, 1, 1, 1],
-        "skill_IP": [0, 1, 1, 1, 1, 1, 1, 1],
-        "skill_A": [1, 1, 0, 1, 1, 1, 1, 1],
-        "skill_N": [0, 1, 1, 1, 1, 1, 1, 1],
-        "clinic_only": [0, 0, 0, 0, 0, 0, 0, 0],
-        "ip_ok": [1, 1, 1, 1, 1, 1, 1, 1],
-        "harat_ok": [1, 1, 1, 1, 1, 1, 1, 1],
-        "maxN": [0, 3, 3, 3, 3, 3, 3, 3],
-        "maxA": [6, 6, 5, 6, 6, 6, 6, 6],
-        "min_days_off": [4, 4, 4, 4, 4, 4, 4, 4],
-        "weight": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        "pending_off": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    }
-    st.session_state["employees_df"] = pd.DataFrame(employees_data)
+def show_user_management_page():
+    """Show user management page."""
+    st.header("👤 User Management")
     
-    # Sample demands (one week)
-    start_date = date(2025, 3, 1)
-    end_date = date(2025, 3, 7)
-    demands_data = []
-    for i in range(7):
-        current_date = start_date + timedelta(days=i)
-        # Vary demands by day of week
-        if current_date.weekday() in [5, 6]:  # Weekend
-            demands_data.append({
-                "date": current_date,
-                "from_date": start_date,
-                "to_date": end_date,
-                "need_M": 1,
-                "need_IP": 1,
-                "need_A": 1,
-                "need_N": 1,
-                "need_M3": 1,
-                "need_M4": 1,
-                "need_H": 0,
-                "need_CL": 0,
-                "holiday": None
+    # Load employee data
+    from roster.app.ui.data_manager import DataManager
+    if 'data_manager' not in st.session_state:
+        st.session_state.data_manager = DataManager()
+    
+    data_manager = st.session_state.data_manager
+    if 'roster_data' not in st.session_state:
+        st.session_state.roster_data = data_manager.load_initial_data()
+    
+    employees_df = st.session_state.roster_data['employees']
+    
+    # Initialize user data in session state if not exists
+    if 'user_data' not in st.session_state:
+        st.session_state.user_data = {
+            'admin': {
+                'username': 'admin',
+                'password': 'admin123',
+                'employee_type': 'Administrator',
+                'employee_name': 'System Administrator'
+            }
+        }
+        
+        # Auto-create accounts for all employees
+        for _, employee in employees_df.iterrows():
+            username = employee['employee'].lower().replace(' ', '_')
+            if username not in st.session_state.user_data:
+                employee_password = f"{employee['employee']}123"  # Name + 123
+                st.session_state.user_data[username] = {
+                    'username': username,
+                    'password': employee_password,
+                    'employee_type': 'Staff',  # Default type
+                    'employee_name': employee['employee']
+                }
+    
+    st.subheader("Employee User Accounts")
+    
+    # Display current users
+    if st.session_state.user_data:
+        user_df_data = []
+        for username, user_info in st.session_state.user_data.items():
+            user_df_data.append({
+                'Username': username,
+                'Employee Name': user_info['employee_name'],
+                'Employee Type': user_info['employee_type'],
+                'Password': '*' * len(user_info['password'])  # Hide password
             })
-        else:  # Weekday
-            demands_data.append({
-                "date": current_date,
-                "from_date": start_date,
-                "to_date": end_date,
-                "need_M": 2,
-                "need_IP": 2,
-                "need_A": 1,
-                "need_N": 1,
-                "need_M3": 2,
-                "need_M4": 2,
-                "need_H": 1,
-                "need_CL": 0,
-                "holiday": None
-            })
-    st.session_state["demands_df"] = pd.DataFrame(demands_data)
+        
+        if user_df_data:
+            user_df = pd.DataFrame(user_df_data)
+            st.dataframe(user_df, use_container_width=True)
     
-    # Sample time off (within the date range)
-    time_off_data = [
-        {"employee": "Rasha", "from_date": date(2025, 3, 3), "to_date": date(2025, 3, 3), "code": "ML"},
-        {"employee": "Ameera", "from_date": date(2025, 3, 6), "to_date": date(2025, 3, 6), "code": "W"}
-    ]
-    st.session_state["time_off_df"] = pd.DataFrame(time_off_data)
+    st.subheader("Edit User Account")
     
-    # Sample locks (within the date range, using valid shifts)
-    locks_data = [
-        {"employee": "Ameera", "from_date": date(2025, 3, 2), "to_date": date(2025, 3, 2), "shift": "M", "force": 1},
-        {"employee": "Shatha", "from_date": date(2025, 3, 4), "to_date": date(2025, 3, 4), "shift": "N", "force": 0}
-    ]
-    st.session_state["locks_df"] = pd.DataFrame(locks_data)
-
-
-def solve_roster_ui(time_limit: int):
-    """Solve roster using the UI data."""
-    try:
-        # Create temporary directory for data
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+    # Form to edit existing user
+    with st.form("edit_user_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            employee_name = st.selectbox(
+                "Select Employee",
+                employees_df['employee'].tolist(),
+                help="Choose an employee to edit their user account"
+            )
             
-            # Save dataframes to CSV files
-            st.session_state["employees_df"].to_csv(temp_path / "employees.csv", index=False)
-            st.session_state["demands_df"].to_csv(temp_path / "demands.csv", index=False)
+            username = employee_name.lower().replace(' ', '_')
+            st.text_input("Username", value=username, disabled=True, help="Username cannot be changed")
+        
+        with col2:
+            password = st.text_input(
+                "New Password",
+                type="password",
+                help="Enter new password for this user"
+            )
             
-            if st.session_state.get("time_off_df") is not None:
-                st.session_state["time_off_df"].to_csv(temp_path / "time_off.csv", index=False)
-            
-            if st.session_state.get("locks_df") is not None:
-                st.session_state["locks_df"].to_csv(temp_path / "locks.csv", index=False)
-            
-            # Create config file
-            config_path = temp_path / "config.yaml"
-            with open(config_path, 'w') as f:
-                yaml.dump(st.session_state.get("config", {}), f)
-            
-            # Load data
-            data = RosterData(temp_path)
-            data.load_data()
-            
-            # Create config
-            config = RosterConfig(config_path)
-            
-            # Create solver
-            solver = RosterSolver(config)
-            
-            # Solve
-            with st.spinner("Solving roster..."):
-                success, assignments, metrics = solver.solve(data, time_limit)
-            
-            if success:
-                st.session_state["solution_success"] = True
-                st.session_state["solution_metrics"] = metrics
-                
-                # Create result dataframes
-                employees = data.get_employee_names()
-                dates = data.get_all_dates()
-                
-                st.session_state["schedule_df"] = solver.create_schedule_dataframe(
-                    assignments, employees, dates
-                )
-                
-                demands = {day: data.get_daily_requirement(day) for day in dates}
-                st.session_state["coverage_df"] = solver.create_coverage_report(
-                    assignments, employees, dates, demands
-                )
-                
-                st.session_state["employee_df"] = solver.create_employee_report(
-                    assignments, employees, dates, demands
-                )
-                
+            employee_type = st.selectbox(
+                "Employee Type",
+                ["Staff", "Administrator"],
+                help="Role/level of the employee"
+            )
+        
+        submitted = st.form_submit_button("Update User Account", type="primary")
+        
+        if submitted:
+            if username in st.session_state.user_data:
+                # Update existing user
+                if password:
+                    st.session_state.user_data[username]['password'] = password
+                st.session_state.user_data[username]['employee_type'] = employee_type
+                st.success(f"✅ User account updated for {employee_name}!")
+                st.rerun()
             else:
-                st.session_state["solution_success"] = False
-                
-    except Exception as e:
-        st.error(f"Error solving roster: {e}")
-        st.session_state["solution_success"] = False
+                st.error(f"User account for {employee_name} not found.")
+    
+    st.subheader("Admin Account")
+    st.info("**Default Admin Account:**\n- Username: `admin`\n- Password: `admin123`\n- Type: Administrator")
+    
+    # Option to change admin password
+    with st.expander("Change Admin Password"):
+        with st.form("change_admin_password"):
+            new_password = st.text_input("New Admin Password", type="password")
+            confirm_password = st.text_input("Confirm New Password", type="password")
+            
+            if st.form_submit_button("Update Admin Password"):
+                if new_password and new_password == confirm_password:
+                    st.session_state.user_data['admin']['password'] = new_password
+                    st.success("✅ Admin password updated successfully!")
+                elif new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    st.error("Please enter a new password.")
 
 
 if __name__ == "__main__":

@@ -149,7 +149,8 @@ class ScheduleDisplay:
         schedule_df: pd.DataFrame, 
         month: int, 
         year: int,
-        employee_df: pd.DataFrame = None
+        employee_df: pd.DataFrame = None,
+        show_summary: bool = True
     ) -> None:
         """Create an enhanced HTML table with color coding similar to the pharmacy rosters."""
         
@@ -195,7 +196,8 @@ class ScheduleDisplay:
         self._add_download_button(pivot_data, all_dates, year, month, employee_df)
         
         # Add summary statistics
-        self._display_summary_stats(month_data, all_dates)
+        if show_summary:
+            self._display_summary_stats(month_data, all_dates)
     
     def _display_simple_table(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int, employee_df: pd.DataFrame = None):
         """Display a simple color-coded table using HTML."""
@@ -413,7 +415,6 @@ class ScheduleDisplay:
         </style>
         
         <div style="font-family: Arial, sans-serif; margin: 20px 0;">
-            <h4 style="text-align: center; margin-bottom: 15px; font-size: 16px; font-weight: normal;">Pharmacy Schedule | {month_name} {year}</h4>
             <table class="schedule-table">
                 <thead>
                     <tr style="background-color: #f0f0f0;" class="date-row">
@@ -538,7 +539,7 @@ class ScheduleDisplay:
     
     def _display_legend(self):
         """Display the shift legend with colors and color pickers."""
-        st.markdown("**📋 Shift Legend:**")
+        st.markdown("### **Shift Legend**")
         
         # Initialize custom colors in session state if not exists
         if 'custom_shift_colors' not in st.session_state:
@@ -797,7 +798,7 @@ class ScheduleDisplay:
         
         # For now, just show a simple download button that copies the HTML
         st.download_button(
-            label="Download Schedule as HTML",
+            label="Download Schedule",
             data=html_content,
             file_name=f"pharmacy_schedule_{year}_{month:02d}_{month_name}.html",
             mime="text/html",
@@ -1143,7 +1144,6 @@ class ScheduleDisplay:
         ))
         
         fig.update_layout(
-            title=f"Employee Workload - {self._get_month_name(month)} {year}",
             xaxis_title="Number of Working Shifts",
             yaxis_title="Employee",
             height=max(400, len(employee_workload) * 25 + 100)

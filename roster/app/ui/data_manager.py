@@ -162,7 +162,7 @@ class DataManager:
 
 def show_data_manager_page():
     """Show the main data management page."""
-    #st.header("📊 Data Manager & Schedule Generator")
+    st.header("📊 Roster Manager")
     
     # Initialize data manager
     if 'data_manager' not in st.session_state:
@@ -193,7 +193,7 @@ def show_data_manager_page():
     
     # Main content tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "👥 Employees", "📋 Daily Requirements", "🏖️ Leave", "🔒 Special Requirements", "⚙️ Generate", "📅 View Schedule"
+        "👥 Employees", "📋 Staffing Needs", "🏖️ Leave Requests", "🔒 Shift Requests", "⚙️ Generate Schedule", "📅 View Schedule"
     ])
     
     with tab1:
@@ -265,7 +265,7 @@ def show_employees_tab(employees_df: pd.DataFrame):
             st.rerun()
     
     # Filter columns to show only the ones we want in the UI
-    ui_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'min_days_off']
+    ui_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'pending_off']
     employees_df_ui = employees_df[ui_columns].copy()
     
     # Editable dataframe
@@ -282,7 +282,7 @@ def show_employees_tab(employees_df: pd.DataFrame):
             "skill_M4": st.column_config.CheckboxColumn("M4", width="small"),
             "skill_H": st.column_config.CheckboxColumn("Harat", width="small"),
             "skill_CL": st.column_config.CheckboxColumn("Clinic", width="small"),
-            "min_days_off": st.column_config.NumberColumn("Min Days Off", min_value=1, max_value=10, width=120)
+            "pending_off": st.column_config.NumberColumn("Pending Off", min_value=0, max_value=50, width=120)
         },
         use_container_width=True
     )
@@ -336,15 +336,9 @@ def show_employees_tab(employees_df: pd.DataFrame):
 
 def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
     """Show demands editing tab."""
-    st.subheader("📋 Daily Requirements")
+    st.subheader("📋 Staffing Needs")
     
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        st.markdown(f"**Set daily staffing requirements for {month:02d}/{year}**")
-    
-    with col2:
-        if st.button("🔄 Generate Month"):
+    if st.button("🔄 Populate Month with Daily Shift Requirements", use_container_width=True):
             base_demand = {
                 'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 0, 'CL': 3
             }
@@ -361,7 +355,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
         ].copy()
         
         if month_demands.empty:
-            st.info(f"No demands data for {month:02d}/{year}. Click 'Generate Month' to create default demands.")
+            st.info(f"No demands data for {month:02d}/{year}. Click 'Populate Month with Daily Shift Requirements' to create default demands.")
         else:
             month_demands['date'] = month_demands['date'].dt.strftime('%Y-%m-%d')
             
@@ -394,7 +388,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
                 st.session_state.roster_data['demands'] = updated_demands
                 st.success("✅ Daily requirements data updated!")
     else:
-        st.info("No demands data available. Click 'Generate Month' to create default demands.")
+        st.info("No demands data available. Click 'Populate Month with Daily Shift Requirements' to create default demands.")
 
 
 def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
@@ -612,51 +606,227 @@ def show_generate_tab(roster_data: Dict[str, pd.DataFrame], year: int, month: in
 
 def show_schedule_view_tab(year: int, month: int):
     """Show schedule view tab."""
-    st.subheader("Schedule View")
     
     if 'generated_schedule' not in st.session_state:
-        st.info("Generate a schedule first using the 'Generate' tab.")
+        st.info("Generate a schedule first using the 'Generate Schedule' tab.")
         return
     
     schedule_df = st.session_state.generated_schedule
     
     # Display options
-    show_table = st.checkbox("Show Color-Coded Table", value=True)
-    show_workload = st.checkbox("Show Employee Workload", value=False)
+    show_schedule = st.checkbox("Show Schedule", value=True)
+    
+    # Use session state to properly manage checkbox states
+    if 'show_summary' not in st.session_state:
+        st.session_state.show_summary = False
+    if 'show_workload' not in st.session_state:
+        st.session_state.show_workload = False
+    
+    
+    show_summary = st.checkbox("Show Schedule Summary", value=st.session_state.show_summary)
+    st.session_state.show_summary = show_summary
+    
+    show_workload = st.checkbox("Show Employee Workload", value=st.session_state.show_workload)
+    st.session_state.show_workload = show_workload
     
     # Display the schedule
-    if show_table:
-        st.subheader("Detailed Schedule Table")
+    if show_schedule:
+        st.subheader("Schedule Table")
         employee_df = st.session_state.get('employee_df', None)
-        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year, employee_df)
+        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year, employee_df, show_summary)
+    
+    # Display schedule summary
+    if show_summary:
+        st.subheader("Monthly Summary")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Assignments", len(schedule_df))
+        with col2:
+            st.metric("Employees", schedule_df['employee'].nunique())
+        with col3:
+            st.metric("Days", schedule_df['date'].nunique())
+        with col4:
+            main_shifts = len(schedule_df[schedule_df['shift'].isin(['M', 'M3', 'M4'])])
+            st.metric("Main Shifts", main_shifts)
+        
+        # Shift distribution
+        st.subheader("Shift Distribution")
+        shift_counts = schedule_df['shift'].value_counts()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            import plotly.express as px
+            fig = px.pie(
+                values=shift_counts.values,
+                names=shift_counts.index,
+                title="Shift Distribution"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            fig = px.bar(
+                x=shift_counts.index,
+                y=shift_counts.values,
+                title="Shift Counts"
+            )
+            fig.update_xaxes(tickangle=45)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Solver metrics
+        st.subheader("Solver Metrics")
+        if 'schedule_metrics' in st.session_state:
+            metrics = st.session_state.schedule_metrics
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
+            with col2:
+                st.metric("Status", metrics.get('status', 'Unknown'))
     
     if show_workload:
         st.subheader("Employee Workload Analysis")
         fig = st.session_state.data_manager.schedule_display.create_employee_workload_chart(schedule_df, month, year)
         if fig.data:
             st.plotly_chart(fig, use_container_width=True)
+        
+        # Display employee report with pending_off
+        if 'employee_df' in st.session_state and st.session_state.employee_df is not None:
+            st.subheader("Employee Report with Pending Off")
+            employee_df = st.session_state.employee_df
+            
+            # Show key metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Employees", len(employee_df))
+            with col2:
+                avg_pending = employee_df['pending_off'].mean()
+                st.metric("Avg Pending Off", f"{avg_pending:.1f}")
+            with col3:
+                max_pending = employee_df['pending_off'].max()
+                st.metric("Max Pending Off", f"{max_pending:.1f}")
+            with col4:
+                total_nights = employee_df['night_shifts'].sum()
+                st.metric("Total Night Shifts", total_nights)
+            
+            # Display the employee report table
+            st.dataframe(employee_df, use_container_width=True)
     
-    # Display employee report with pending_off
-    if 'employee_df' in st.session_state and st.session_state.employee_df is not None:
-        st.subheader("Employee Report with Pending Off")
-        employee_df = st.session_state.employee_df
+    # Commit button section
+    st.markdown("---")
+    st.subheader("Commit Schedule")
+    st.markdown("Once you're satisfied with the generated schedule, commit it to make it available in the main Schedule View page.")
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        if st.button("💾 Commit Schedule", type="primary", use_container_width=True):
+            schedule_df = st.session_state.generated_schedule
+            coverage_df = st.session_state.coverage_df
+            employee_df = st.session_state.employee_df
+            metrics = st.session_state.schedule_metrics
+            commit_schedule(schedule_df, coverage_df, employee_df, metrics, year, month)
+
+
+def load_committed_schedules():
+    """Load committed schedules from file system."""
+    committed_dir = Path(__file__).parent.parent / "data" / "committed_schedules"
+    if not committed_dir.exists():
+        return []
+    
+    committed_schedules = []
+    for schedule_file in committed_dir.glob("schedule_*_schedule.csv"):
+        # Extract year and month from filename
+        filename = schedule_file.stem
+        parts = filename.split('_')
+        if len(parts) >= 3:
+            year = int(parts[1])
+            month = int(parts[2])
+            
+            # Load all related files
+            prefix = f"schedule_{year}_{month:02d}"
+            schedule_df = pd.read_csv(committed_dir / f"{prefix}_schedule.csv")
+            coverage_df = pd.read_csv(committed_dir / f"{prefix}_coverage.csv")
+            employee_df = pd.read_csv(committed_dir / f"{prefix}_employee.csv")
+            
+            # Load metrics
+            import json
+            metrics_file = committed_dir / f"{prefix}_metrics.json"
+            if metrics_file.exists():
+                with open(metrics_file, 'r') as f:
+                    metrics = json.load(f)
+            else:
+                metrics = {}
+            
+            committed_schedules.append({
+                'year': year,
+                'month': month,
+                'schedule_df': schedule_df,
+                'coverage_df': coverage_df,
+                'employee_df': employee_df,
+                'metrics': metrics
+            })
+    
+    return committed_schedules
+
+
+def commit_schedule(schedule_df: pd.DataFrame, coverage_df: pd.DataFrame, 
+                   employee_df: pd.DataFrame, metrics: Dict, year: int, month: int):
+    """Commit a generated schedule to persistent storage."""
+    from datetime import date, datetime
+    import json
+    
+    try:
+        # Create committed schedules directory if it doesn't exist
+        committed_dir = Path(__file__).parent.parent / "data" / "committed_schedules"
+        committed_dir.mkdir(exist_ok=True)
         
-        # Show key metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Employees", len(employee_df))
-        with col2:
-            avg_pending = employee_df['pending_off'].mean()
-            st.metric("Avg Pending Off", f"{avg_pending:.1f}")
-        with col3:
-            max_pending = employee_df['pending_off'].max()
-            st.metric("Max Pending Off", f"{max_pending:.1f}")
-        with col4:
-            total_nights = employee_df['night_shifts'].sum()
-            st.metric("Total Night Shifts", total_nights)
+        # Create filename with year and month
+        filename_prefix = f"schedule_{year}_{month:02d}"
         
-        # Display the employee report table
-        st.dataframe(employee_df, use_container_width=True)
+        # Save schedule data
+        schedule_df.to_csv(committed_dir / f"{filename_prefix}_schedule.csv", index=False)
+        coverage_df.to_csv(committed_dir / f"{filename_prefix}_coverage.csv", index=False)
+        employee_df.to_csv(committed_dir / f"{filename_prefix}_employee.csv", index=False)
+        
+        # Save metrics
+        # Convert any date objects to strings for JSON serialization
+        def convert_dates(obj):
+            if isinstance(obj, dict):
+                return {str(k) if isinstance(k, (date, datetime)) else k: convert_dates(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_dates(item) for item in obj]
+            elif isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            else:
+                return obj
+        
+        serializable_metrics = convert_dates(metrics)
+        with open(committed_dir / f"{filename_prefix}_metrics.json", 'w') as f:
+            json.dump(serializable_metrics, f, indent=2)
+        
+        # Update session state to mark as committed
+        st.session_state.committed_schedule = {
+            'schedule_df': schedule_df,
+            'coverage_df': coverage_df,
+            'employee_df': employee_df,
+            'metrics': metrics,
+            'year': year,
+            'month': month,
+            'committed_at': pd.Timestamp.now()
+        }
+        
+        st.success(f"✅ Schedule for {year}-{month:02d} committed successfully!")
+        st.info("The committed schedule is now available in Schedule View and Reports pages.")
+        
+        # Auto-navigate to Schedule View page
+        st.markdown("**🎯 Schedule committed!** You can now view it in the Schedule View page.")
+        if st.button("📅 Go to Schedule View", type="secondary"):
+            st.session_state.navigate_to = "Schedule View"
+            st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ Error committing schedule: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 
 def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: int, 
@@ -725,7 +895,7 @@ def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: in
                     st.session_state.coverage_df = coverage_df
                     st.session_state.employee_df = employee_df
                     
-                    st.success(f"✅ Schedule generated successfully!")
+                    st.success(f"✅ Schedule generated successfully! Go to the 'View Schedule' tab to review and commit it.")
                     st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
                     st.metric("Status", metrics.get('status', 'Unknown'))
                     
