@@ -1018,18 +1018,18 @@ def show_staff_leave_requests(year: int, month: int):
                         else:
                             month_end = date(year, month + 1, 1)
                         
-                        # Filter requests that overlap with the selected month
-                        filtered_requests = []
+                        # Filter pending requests that overlap with the selected month
+                        pending_requests = []
                         for req in leave_requests:
-                            req_from = req['from_date']
-                            req_to = req['to_date']
-                            # Check if request overlaps with selected month
-                            if req_from <= month_end and req_to >= month_start:
-                                filtered_requests.append(req)
+                            if req.get('status', 'Pending') == 'Pending':
+                                req_from = req['from_date']
+                                req_to = req['to_date']
+                                # Check if request overlaps with selected month
+                                if req_from <= month_end and req_to >= month_start:
+                                    pending_requests.append(req)
                         
-                        # Separate pending and processed requests
-                        pending_requests = [req for req in filtered_requests if req['status'] == 'Pending']
-                        processed_requests = [req for req in filtered_requests if req['status'] != 'Pending']
+                        # Show all processed requests regardless of month
+                        processed_requests = [req for req in leave_requests if req.get('status', 'Pending') != 'Pending']
                         
                         # Pending Requests Section
                         st.markdown("**Pending Requests**")
@@ -1054,6 +1054,8 @@ def show_staff_leave_requests(year: int, month: int):
                                             
                                             add_approved_leave_to_roster(req)
                                             save_staff_requests()
+                                            # Reload staff requests to reflect changes
+                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Approved leave request for {req['employee']}")
                                             st.rerun()
                                         
@@ -1063,6 +1065,8 @@ def show_staff_leave_requests(year: int, month: int):
                                             req['approved_at'] = datetime.now()
                                             
                                             save_staff_requests()
+                                            # Reload staff requests to reflect changes
+                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Rejected leave request for {req['employee']}")
                                             st.rerun()
                         else:
@@ -1071,9 +1075,9 @@ def show_staff_leave_requests(year: int, month: int):
                         st.markdown("---")
                         
                         # Processed Requests Section
+                        st.markdown("**Processed Requests**")
+                        
                         if processed_requests:
-                            st.markdown("**Processed Requests**")
-                            
                             # Create a summary table
                             processed_data = []
                             for req in processed_requests:
@@ -1088,6 +1092,8 @@ def show_staff_leave_requests(year: int, month: int):
                             
                             processed_df = pd.DataFrame(processed_data)
                             st.dataframe(processed_df, use_container_width=True)
+                        else:
+                            st.info("No processed requests.")
                     else:
                         st.info("No leave requests submitted yet.")
         except (json.JSONDecodeError, ValueError):
@@ -1131,17 +1137,17 @@ def show_staff_shift_requests(year: int, month: int):
                         else:
                             month_end = date(year, month + 1, 1)
                         
-                        # Filter requests that fall within the selected month
-                        filtered_requests = []
+                        # Filter pending requests that fall within the selected month
+                        pending_requests = []
                         for req in shift_requests:
-                            req_date = req['from_date']
-                            # Check if request falls within selected month
-                            if month_start <= req_date < month_end:
-                                filtered_requests.append(req)
+                            if req.get('status', 'Pending') == 'Pending':
+                                req_date = req['from_date']
+                                # Check if request falls within selected month
+                                if month_start <= req_date < month_end:
+                                    pending_requests.append(req)
                         
-                        # Separate pending and processed requests
-                        pending_requests = [req for req in filtered_requests if req['status'] == 'Pending']
-                        processed_requests = [req for req in filtered_requests if req['status'] != 'Pending']
+                        # Show all processed requests regardless of month
+                        processed_requests = [req for req in shift_requests if req.get('status', 'Pending') != 'Pending']
                         
                         # Pending Requests Section
                         st.markdown("**Pending Requests**")
@@ -1168,6 +1174,8 @@ def show_staff_shift_requests(year: int, month: int):
                                             
                                             add_approved_shift_to_roster(req)
                                             save_staff_requests()
+                                            # Reload staff requests to reflect changes
+                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Approved shift request for {req['employee']}")
                                             st.rerun()
                                         
@@ -1177,6 +1185,8 @@ def show_staff_shift_requests(year: int, month: int):
                                             req['approved_at'] = datetime.now()
                                             
                                             save_staff_requests()
+                                            # Reload staff requests to reflect changes
+                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Rejected shift request for {req['employee']}")
                                             st.rerun()
                         else:
@@ -1185,9 +1195,9 @@ def show_staff_shift_requests(year: int, month: int):
                         st.markdown("---")
                         
                         # Processed Requests Section
+                        st.markdown("**Processed Requests**")
+                        
                         if processed_requests:
-                            st.markdown("**Processed Requests**")
-                            
                             # Create a summary table
                             processed_data = []
                             for req in processed_requests:
@@ -1204,6 +1214,8 @@ def show_staff_shift_requests(year: int, month: int):
                             
                             processed_df = pd.DataFrame(processed_data)
                             st.dataframe(processed_df, use_container_width=True)
+                        else:
+                            st.info("No processed requests.")
                     else:
                         st.info("No shift requests submitted yet.")
         except (json.JSONDecodeError, ValueError):
