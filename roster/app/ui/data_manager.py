@@ -17,6 +17,21 @@ from roster.app.model.solver import RosterSolver
 from roster.app.ui.schedule_display import ScheduleDisplay
 
 
+def safe_strftime(date_obj, format_str='%Y-%m-%d %H:%M'):
+    """Safely format a date object, handling both datetime objects and strings."""
+    if hasattr(date_obj, 'strftime'):
+        return date_obj.strftime(format_str)
+    elif isinstance(date_obj, str):
+        # If it's already a string, try to parse and reformat it
+        try:
+            parsed = datetime.fromisoformat(date_obj.replace('Z', '+00:00'))
+            return parsed.strftime(format_str)
+        except:
+            return date_obj  # Return as-is if parsing fails
+    else:
+        return str(date_obj)
+
+
 class DataManager:
     """Manages roster data editing and schedule generation."""
     
@@ -1028,8 +1043,15 @@ def show_staff_leave_requests(year: int, month: int):
                                 if req_from <= month_end and req_to >= month_start:
                                     pending_requests.append(req)
                         
-                        # Show all processed requests regardless of month
-                        processed_requests = [req for req in leave_requests if req.get('status', 'Pending') != 'Pending']
+                        # Filter processed requests by month
+                        processed_requests = []
+                        for req in leave_requests:
+                            if req.get('status', 'Pending') != 'Pending':
+                                req_from = req['from_date']
+                                req_to = req['to_date']
+                                # Check if request overlaps with selected month
+                                if req_from <= month_end and req_to >= month_start:
+                                    processed_requests.append(req)
                         
                         # Pending Requests Section
                         st.markdown("**Pending Requests**")
@@ -1044,29 +1066,37 @@ def show_staff_leave_requests(year: int, month: int):
                                         st.write(f"**Date Range:** {req['from_date']} to {req['to_date']}")
                                         st.write(f"**Leave Type:** {req['leave_type']}")
                                         st.write(f"**Reason:** {req['reason']}")
-                                        st.write(f"**Submitted:** {req['submitted_at'].strftime('%Y-%m-%d %H:%M')}")
+                                        st.write(f"**Submitted:** {safe_strftime(req['submitted_at'])}")
                                     
                                     with col2:
                                         if st.button("Approve", key=f"approve_lr_{i}", type="primary"):
-                                            req['status'] = 'Approved'
-                                            req['approved_by'] = st.session_state.current_user['employee_name']
-                                            req['approved_at'] = datetime.now()
+                                            # Update the request in session state first
+                                            for session_req in st.session_state.staff_requests['leave_requests']:
+                                                if (session_req.get('employee') == req['employee'] and 
+                                                    session_req.get('from_date') == req['from_date'] and
+                                                    session_req.get('to_date') == req['to_date']):
+                                                    session_req['status'] = 'Approved'
+                                                    session_req['approved_by'] = st.session_state.current_user['employee_name']
+                                                    session_req['approved_at'] = datetime.now()
+                                                    break
                                             
                                             add_approved_leave_to_roster(req)
                                             save_staff_requests()
-                                            # Reload staff requests to reflect changes
-                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Approved leave request for {req['employee']}")
                                             st.rerun()
                                         
                                         if st.button("Reject", key=f"reject_lr_{i}"):
-                                            req['status'] = 'Rejected'
-                                            req['approved_by'] = st.session_state.current_user['employee_name']
-                                            req['approved_at'] = datetime.now()
+                                            # Update the request in session state first
+                                            for session_req in st.session_state.staff_requests['leave_requests']:
+                                                if (session_req.get('employee') == req['employee'] and 
+                                                    session_req.get('from_date') == req['from_date'] and
+                                                    session_req.get('to_date') == req['to_date']):
+                                                    session_req['status'] = 'Rejected'
+                                                    session_req['approved_by'] = st.session_state.current_user['employee_name']
+                                                    session_req['approved_at'] = datetime.now()
+                                                    break
                                             
                                             save_staff_requests()
-                                            # Reload staff requests to reflect changes
-                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Rejected leave request for {req['employee']}")
                                             st.rerun()
                         else:
@@ -1087,7 +1117,7 @@ def show_staff_leave_requests(year: int, month: int):
                                     'Type': req['leave_type'],
                                     'Status': req['status'],
                                     'Processed By': req.get('approved_by', 'N/A'),
-                                    'Processed On': req.get('approved_at', req['submitted_at']).strftime('%Y-%m-%d %H:%M') if isinstance(req.get('approved_at', req['submitted_at']), datetime) else 'N/A'
+                                    'Processed On': safe_strftime(req.get('approved_at', req['submitted_at'])) if req.get('approved_at', req['submitted_at']) else 'N/A'
                                 })
                             
                             processed_df = pd.DataFrame(processed_data)
@@ -1146,8 +1176,14 @@ def show_staff_shift_requests(year: int, month: int):
                                 if month_start <= req_date < month_end:
                                     pending_requests.append(req)
                         
-                        # Show all processed requests regardless of month
-                        processed_requests = [req for req in shift_requests if req.get('status', 'Pending') != 'Pending']
+                        # Filter processed requests by month
+                        processed_requests = []
+                        for req in shift_requests:
+                            if req.get('status', 'Pending') != 'Pending':
+                                req_date = req['from_date']
+                                # Check if request falls within selected month
+                                if month_start <= req_date < month_end:
+                                    processed_requests.append(req)
                         
                         # Pending Requests Section
                         st.markdown("**Pending Requests**")
@@ -1164,29 +1200,37 @@ def show_staff_shift_requests(year: int, month: int):
                                         st.write(f"**Shift:** {req['shift']}")
                                         st.write(f"**Request Type:** {request_type}")
                                         st.write(f"**Reason:** {req['reason']}")
-                                        st.write(f"**Submitted:** {req['submitted_at'].strftime('%Y-%m-%d %H:%M')}")
+                                        st.write(f"**Submitted:** {safe_strftime(req['submitted_at'])}")
                                     
                                     with col2:
                                         if st.button("Approve", key=f"approve_sr_{i}", type="primary"):
-                                            req['status'] = 'Approved'
-                                            req['approved_by'] = st.session_state.current_user['employee_name']
-                                            req['approved_at'] = datetime.now()
+                                            # Update the request in session state first
+                                            for session_req in st.session_state.staff_requests['shift_requests']:
+                                                if (session_req.get('employee') == req['employee'] and 
+                                                    session_req.get('from_date') == req['from_date'] and
+                                                    session_req.get('shift') == req['shift']):
+                                                    session_req['status'] = 'Approved'
+                                                    session_req['approved_by'] = st.session_state.current_user['employee_name']
+                                                    session_req['approved_at'] = datetime.now()
+                                                    break
                                             
                                             add_approved_shift_to_roster(req)
                                             save_staff_requests()
-                                            # Reload staff requests to reflect changes
-                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Approved shift request for {req['employee']}")
                                             st.rerun()
                                         
                                         if st.button("Reject", key=f"reject_sr_{i}"):
-                                            req['status'] = 'Rejected'
-                                            req['approved_by'] = st.session_state.current_user['employee_name']
-                                            req['approved_at'] = datetime.now()
+                                            # Update the request in session state first
+                                            for session_req in st.session_state.staff_requests['shift_requests']:
+                                                if (session_req.get('employee') == req['employee'] and 
+                                                    session_req.get('from_date') == req['from_date'] and
+                                                    session_req.get('shift') == req['shift']):
+                                                    session_req['status'] = 'Rejected'
+                                                    session_req['approved_by'] = st.session_state.current_user['employee_name']
+                                                    session_req['approved_at'] = datetime.now()
+                                                    break
                                             
                                             save_staff_requests()
-                                            # Reload staff requests to reflect changes
-                                            st.session_state.staff_requests = load_staff_requests()
                                             st.success(f"Rejected shift request for {req['employee']}")
                                             st.rerun()
                         else:
@@ -1209,7 +1253,7 @@ def show_staff_shift_requests(year: int, month: int):
                                     'Type': request_type,
                                     'Status': req['status'],
                                     'Processed By': req.get('approved_by', 'N/A'),
-                                    'Processed On': req.get('approved_at', req['submitted_at']).strftime('%Y-%m-%d %H:%M') if isinstance(req.get('approved_at', req['submitted_at']), datetime) else 'N/A'
+                                    'Processed On': safe_strftime(req.get('approved_at', req['submitted_at'])) if req.get('approved_at', req['submitted_at']) else 'N/A'
                                 })
                             
                             processed_df = pd.DataFrame(processed_data)
@@ -1265,9 +1309,6 @@ def add_approved_leave_to_roster(leave_request):
     """Add approved leave request to roster time_off data."""
     from datetime import date
     
-    # Get current roster data
-    roster_data = st.session_state.roster_data
-    
     # Create new time_off entry with consistent date format (with time)
     new_entry = {
         'employee': leave_request['employee'],
@@ -1276,28 +1317,22 @@ def add_approved_leave_to_roster(leave_request):
         'code': leave_request['leave_type']
     }
     
-    # Add to time_off DataFrame
-    if roster_data['time_off'].empty:
-        roster_data['time_off'] = pd.DataFrame([new_entry])
+    # Add to time_off DataFrame in session state
+    if st.session_state.roster_data['time_off'].empty:
+        st.session_state.roster_data['time_off'] = pd.DataFrame([new_entry])
     else:
-        roster_data['time_off'] = pd.concat([roster_data['time_off'], pd.DataFrame([new_entry])], ignore_index=True)
+        st.session_state.roster_data['time_off'] = pd.concat([st.session_state.roster_data['time_off'], pd.DataFrame([new_entry])], ignore_index=True)
     
     # Clean the data - remove rows with empty dates
-    roster_data['time_off'] = roster_data['time_off'].dropna(subset=['from_date', 'to_date'])
+    st.session_state.roster_data['time_off'] = st.session_state.roster_data['time_off'].dropna(subset=['from_date', 'to_date'])
     
     # Save to CSV
-    roster_data['time_off'].to_csv('roster/app/data/time_off.csv', index=False)
-    
-    # Update session state
-    st.session_state.roster_data = roster_data
+    st.session_state.roster_data['time_off'].to_csv('roster/app/data/time_off.csv', index=False)
 
 
 def add_approved_shift_to_roster(shift_request):
     """Add approved shift request to roster locks data."""
     from datetime import date
-    
-    # Get current roster data
-    roster_data = st.session_state.roster_data
     
     # Create new lock entry with consistent date format (with time)
     new_entry = {
@@ -1308,17 +1343,14 @@ def add_approved_shift_to_roster(shift_request):
         'force': shift_request['force']
     }
     
-    # Add to locks DataFrame
-    if roster_data['locks'].empty:
-        roster_data['locks'] = pd.DataFrame([new_entry])
+    # Add to locks DataFrame in session state
+    if st.session_state.roster_data['locks'].empty:
+        st.session_state.roster_data['locks'] = pd.DataFrame([new_entry])
     else:
-        roster_data['locks'] = pd.concat([roster_data['locks'], pd.DataFrame([new_entry])], ignore_index=True)
+        st.session_state.roster_data['locks'] = pd.concat([st.session_state.roster_data['locks'], pd.DataFrame([new_entry])], ignore_index=True)
     
     # Clean the data - remove rows with empty dates
-    roster_data['locks'] = roster_data['locks'].dropna(subset=['from_date', 'to_date'])
+    st.session_state.roster_data['locks'] = st.session_state.roster_data['locks'].dropna(subset=['from_date', 'to_date'])
     
     # Save to CSV
-    roster_data['locks'].to_csv('roster/app/data/locks.csv', index=False)
-    
-    # Update session state
-    st.session_state.roster_data = roster_data
+    st.session_state.roster_data['locks'].to_csv('roster/app/data/locks.csv', index=False)

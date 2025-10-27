@@ -84,6 +84,22 @@ def clear_login_state():
         login_file.unlink()
 
 
+def safe_strftime(date_obj, format_str='%Y-%m-%d %H:%M'):
+    """Safely format a date object, handling both datetime objects and strings."""
+    if hasattr(date_obj, 'strftime'):
+        return date_obj.strftime(format_str)
+    elif isinstance(date_obj, str):
+        # If it's already a string, try to parse and reformat it
+        try:
+            from datetime import datetime
+            parsed = datetime.fromisoformat(date_obj.replace('Z', '+00:00'))
+            return parsed.strftime(format_str)
+        except:
+            return date_obj  # Return as-is if parsing fails
+    else:
+        return str(date_obj)
+
+
 def save_staff_requests():
     """Save staff requests to file for persistence."""
     requests_file = Path("roster/app/data/staff_requests.json")
@@ -97,16 +113,20 @@ def save_staff_requests():
     
     for req in st.session_state.staff_requests.get('leave_requests', []):
         serializable_req = req.copy()
-        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
-        serializable_req['from_date'] = req['from_date'].isoformat()
-        serializable_req['to_date'] = req['to_date'].isoformat()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat() if hasattr(req['submitted_at'], 'isoformat') else req['submitted_at']
+        serializable_req['from_date'] = req['from_date'].isoformat() if hasattr(req['from_date'], 'isoformat') else req['from_date']
+        serializable_req['to_date'] = req['to_date'].isoformat() if hasattr(req['to_date'], 'isoformat') else req['to_date']
+        if 'approved_at' in req:
+            serializable_req['approved_at'] = req['approved_at'].isoformat() if hasattr(req['approved_at'], 'isoformat') else req['approved_at']
         serializable_requests['leave_requests'].append(serializable_req)
     
     for req in st.session_state.staff_requests.get('shift_requests', []):
         serializable_req = req.copy()
-        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
-        serializable_req['from_date'] = req['from_date'].isoformat()
-        serializable_req['to_date'] = req['to_date'].isoformat()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat() if hasattr(req['submitted_at'], 'isoformat') else req['submitted_at']
+        serializable_req['from_date'] = req['from_date'].isoformat() if hasattr(req['from_date'], 'isoformat') else req['from_date']
+        serializable_req['to_date'] = req['to_date'].isoformat() if hasattr(req['to_date'], 'isoformat') else req['to_date']
+        if 'approved_at' in req:
+            serializable_req['approved_at'] = req['approved_at'].isoformat() if hasattr(req['approved_at'], 'isoformat') else req['approved_at']
         serializable_requests['shift_requests'].append(serializable_req)
     
     with open(requests_file, 'w') as f:
@@ -587,27 +607,28 @@ def show_reports_page():
                 "required": total_required,
                 "shortfall": total_shortfall
             })
+    
+    # Create the chart only once after collecting all shift data
+    if shift_summary:
+        shift_coverage = pd.DataFrame(shift_summary)
         
-        if shift_summary:
-            shift_coverage = pd.DataFrame(shift_summary)
-            
-            fig = px.bar(
-                shift_coverage,
-                x="shift",
-                y=["required", "assigned", "shortfall"],
-                title="Coverage by Shift Type",
-                barmode="group",
-                color_discrete_sequence=['#2E8B57', '#FF6B6B', '#4ECDC4']
-            )
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(size=12),
-                title_font_size=16,
-                xaxis_title="Shift Type",
-                yaxis_title="Number of Shifts"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        fig = px.bar(
+            shift_coverage,
+            x="shift",
+            y=["required", "assigned", "shortfall"],
+            title="Coverage by Shift Type",
+            barmode="group",
+            color_discrete_sequence=['#2E8B57', '#FF6B6B', '#4ECDC4']
+        )
+        fig.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=12),
+            title_font_size=16,
+            xaxis_title="Shift Type",
+            yaxis_title="Number of Shifts"
+        )
+        st.plotly_chart(fig, use_container_width=True)
     
     # Daily coverage trends - sum all shortfalls per day
     if not month_coverage.empty:
@@ -847,7 +868,7 @@ def show_roster_requests_page():
                         'leave_type': leave_type,
                         'reason': reason,
                         'status': 'Pending',
-                        'submitted_at': datetime.now(),
+                        'submitted_at': datetime.now().isoformat(),
                         'request_id': f"LR_{len(st.session_state.staff_requests['leave_requests']) + 1}"
                     }
                     st.session_state.staff_requests['leave_requests'].append(request)
@@ -856,18 +877,18 @@ def show_roster_requests_page():
                     st.rerun()
         
         # Show submitted requests
-        if st.session_state.staff_requests['leave_requests']:
+        if st.session_state.staff_requests.get('leave_requests', []):
             st.subheader("Your Leave Requests")
             leave_df_data = []
-            for req in st.session_state.staff_requests['leave_requests']:
-                if req['employee'] == st.session_state.current_user['employee_name']:
+            for req in st.session_state.staff_requests.get('leave_requests', []):
+                if req.get('employee') == st.session_state.current_user['employee_name']:
                     leave_df_data.append({
                         'From Date': req['from_date'],
                         'To Date': req['to_date'],
                         'Type': req['leave_type'],
                         'Reason': req['reason'],
                         'Status': req['status'],
-                        'Submitted': req['submitted_at'].strftime('%Y-%m-%d %H:%M')
+                        'Submitted': safe_strftime(req['submitted_at'])
                     })
             
             if leave_df_data:
@@ -909,7 +930,7 @@ def show_roster_requests_page():
                     'force': force,
                     'reason': reason,
                     'status': 'Pending',
-                    'submitted_at': datetime.now(),
+                    'submitted_at': datetime.now().isoformat(),
                     'request_id': f"SR_{len(st.session_state.staff_requests['shift_requests']) + 1}"
                 }
                 st.session_state.staff_requests['shift_requests'].append(request)
@@ -918,18 +939,18 @@ def show_roster_requests_page():
                 st.rerun()
         
         # Show submitted requests
-        if st.session_state.staff_requests['shift_requests']:
+        if st.session_state.staff_requests.get('shift_requests', []):
             st.subheader("Your Shift Requests")
             shift_df_data = []
-            for req in st.session_state.staff_requests['shift_requests']:
-                if req['employee'] == st.session_state.current_user['employee_name']:
+            for req in st.session_state.staff_requests.get('shift_requests', []):
+                if req.get('employee') == st.session_state.current_user['employee_name']:
                     shift_df_data.append({
                         'Date': req['from_date'],
                         'Shift': req['shift'],
                         'Type': 'Force' if req['force'] else 'Forbid',
                         'Reason': req['reason'],
                         'Status': req['status'],
-                        'Submitted': req['submitted_at'].strftime('%Y-%m-%d %H:%M')
+                        'Submitted': safe_strftime(req['submitted_at'])
                     })
             
             if shift_df_data:
