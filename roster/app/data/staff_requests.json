@@ -23,43 +23,55 @@
       "request_id": "LR_2",
       "approved_by": "Admin",
       "approved_at": "2025-10-27T09:24:46.860087"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2026-01-09",
+      "to_date": "2026-01-09",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-10-27T10:53:46.177565",
+      "request_id": "LR_3",
+      "approved_by": "Admin",
+      "approved_at": "2025-10-27T10:54:16.267184"
+    },
+    {
+      "employee": "Yasmin",
+      "from_date": "2025-12-19",
+      "to_date": "2025-12-19",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-10-27T12:05:27.923202",
+      "request_id": "LR_4",
+      "approved_by": "Admin",
+      "approved_at": "2025-10-27T12:05:46.661539"
+    },
+    {
+      "employee": "Karima",
+      "from_date": "2025-05-01",
+      "to_date": "2025-05-01",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-10-27T12:41:12.683081",
+      "request_id": "LR_5",
+      "approved_by": "Admin",
+      "approved_at": "2025-10-27T12:41:28.702709"
     }
   ],
   "shift_requests": [
     {
-      "employee": "Rasha",
-      "from_date": "2025-12-03",
-      "to_date": "2025-12-03",
+      "employee": "Karima",
+      "from_date": "2025-05-20",
+      "to_date": "2025-05-20",
       "shift": "M",
       "force": true,
       "reason": "",
       "status": "Pending",
-      "submitted_at": "2025-10-27T09:21:46.033853",
-      "request_id": "SR_1"
-    },
-    {
-      "employee": "Rasha",
-      "from_date": "2025-11-11",
-      "to_date": "2025-11-11",
-      "shift": "M",
-      "force": false,
-      "reason": "",
-      "status": "Pending",
-      "submitted_at": "2025-10-27T09:22:15.169596",
-      "request_id": "SR_2"
-    },
-    {
-      "employee": "Rasha",
-      "from_date": "2025-09-11",
-      "to_date": "2025-09-11",
-      "shift": "M",
-      "force": true,
-      "reason": "",
-      "status": "Approved",
-      "submitted_at": "2025-10-27T09:24:02.237015",
-      "request_id": "SR_3",
-      "approved_by": "Admin",
-      "approved_at": "2025-10-27T09:24:33.620627"
+      "submitted_at": "2025-10-27T12:43:40.265710",
+      "request_id": "SR_4"
     }
   ]
 }

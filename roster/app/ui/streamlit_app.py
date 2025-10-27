@@ -272,7 +272,7 @@ def show_login_form():
 def get_navigation_options():
     """Get navigation options based on user role."""
     if st.session_state.current_user['employee_type'] == 'Manager':
-        return ["Roster Manager", "User Management", "Roster Configuration", "Schedule View", "Reports"]
+        return ["Roster Manager", "User Management", "Schedule View", "Reports"]  # "Roster Configuration" hidden for now
     else:  # Staff
         return ["Roster Requests", "Schedule View", "Reports"]
 
@@ -314,8 +314,8 @@ def main():
         show_data_manager_page()
     elif page == "User Management":
         show_user_management_page()
-    elif page == "Roster Configuration":
-        show_config_page()
+    # elif page == "Roster Configuration":  # Hidden for now
+    #     show_config_page()
     elif page == "Roster Requests":
         show_roster_requests_page()
     elif page == "Schedule View":
@@ -585,86 +585,7 @@ def show_reports_page():
         st.warning(f"No report data available for {selected_month_name} {selected_year}")
         return
     
-    # Coverage analysis
-    st.subheader("Coverage Analysis")
-    # Coverage by shift type - create summary from individual shift columns
-    shift_types = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
-    shift_summary = []
-    
-    for shift in shift_types:
-        assigned_col = f"{shift}_assigned"
-        required_col = f"{shift}_required"
-        shortfall_col = f"{shift}_shortfall"
-        
-        if assigned_col in month_coverage.columns:
-            total_assigned = month_coverage[assigned_col].sum()
-            total_required = month_coverage[required_col].sum()
-            total_shortfall = month_coverage[shortfall_col].sum()
-            
-            shift_summary.append({
-                "shift": shift,
-                "assigned": total_assigned,
-                "required": total_required,
-                "shortfall": total_shortfall
-            })
-    
-    # Create the chart only once after collecting all shift data
-    if shift_summary:
-        shift_coverage = pd.DataFrame(shift_summary)
-        
-        fig = px.bar(
-            shift_coverage,
-            x="shift",
-            y=["required", "assigned", "shortfall"],
-            title="Coverage by Shift Type",
-            barmode="group",
-            color_discrete_sequence=['#2E8B57', '#FF6B6B', '#4ECDC4']
-        )
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(size=12),
-            title_font_size=16,
-            xaxis_title="Shift Type",
-            yaxis_title="Number of Shifts"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Daily coverage trends - sum all shortfalls per day
-    if not month_coverage.empty:
-        daily_shortfall = []
-        for _, row in month_coverage.iterrows():
-            total_shortfall = sum(
-                row.get(f"{shift}_shortfall", 0) 
-                for shift in shift_types 
-                if f"{shift}_shortfall" in month_coverage.columns
-            )
-            daily_shortfall.append({
-                "date": row["date"],
-                "shortfall": total_shortfall
-            })
-        
-        if daily_shortfall:
-            daily_coverage = pd.DataFrame(daily_shortfall)
-            
-            fig = px.line(
-                daily_coverage,
-                x="date",
-                y="shortfall",
-                title="Daily Coverage Shortfall",
-                color_discrete_sequence=['#FF6B6B']
-            )
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(size=12),
-                title_font_size=16,
-                xaxis_title="Date",
-                yaxis_title="Shortfall"
-            )
-            fig.update_traces(line=dict(width=3))
-            st.plotly_chart(fig, use_container_width=True)
-    
+    # Coverage analysis charts removed as requested
     # Employee workload analysis
     st.subheader("Employee Workload Analysis")
     if employee_df is not None:

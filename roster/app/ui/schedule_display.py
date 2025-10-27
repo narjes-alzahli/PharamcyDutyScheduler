@@ -195,9 +195,7 @@ class ScheduleDisplay:
         # Add download button
         self._add_download_button(pivot_data, all_dates, year, month, employee_df)
         
-        # Add summary statistics
-        if show_summary:
-            self._display_summary_stats(month_data, all_dates)
+        # Summary statistics removed - handled in data_manager.py to avoid duplication
     
     def _display_simple_table(self, pivot_data: pd.DataFrame, all_dates: pd.DatetimeIndex, year: int, month: int, employee_df: pd.DataFrame = None):
         """Display a simple color-coded table using HTML."""
@@ -1038,57 +1036,6 @@ class ScheduleDisplay:
             if date in row.index and pd.notna(row[date]) and row[date] == shift_type:
                 count += 1
         return count
-    
-    def _display_summary_stats(self, month_data: pd.DataFrame, all_dates: pd.DatetimeIndex) -> None:
-        """Display summary statistics."""
-        
-        st.subheader("📊 Monthly Summary")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_assignments = len(month_data)
-            st.metric("Total Assignments", total_assignments)
-        
-        with col2:
-            unique_employees = month_data['employee'].nunique()
-            st.metric("Staff Members", unique_employees)
-        
-        with col3:
-            working_days = len([d for d in all_dates if d.weekday() < 5])  # Monday-Friday
-            st.metric("Working Days", working_days)
-        
-        with col4:
-            shift_counts = month_data['shift'].value_counts()
-            main_shifts = shift_counts.get('M', 0) + shift_counts.get('M3', 0) + shift_counts.get('M4', 0)
-            st.metric("Main Shifts", main_shifts)
-        
-        # Shift distribution
-        st.subheader("📈 Shift Distribution")
-        shift_counts = month_data['shift'].value_counts()
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = px.pie(
-                values=shift_counts.values,
-                names=shift_counts.index,
-                title="Shift Distribution",
-                labels={'names': 'Shift', 'values': 'Total'}
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            fig = px.bar(
-                x=shift_counts.index,
-                y=shift_counts.values,
-                title="Shift Counts",
-                labels={'x': 'Shift', 'y': 'Total'},
-                color_discrete_sequence=['#6B7280']  # Professional grey
-            )
-            fig.update_xaxes(title="Shift", tickangle=45)
-            fig.update_yaxes(title="Total")
-            st.plotly_chart(fig, use_container_width=True)
     
     def _get_month_name(self, month: int) -> str:
         """Get month name from month number."""

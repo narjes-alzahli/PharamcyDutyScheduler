@@ -13,6 +13,18 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from roster.app.model.schema import RosterData, RosterConfig
+
+def reset_session_state_if_corrupted():
+    """Reset session state if data corruption is detected."""
+    if 'roster_data' in st.session_state:
+        demands_df = st.session_state.roster_data.get('demands', pd.DataFrame())
+        if not demands_df.empty:
+            # Check for duplicate dates (sign of corruption)
+            demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce')
+            if demands_df['date'].duplicated().any():
+                st.warning("⚠️ Data corruption detected! Resetting session state...")
+                del st.session_state.roster_data
+                st.rerun()
 from roster.app.model.solver import RosterSolver
 from roster.app.ui.schedule_display import ScheduleDisplay
 
@@ -128,10 +140,17 @@ class DataManager:
         """Create empty locks dataframe."""
         return pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'shift', 'force'])
     
-    def generate_month_demands(self, year: int, month: int, base_demand: Dict[str, int]) -> pd.DataFrame:
+    def generate_month_demands(self, year: int, month: int, base_demand: Dict[str, int], weekend_demand: Optional[Dict[str, int]] = None) -> pd.DataFrame:
         """Generate demands for a specific month."""
         import random
         import calendar
+        from datetime import timedelta
+        
+        # Use weekend_demand if provided, otherwise use defaults
+        if weekend_demand is None:
+            weekend_demand = {
+                'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
+            }
         
         # Get the number of days in the month
         num_days = calendar.monthrange(year, month)[1]
@@ -142,9 +161,51 @@ class DataManager:
         # Identify weekdays (Monday=0 to Thursday=3, Sunday=6)
         weekdays = [d for d in all_dates if d.weekday() not in [4, 5]]  # Exclude Friday=4, Saturday=5
         
-        # Randomly select 3-5 weekdays for H shifts
-        num_h_shifts = random.randint(3, 5)
-        h_dates = random.sample(weekdays, min(num_h_shifts, len(weekdays)))
+        # Randomly select weekdays for H shifts (only if weekday_H > 0)
+        h_dates = []
+        if base_demand.get('H', 0) > 0:
+            # Select the specified number of random weekdays PER WEEK for H shifts
+            # This ensures we get exactly 3 shifts per week, distributed randomly
+            num_h_shifts_per_week = base_demand.get('H', 0)
+            
+            # Group weekdays by actual week (Sunday to Saturday)
+            weeks = []
+            
+            # Handle partial week at the beginning of the month
+            first_day = all_dates[0]
+            if first_day.weekday() != 6:  # If first day is not Sunday
+                # Find the Sunday of the week containing the first day
+                days_since_sunday = (first_day.weekday() + 1) % 7
+                week_start = first_day - timedelta(days=days_since_sunday)
+                
+                # Get weekdays in this partial week
+                week_days = []
+                for i in range(7):  # Sunday to Saturday
+                    current_day = week_start + timedelta(days=i)
+                    if current_day in all_dates and current_day.weekday() not in [4, 5]:
+                        week_days.append(current_day)
+                if week_days:
+                    weeks.append(week_days)
+            
+            # Handle complete weeks (Sunday to Saturday)
+            for sunday in [d for d in all_dates if d.weekday() == 6]:
+                # Get all weekdays in this week (Sunday, Monday to Thursday, excluding Friday/Saturday)
+                week_days = []
+                for i in range(7):  # Sunday to Saturday
+                    current_day = sunday + timedelta(days=i)
+                    if current_day in all_dates and current_day.weekday() not in [4, 5]:
+                        week_days.append(current_day)
+                if week_days:  # Only add if there are weekdays in this week
+                    weeks.append(week_days)
+            
+            # Select random weekdays from each week
+            for week_days in weeks:
+                if len(week_days) >= num_h_shifts_per_week:
+                    selected_days = random.sample(week_days, num_h_shifts_per_week)
+                    h_dates.extend(selected_days)
+                else:
+                    # If week has fewer days than needed, select all available days
+                    h_dates.extend(week_days)
         
         demands = []
         for current_date in all_dates:
@@ -152,23 +213,23 @@ class DataManager:
             is_weekend = current_date.weekday() in [4, 5]  # Friday=4, Saturday=5
             
             if is_weekend:
-                # Weekend staffing: 1 A, 1 N, 1 M3, 0 CL
+                # Weekend staffing: use weekend_demand values
                 demands.append({
-                    'date': current_date.strftime('%Y-%m-%d'),
-                    'need_M': 0,
-                    'need_IP': 0,
-                    'need_A': 1,
-                    'need_N': 1,
-                    'need_M3': 1,
-                    'need_M4': 0,
-                    'need_H': 0,
-                    'need_CL': 0
+                    'date': current_date,
+                    'need_M': weekend_demand.get('M', 0),
+                    'need_IP': weekend_demand.get('IP', 0),
+                    'need_A': weekend_demand.get('A', 1),
+                    'need_N': weekend_demand.get('N', 1),
+                    'need_M3': weekend_demand.get('M3', 1),
+                    'need_M4': weekend_demand.get('M4', 0),
+                    'need_H': weekend_demand.get('H', 0),
+                    'need_CL': weekend_demand.get('CL', 0)
                 })
             else:
-                # Weekday staffing: normal requirements
+                # Weekday staffing: use base_demand values
                 h_value = 1 if current_date in h_dates else 0
                 demands.append({
-                    'date': current_date.strftime('%Y-%m-%d'),
+                    'date': current_date,
                     'need_M': base_demand.get('M', 6),
                     'need_IP': base_demand.get('IP', 3),
                     'need_A': base_demand.get('A', 1),
@@ -180,11 +241,130 @@ class DataManager:
                 })
         
         return pd.DataFrame(demands)
+    
+    def convert_staff_requests_to_csv_format(self, year: int, month: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Convert approved staff requests to time_off and locks CSV format."""
+        import json
+        from datetime import date
+        
+        # Load staff requests
+        requests_file = self.data_dir / "staff_requests.json"
+        if not requests_file.exists():
+            return pd.DataFrame(), pd.DataFrame()
+        
+        try:
+            with open(requests_file, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            st.error(f"Error loading staff requests: {e}")
+            return pd.DataFrame(), pd.DataFrame()
+        
+        # Convert approved leave requests to time_off format
+        time_off_data = []
+        for req in data.get('leave_requests', []):
+            if req.get('status') == 'Approved':
+                req_date = date.fromisoformat(req['from_date'])
+                if req_date.year == year and req_date.month == month:
+                    time_off_data.append({
+                        'employee': req['employee'],
+                        'from_date': pd.to_datetime(req['from_date']),
+                        'to_date': pd.to_datetime(req['to_date']),
+                        'code': req['leave_type']
+                    })
+        
+        # Convert approved shift requests to locks format
+        locks_data = []
+        for req in data.get('shift_requests', []):
+            if req.get('status') == 'Approved':
+                req_date = date.fromisoformat(req['from_date'])
+                if req_date.year == year and req_date.month == month:
+                    locks_data.append({
+                        'employee': req['employee'],
+                        'from_date': pd.to_datetime(req['from_date']),
+                        'to_date': pd.to_datetime(req['to_date']),
+                        'shift': req['shift'],
+                        'force': 1 if req.get('force', False) else 0
+                    })
+        
+        time_off_df = pd.DataFrame(time_off_data)
+        locks_df = pd.DataFrame(locks_data)
+        
+        return time_off_df, locks_df
+    
+    def validate_staff_request(self, employee: str, shift: str, force: bool) -> tuple[bool, str]:
+        # Load employees
+        roster_data = self.load_initial_data()
+        employees_df = roster_data['employees']
+        
+        # Find the employee
+        emp_row = employees_df[employees_df['employee'] == employee]
+        if emp_row.empty:
+            return False, f"Employee {employee} not found"
+        
+        emp_row = emp_row.iloc[0]
+        
+        # Check if employee can work this shift
+        skill_col = f'skill_{shift}'
+        can_work = emp_row.get(skill_col, False)
+        
+        if force and not can_work:
+            return False, f"Employee {employee} cannot work {shift} shifts (clinic-only: {emp_row.get('clinic_only', False)})"
+        
+        return True, "Valid request"
+    
+    def get_demands_file_path(self, year: int, month: int) -> Path:
+        demands_dir = self.data_dir / "demands"
+        demands_dir.mkdir(exist_ok=True)
+        return demands_dir / f"demands_{year}_{month:02d}.csv"
+    
+    def load_month_demands(self, year: int, month: int) -> pd.DataFrame:
+        """Load demands for a specific month from its own file."""
+        demands_file = self.get_demands_file_path(year, month)
+        
+        if demands_file.exists():
+            try:
+                df = pd.read_csv(demands_file)
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                return df
+            except Exception as e:
+                st.error(f"Error loading demands for {year}-{month:02d}: {e}")
+                return pd.DataFrame()
+        else:
+            return pd.DataFrame()
+    
+    def save_month_demands(self, year: int, month: int, demands_df: pd.DataFrame) -> bool:
+        """Save demands for a specific month to its own file."""
+        try:
+            demands_file = self.get_demands_file_path(year, month)
+            
+            # Ensure the dataframe has the correct structure
+            if not demands_df.empty:
+                # Convert date to string for CSV storage
+                demands_df = demands_df.copy()
+                demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+                
+                # Ensure all required columns are present
+                required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL']
+                for col in required_columns:
+                    if col not in demands_df.columns:
+                        demands_df[col] = 0
+                
+                # Reorder columns
+                demands_df = demands_df[required_columns]
+            
+            demands_df.to_csv(demands_file, index=False)
+            return True
+        except Exception as e:
+            st.error(f"Error saving demands for {year}-{month:02d}: {e}")
+            return False
 
 
 def show_data_manager_page():
     """Show the main data management page."""
-    st.header("📊 Roster Manager")
+    st.header("⚙️ Roster Manager")
+    
+    # Check for session state corruption
+    reset_session_state_if_corrupted()
     
     # Initialize data manager
     if 'data_manager' not in st.session_state:
@@ -360,57 +540,174 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
     """Show demands editing tab."""
     st.subheader("📋 Staffing Needs")
     
-    if st.button("🔄 Populate Month with Daily Shift Requirements", use_container_width=True):
-            base_demand = {
-                'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 0, 'CL': 3
-            }
-            new_demands = st.session_state.data_manager.generate_month_demands(year, month, base_demand)
-            st.session_state.roster_data['demands'] = new_demands
-            st.rerun()
+    # Load month-specific demands
+    month_demands = st.session_state.data_manager.load_month_demands(year, month)
     
-    # Filter demands for selected month
-    if not demands_df.empty:
-        demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce')
-        month_demands = demands_df[
-            (demands_df['date'].dt.year == year) & 
-            (demands_df['date'].dt.month == month)
-        ].copy()
+    # Auto-generate month demands if empty (use defaults on first load)
+    if month_demands.empty:
+        base_demand = {
+            'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 3
+        }
+        weekend_demand = {
+            'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
+        }
+        new_demands = st.session_state.data_manager.generate_month_demands(year, month, base_demand, weekend_demand)
         
-        if month_demands.empty:
-            st.info(f"No demands data for {month:02d}/{year}. Click 'Populate Month with Daily Shift Requirements' to create default demands.")
-        else:
-            month_demands['date'] = month_demands['date'].dt.strftime('%Y-%m-%d')
+        # Save to month-specific file
+        if st.session_state.data_manager.save_month_demands(year, month, new_demands):
+            st.success(f"✅ Generated demands for {year}-{month:02d}")
+        
+        # Use the newly generated demands for display
+        month_demands = new_demands.copy()
+    
+    # Display the table if we have data
+    if not month_demands.empty:
+        # Ensure date column is consistently formatted as string for display
+        if 'date' in month_demands.columns:
+            # Convert any date type to string for display
+            def convert_date_to_string(date_val):
+                if pd.isna(date_val):
+                    return ''
+                elif isinstance(date_val, str):
+                    return date_val
+                elif hasattr(date_val, 'strftime'):
+                    return date_val.strftime('%Y-%m-%d')
+                else:
+                    return str(date_val)
             
-            # Editable dataframe
-            edited_demands = st.data_editor(
-                month_demands,
-                num_rows="dynamic",
-                column_config={
-                    "date": st.column_config.TextColumn("Date", width="medium"),
-                    "need_M": st.column_config.NumberColumn("Main", min_value=0, max_value=20, width="small"),
-                    "need_IP": st.column_config.NumberColumn("Inpatient", min_value=0, max_value=20, width="small"),
-                    "need_A": st.column_config.NumberColumn("Afternoon", min_value=0, max_value=20, width="small"),
-                    "need_N": st.column_config.NumberColumn("Night", min_value=0, max_value=20, width="small"),
-                    "need_M3": st.column_config.NumberColumn("M3 (7am-2pm)", min_value=0, max_value=20, width="small"),
-                    "need_M4": st.column_config.NumberColumn("M4 (12pm-7pm)", min_value=0, max_value=20, width="small"),
-                    "need_H": st.column_config.NumberColumn("Harat Pharmacy", min_value=0, max_value=20, width="small"),
-                    "need_CL": st.column_config.NumberColumn("Clinic", min_value=0, max_value=20, width="small")
-                },
-                use_container_width=True
-            )
+            month_demands['date'] = month_demands['date'].apply(convert_date_to_string)
+        
+        # Reorder columns to put holiday after date
+        column_order = ['date', 'holiday', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL']
+        month_demands_display = month_demands[[col for col in column_order if col in month_demands.columns]]
+        
+        # Editable dataframe
+        edited_demands = st.data_editor(
+            month_demands_display,
+            num_rows="dynamic",
+            column_config={
+                "date": st.column_config.TextColumn("Date", width="medium"),
+                "holiday": st.column_config.TextColumn("Holiday", width="medium"),
+                "need_M": st.column_config.NumberColumn("Main", min_value=0, max_value=20, width="small"),
+                "need_IP": st.column_config.NumberColumn("Inpatient", min_value=0, max_value=20, width="small"),
+                "need_A": st.column_config.NumberColumn("Afternoon", min_value=0, max_value=20, width="small"),
+                "need_N": st.column_config.NumberColumn("Night", min_value=0, max_value=20, width="small"),
+                "need_M3": st.column_config.NumberColumn("M3 (7am-2pm)", min_value=0, max_value=20, width="small"),
+                "need_M4": st.column_config.NumberColumn("M4 (12pm-7pm)", min_value=0, max_value=20, width="small"),
+                "need_H": st.column_config.NumberColumn("Harat Pharmacy", min_value=0, max_value=20, width="small"),
+                "need_CL": st.column_config.NumberColumn("Clinic", min_value=0, max_value=20, width="small")
+            },
+            use_container_width=True
+        )
+        
+        # Update data - save to month-specific file
+        if not edited_demands.equals(month_demands):
+            # Convert back to datetime for storage
+            edited_demands['date'] = pd.to_datetime(edited_demands['date'], errors='coerce')
             
-            # Update data
-            if not edited_demands.equals(month_demands):
-                # Convert back to datetime for storage
-                edited_demands['date'] = pd.to_datetime(edited_demands['date'], errors='coerce')
-                
-                # Update the full demands dataframe
-                full_demands = demands_df[~((demands_df['date'].dt.year == year) & (demands_df['date'].dt.month == month))]
-                updated_demands = pd.concat([full_demands, edited_demands], ignore_index=True)
-                st.session_state.roster_data['demands'] = updated_demands
+            # Save to month-specific file
+            if st.session_state.data_manager.save_month_demands(year, month, edited_demands):
                 st.success("✅ Daily requirements data updated!")
-    else:
-        st.info("No demands data available. Click 'Populate Month with Daily Shift Requirements' to create default demands.")
+            else:
+                st.error("❌ Failed to save demands data!")
+    
+    # Configuration tables - below the table
+    st.markdown("---")
+    st.markdown("### Shift Requirements")
+    
+    # Create configuration tables
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("**Each Weekday**")
+        weekday_config = pd.DataFrame({
+            'Shift': ['M', 'IP', 'A', 'N', 'M3', 'M4', 'CL'],
+            'Count': [6, 3, 1, 1, 1, 1, 3]
+        })
+        edited_weekday = st.data_editor(
+            weekday_config,
+            num_rows="dynamic",
+            column_config={"Shift": st.column_config.TextColumn("Shift", width="small"),
+                          "Count": st.column_config.NumberColumn("Count", min_value=0, max_value=20, width="small")},
+            use_container_width=True,
+            key=f"weekday_config_{year}_{month}",
+            hide_index=True
+        )
+        weekday_M = int(edited_weekday[edited_weekday['Shift'] == 'M']['Count'].iloc[0])
+        weekday_IP = int(edited_weekday[edited_weekday['Shift'] == 'IP']['Count'].iloc[0])
+        weekday_A = int(edited_weekday[edited_weekday['Shift'] == 'A']['Count'].iloc[0])
+        weekday_N = int(edited_weekday[edited_weekday['Shift'] == 'N']['Count'].iloc[0])
+        weekday_M3 = int(edited_weekday[edited_weekday['Shift'] == 'M3']['Count'].iloc[0])
+        weekday_M4 = int(edited_weekday[edited_weekday['Shift'] == 'M4']['Count'].iloc[0])
+        weekday_CL = int(edited_weekday[edited_weekday['Shift'] == 'CL']['Count'].iloc[0])
+        weekday_H = 0  # Harat is handled separately
+    
+    with col2:
+        st.markdown("**Each Weekend Day**")
+        weekend_config = pd.DataFrame({
+            'Shift': ['A', 'N', 'M3'],
+            'Count': [1, 1, 1]
+        })
+        edited_weekend = st.data_editor(
+            weekend_config,
+            num_rows="dynamic",
+            column_config={"Shift": st.column_config.TextColumn("Shift", width="small"),
+                          "Count": st.column_config.NumberColumn("Count", min_value=0, max_value=20, width="small")},
+            use_container_width=True,
+            key=f"weekend_config_{year}_{month}",
+            hide_index=True
+        )
+        weekend_A = int(edited_weekend[edited_weekend['Shift'] == 'A']['Count'].iloc[0])
+        weekend_N = int(edited_weekend[edited_weekend['Shift'] == 'N']['Count'].iloc[0])
+        weekend_M3 = int(edited_weekend[edited_weekend['Shift'] == 'M3']['Count'].iloc[0])
+        
+        # Weekend other shifts are set to 0 by default
+        weekend_M = 0
+        weekend_IP = 0
+        weekend_M4 = 0
+        weekend_H = 0
+        weekend_CL = 0
+    
+    with col3:
+        st.markdown("**Each Week**")
+        harat_config = pd.DataFrame({
+            'Shift': ['H'],
+            'Count': [3]
+        })
+        edited_harat = st.data_editor(
+            harat_config,
+            num_rows="dynamic",
+            column_config={"Shift": st.column_config.TextColumn("Shift", width="small"),
+                          "Count": st.column_config.NumberColumn("Count", min_value=0, max_value=10, width="small",
+                                help="Number of H shifts per week on weekdays (randomly distributed across the month)")},
+            use_container_width=True,
+            key=f"harat_config_{year}_{month}",
+            hide_index=True
+        )
+        # Set weekday_H to the count value
+        weekday_H = int(edited_harat['Count'].iloc[0])
+    
+    # Regenerate button
+    col_btn1, col_btn2 = st.columns([1, 3])
+    with col_btn1:
+        if st.button("Regenerate Month", type="primary", use_container_width=True):
+            custom_base_demand = {
+                'M': weekday_M, 'IP': weekday_IP, 'A': weekday_A, 'N': weekday_N, 
+                'M3': weekday_M3, 'M4': weekday_M4, 'H': weekday_H, 'CL': weekday_CL
+            }
+            custom_weekend_demand = {
+                'M': weekend_M, 'IP': weekend_IP, 'A': weekend_A, 'N': weekend_N,
+                'M3': weekend_M3, 'M4': weekend_M4, 'H': weekend_H, 'CL': weekend_CL
+            }
+            
+            new_demands = st.session_state.data_manager.generate_month_demands(year, month, custom_base_demand, custom_weekend_demand)
+            
+            # Save to month-specific file
+            if st.session_state.data_manager.save_month_demands(year, month, new_demands):
+                st.success("✅ Month regenerated with custom settings!")
+                st.rerun()
+            else:
+                st.error("❌ Failed to save regenerated demands!")
 
 
 def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
@@ -630,21 +927,13 @@ def show_generate_tab(roster_data: Dict[str, pd.DataFrame], year: int, month: in
     """Show schedule generation tab."""
     st.subheader("⚙️ Generate Schedule")
     
-    # Configuration
-    st.markdown("**Optimization Settings**")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        time_limit = st.slider("Time Limit (seconds)", 30, 600, 120)
-        unfilled_penalty = st.slider("Unfilled Coverage Penalty", 100, 10000, 1000, 100)
-    
-    with col2:
-        fairness_weight = st.slider("Fairness Weight", 0.0, 50.0, 5.0, 0.5)
-        switching_penalty = st.slider("Area Switching Penalty", 0.0, 20.0, 1.0, 0.1)
-    
     # Generate button
     if st.button("🚀 Generate Schedule", type="primary", use_container_width=True):
+        # Use default optimization settings
+        time_limit = 120
+        unfilled_penalty = 1000
+        fairness_weight = 5.0
+        switching_penalty = 1.0
         generate_schedule(roster_data, year, month, time_limit, unfilled_penalty, fairness_weight, switching_penalty)
 
 
@@ -677,9 +966,10 @@ def show_schedule_view_tab(year: int, month: int):
     if show_schedule:
         st.subheader("Schedule Table")
         employee_df = st.session_state.get('employee_df', None)
-        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year, employee_df, show_summary)
+        # Don't show summary in table since we have separate summary section
+        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year, employee_df, False)
     
-    # Display schedule summary
+    # Display schedule summary (always show when checked, regardless of schedule checkbox)
     if show_summary:
         st.subheader("Monthly Summary")
         col1, col2, col3, col4 = st.columns(4)
@@ -879,9 +1169,29 @@ def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: in
                 
                 # Save current data to CSV files
                 roster_data['employees'].to_csv(temp_path / "employees.csv", index=False)
-                roster_data['demands'].to_csv(temp_path / "demands.csv", index=False)
-                roster_data['time_off'].to_csv(temp_path / "time_off.csv", index=False)
-                roster_data['locks'].to_csv(temp_path / "locks.csv", index=False)
+                
+                # Load month-specific demands and save to temp file
+                month_demands = st.session_state.data_manager.load_month_demands(year, month)
+                if not month_demands.empty:
+                    month_demands.to_csv(temp_path / "demands.csv", index=False)
+                else:
+                    # Create empty demands file if no data exists
+                    pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL']).to_csv(temp_path / "demands.csv", index=False)
+                
+                # For Oct/Nov/Dec, convert staff requests to CSV format
+                if month in [10, 11, 12]:
+                    staff_time_off, staff_locks = st.session_state.data_manager.convert_staff_requests_to_csv_format(year, month)
+                    
+                    # Combine with existing time_off and locks
+                    combined_time_off = pd.concat([roster_data['time_off'], staff_time_off], ignore_index=True)
+                    combined_locks = pd.concat([roster_data['locks'], staff_locks], ignore_index=True)
+                    
+                    combined_time_off.to_csv(temp_path / "time_off.csv", index=False)
+                    combined_locks.to_csv(temp_path / "locks.csv", index=False)
+                else:
+                    # Use existing time_off and locks for other months
+                    roster_data['time_off'].to_csv(temp_path / "time_off.csv", index=False)
+                    roster_data['locks'].to_csv(temp_path / "locks.csv", index=False)
                 
                 # Create config
                 config_data = {
