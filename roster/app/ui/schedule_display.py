@@ -1097,3 +1097,135 @@ class ScheduleDisplay:
         )
         
         return fig
+    
+    def create_fairness_charts(self, schedule_df: pd.DataFrame, month: int, year: int):
+        """Create fairness charts showing distribution of different shift types."""
+        
+        # Filter data for the specific month
+        schedule_df['date'] = pd.to_datetime(schedule_df['date'])
+        month_data = schedule_df[
+            (schedule_df['date'].dt.month == month) & 
+            (schedule_df['date'].dt.year == year)
+        ].copy()
+        
+        if month_data.empty:
+            st.info("No schedule data found for this month.")
+            return
+        
+        # Define shift categories
+        night_shifts = ['N']
+        afternoon_shifts = ['A']
+        weekend_shifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL']  # All working shifts on weekends
+        working_shifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL']
+        
+        # Identify weekends (Friday=4, Saturday=5)
+        month_data['is_weekend'] = month_data['date'].dt.weekday.isin([4, 5])
+        
+        # Calculate working data for metrics
+        working_data = month_data[month_data['shift'].isin(working_shifts)]
+        
+        # Fairness Metrics (moved to top)
+        st.subheader("Fairness Metrics")
+        
+        if not working_data.empty:
+            working_counts = working_data['employee'].value_counts()
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                min_work = working_counts.min()
+                st.metric("Min Working Days", min_work)
+            
+            with col2:
+                max_work = working_counts.max()
+                st.metric("Max Working Days", max_work)
+            
+            with col3:
+                avg_work = working_counts.mean()
+                st.metric("Avg Working Days", f"{avg_work:.1f}")
+            
+            with col4:
+                fairness_score = 1 - (max_work - min_work) / max(max_work, 1)
+                st.metric("Fairness Score", f"{fairness_score:.2f}")
+        
+        st.markdown("---")
+        st.subheader("Fairness Analysis")
+        
+        # Create 4 columns for the charts
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            # Night shift distribution
+            night_data = month_data[month_data['shift'].isin(night_shifts)]
+            if not night_data.empty:
+                night_counts = night_data['employee'].value_counts()
+                fig_night = px.pie(
+                    values=night_counts.values,
+                    names=night_counts.index,
+                    title="🌙 Night Shift Distribution",
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                fig_night.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig_night, use_container_width=True)
+            else:
+                st.info("No night shifts assigned")
+        
+        with col2:
+            # Afternoon shift distribution
+            afternoon_data = month_data[month_data['shift'].isin(afternoon_shifts)]
+            if not afternoon_data.empty:
+                afternoon_counts = afternoon_data['employee'].value_counts()
+                fig_afternoon = px.pie(
+                    values=afternoon_counts.values,
+                    names=afternoon_counts.index,
+                    title="🌅 Afternoon Shift Distribution",
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                fig_afternoon.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig_afternoon, use_container_width=True)
+            else:
+                st.info("No afternoon shifts assigned")
+        
+        with col3:
+            # Weekend shift distribution
+            weekend_data = month_data[
+                (month_data['is_weekend']) & 
+                (month_data['shift'].isin(working_shifts))
+            ]
+            if not weekend_data.empty:
+                weekend_counts = weekend_data['employee'].value_counts()
+                fig_weekend = px.pie(
+                    values=weekend_counts.values,
+                    names=weekend_counts.index,
+                    title="📅 Weekend Shift Distribution",
+                    color_discrete_sequence=px.colors.qualitative.Set2
+                )
+                fig_weekend.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig_weekend, use_container_width=True)
+            else:
+                st.info("No weekend shifts assigned")
+        
+        with col4:
+            # Total working days distribution
+            working_data = month_data[month_data['shift'].isin(working_shifts)]
+            if not working_data.empty:
+                working_counts = working_data['employee'].value_counts().sort_values(ascending=True)
+                
+                fig_working = go.Figure(data=go.Bar(
+                    x=working_counts.values,
+                    y=working_counts.index,
+                    orientation='h',
+                    text=working_counts.values,
+                    textposition='auto',
+                    marker_color='lightcoral'
+                ))
+                
+                fig_working.update_layout(
+                    title="📊 Total Working Days",
+                    xaxis_title="Working Days",
+                    yaxis_title="Employee",
+                    height=max(300, len(working_counts) * 20 + 100)
+                )
+                st.plotly_chart(fig_working, use_container_width=True)
+            else:
+                st.info("No working shifts assigned")

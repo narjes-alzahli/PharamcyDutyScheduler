@@ -272,9 +272,9 @@ def show_login_form():
 def get_navigation_options():
     """Get navigation options based on user role."""
     if st.session_state.current_user['employee_type'] == 'Manager':
-        return ["Roster Manager", "User Management", "Schedule View", "Reports"]  # "Roster Configuration" hidden for now
+        return ["Roster Generator", "Monthly Roster", "Reports & Visualization", "User Management"]  # "Roster Configuration" hidden for now
     else:  # Staff
-        return ["Roster Requests", "Schedule View", "Reports"]
+        return ["Roster Requests", "Monthly Roster", "Reports & Visualization"]
 
 
 def main():
@@ -301,41 +301,52 @@ def main():
         if navigate_to in nav_options:
             default_index = nav_options.index(navigate_to)
     
-    # Sidebar for navigation
+    # Sidebar for navigation with vertical buttons
     st.sidebar.header("Navigate")
     nav_options = get_navigation_options()
-    page = st.sidebar.selectbox(
-        "",
-        nav_options,
-        index=default_index
-    )
     
-    if page == "Roster Manager":
+    # Initialize current page in session state
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = nav_options[default_index]
+    
+    # Create vertical navigation buttons
+    page = None
+    for nav_option in nav_options:
+        if st.sidebar.button(nav_option, key=f"nav_{nav_option}", use_container_width=True):
+            page = nav_option
+            st.session_state.current_page = nav_option
+    
+    # If no button clicked, use current page
+    if page is None:
+        page = st.session_state.current_page
+    
+    if page == "Roster Generator":
         show_data_manager_page()
-    elif page == "User Management":
-        show_user_management_page()
     # elif page == "Roster Configuration":  # Hidden for now
     #     show_config_page()
     elif page == "Roster Requests":
         show_roster_requests_page()
-    elif page == "Schedule View":
+    elif page == "Monthly Roster":
         show_schedule_page()
-    elif page == "Reports":
+    elif page == "Reports & Visualization":
         show_reports_page()
+    elif page == "User Management":
+        show_user_management_page()
 
-    # Show user info at bottom of sidebar
+    # Minimal logout button in sidebar
     st.sidebar.markdown("---")
-    st.sidebar.markdown(f"## {st.session_state.current_user['employee_name']}")
-    st.sidebar.markdown(f"*{st.session_state.current_user['employee_type']}*")
     
-    if st.sidebar.button("Change Password"):
-        st.session_state.show_password_form = True
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("Change Password"):
+            st.session_state.show_password_form = True
     
-    if st.sidebar.button("Logout"):
-        st.session_state.user_logged_in = False
-        st.session_state.current_user = None
-        clear_login_state()
-        st.rerun()
+    with col2:
+        if st.button("Logout"):
+            st.session_state.user_logged_in = False
+            st.session_state.current_user = None
+            clear_login_state()
+            st.rerun()
     
     # Show password change form if requested
     if st.session_state.get('show_password_form', False):
@@ -497,14 +508,14 @@ def show_config_page():
 
 def show_schedule_page():
     """Show schedule visualization page."""
-    st.header("📅 Schedule View")
+    st.header("Monthly Roster")
     
     from roster.app.ui.data_manager import load_committed_schedules
     committed_schedules = load_committed_schedules()
 
     # Check if there are any committed schedules
     if not committed_schedules:
-        st.warning("No committed schedules available. Please generate and commit a schedule in the Roster Manager first.")
+        st.warning("No committed schedules available. Please generate and commit a schedule in the Roster Generator first.")
         return
     
     # Use the most recent committed schedule by default
@@ -544,95 +555,130 @@ def show_schedule_page():
 
 def show_reports_page():
     """Show reports and visualization page."""
-    st.header("📈 Reports & Visualization")
+    st.header("Reports & Visualization")
     
     from roster.app.ui.data_manager import load_committed_schedules
     committed_schedules = load_committed_schedules()
 
     # Check if there are any committed schedules
     if not committed_schedules:
-        st.warning("No committed schedules available. Please generate and commit a schedule in the Roster Manager first.")
+        st.warning("No committed schedules available. Please generate and commit a schedule in the Roster Generator first.")
         return
 
     # Use the most recent committed schedule by default
     committed_schedule = committed_schedules[-1]  # Get the last (most recent) schedule
-    coverage_df = committed_schedule['coverage_df']
+    schedule_df = committed_schedule['schedule_df']
     employee_df = committed_schedule['employee_df']
+    metrics = committed_schedule['metrics']
     
     # Month and year selection
     col1, col2 = st.columns(2)
     with col1:
-        coverage_df['date'] = pd.to_datetime(coverage_df['date'])
-        available_years = sorted(coverage_df['date'].dt.year.unique())
+        schedule_df['date'] = pd.to_datetime(schedule_df['date'])
+        available_years = sorted(schedule_df['date'].dt.year.unique())
         selected_year = st.selectbox("Select Year", available_years, index=len(available_years) - 1)
     
     with col2:
         month_names = ["January", "February", "March", "April", "May", "June",
                       "July", "August", "September", "October", "November", "December"]
-        year_data = coverage_df[coverage_df['date'].dt.year == selected_year]
+        year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
         available_months_for_year = sorted(year_data['date'].dt.month.unique())
         month_options = [month_names[m-1] for m in available_months_for_year]
         selected_month_name = st.selectbox("Select Month", month_options, index=len(month_options) - 1)
         selected_month = available_months_for_year[month_options.index(selected_month_name)]
-
+    
     # Filter data for selected year/month
-    month_coverage = coverage_df[
-        (coverage_df['date'].dt.month == selected_month) &
-        (coverage_df['date'].dt.year == selected_year)
+    month_schedule = schedule_df[
+        (schedule_df['date'].dt.month == selected_month) &
+        (schedule_df['date'].dt.year == selected_year)
     ]
     
-    if month_coverage.empty:
+    if month_schedule.empty:
         st.warning(f"No report data available for {selected_month_name} {selected_year}")
         return
+
+    # Display analysis content from View Schedule tab
     
-    # Coverage analysis charts removed as requested
-    # Employee workload analysis
-    st.subheader("Employee Workload Analysis")
+    # 1. Monthly Summary
+    st.subheader("Monthly Summary")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Assignments", len(month_schedule))
+    with col2:
+        st.metric("Employees", month_schedule['employee'].nunique())
+    with col3:
+        st.metric("Days", month_schedule['date'].nunique())
+    with col4:
+        main_shifts = len(month_schedule[month_schedule['shift'].isin(['M', 'M3', 'M4'])])
+        st.metric("Main Shifts", main_shifts)
+    
+    st.markdown("---")
+    
+    # 2. Solver Metrics
+    st.subheader("Solver Metrics")
+    if metrics:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
+        with col2:
+            st.metric("Status", metrics.get('status', 'Unknown'))
+    
+    st.markdown("---")
+    
+    # 3. Fairness Analysis
+    from roster.app.ui.data_manager import DataManager
+    if 'data_manager' not in st.session_state:
+        st.session_state.data_manager = DataManager()
+    
+    st.session_state.data_manager.schedule_display.create_fairness_charts(month_schedule, selected_month, selected_year)
+    
+    st.markdown("---")
+    
+    # 4. Employee Pending Off Analysis
     if employee_df is not None:
-        # Night shift distribution
-        fig = px.histogram(
-            employee_df,
-            x="night_shifts",
-            title="Distribution of Night Shifts",
-            nbins=10,
-            color_discrete_sequence=['#4ECDC4']
-        )
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(size=12),
-            title_font_size=16,
-            xaxis_title="Number of Night Shifts",
-            yaxis_title="Number of Employees"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Employee Pending Off")
         
-        # Afternoon shift distribution
-        fig = px.histogram(
-            employee_df,
-            x="afternoon_shifts", 
-            title="Distribution of Afternoon Shifts",
-            nbins=10,
-            color_discrete_sequence=['#2E8B57']
-        )
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(size=12),
-            title_font_size=16,
-            xaxis_title="Number of Afternoon Shifts",
-            yaxis_title="Number of Employees"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Show key metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Employees", len(employee_df))
+        with col2:
+            avg_pending = employee_df['pending_off'].mean()
+            st.metric("Avg Pending Off", f"{avg_pending:.1f}")
+        with col3:
+            max_pending = employee_df['pending_off'].max()
+            st.metric("Max Pending Off", f"{max_pending:.1f}")
+        with col4:
+            total_nights = employee_df['night_shifts'].sum()
+            st.metric("Total Night Shifts", total_nights)
         
-        # Employee workload table
-        st.write("**Employee Workload Details**")
-        st.dataframe(employee_df)
+        # Create pending off chart
+        import plotly.express as px
+        import plotly.graph_objects as go
+        
+        # Sort by pending off for better visualization
+        sorted_df = employee_df.sort_values('pending_off', ascending=True)
+        
+        fig = go.Figure(data=go.Bar(
+            x=sorted_df['employee'],
+            y=sorted_df['pending_off'],
+            text=sorted_df['pending_off'],
+            textposition='auto',
+            marker_color='#4ECDC4'
+        ))
+        
+        fig.update_layout(
+            xaxis_title="Employee",
+            yaxis_title="Pending Off Days",
+            height=max(400, len(sorted_df) * 25 + 100)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 
 
 def show_user_management_page():
     """Show user management page."""
-    st.header("👤 User Management")
+    st.header("User Management")
     
     # Load employee data
     from roster.app.ui.data_manager import DataManager
@@ -727,28 +773,12 @@ def show_user_management_page():
             else:
                 st.error(f"User account for {employee_name} not found.")
     
-    st.subheader("Admin Account")
-    st.info("**Default Admin Account:**\n- Username: `admin`\n- Password: `admin123`\n- Type: Administrator")
     
-    # Option to change admin password
-    with st.expander("Change Admin Password"):
-        with st.form("change_admin_password"):
-            new_password = st.text_input("New Admin Password", type="password")
-            confirm_password = st.text_input("Confirm New Password", type="password")
-            
-            if st.form_submit_button("Update Admin Password"):
-                if new_password and new_password == confirm_password:
-                    st.session_state.user_data['admin']['password'] = new_password
-                    st.success("✅ Admin password updated successfully!")
-                elif new_password != confirm_password:
-                    st.error("Passwords do not match.")
-                else:
-                    st.error("Please enter a new password.")
 
 
 def show_roster_requests_page():
     """Show roster requests page for staff members."""
-    st.header("📝 Roster Requests")
+    st.header("Roster Requests")
     
     # Load requests data from file
     if 'staff_requests' not in st.session_state:

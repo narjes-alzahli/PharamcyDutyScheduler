@@ -2,6 +2,7 @@
 
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import date, datetime
 from pathlib import Path
 import sys
@@ -119,11 +120,9 @@ def main():
     
     if show_workload:
         st.subheader("👥 Employee Workload Analysis")
-        fig = schedule_display.create_employee_workload_chart(schedule_df, selected_month, selected_year)
-        if fig.data:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning(f"No workload data available for {selected_month_name} {selected_year}")
+        
+        # Show the new fairness charts
+        schedule_display.create_fairness_charts(schedule_df, selected_month, selected_year)
     
     if show_stats:
         st.subheader("📊 Monthly Statistics")
@@ -172,7 +171,8 @@ def main():
                 fig = px.bar(
                     x=shift_counts.index,
                     y=shift_counts.values,
-                    title="Shift Counts"
+                    title="Shift Counts",
+                    labels={'x': 'Shift', 'y': 'Count'}
                 )
                 fig.update_xaxes(tickangle=45)
                 st.plotly_chart(fig, use_container_width=True)

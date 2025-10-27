@@ -39,7 +39,7 @@ class RosterScoring:
         
         # 2. Fairness penalty
         fairness_vars = self._add_fairness_variables(
-            model, x, employees, dates
+            model, x, employees, dates, skills
         )
         if fairness_vars:
             objectives.append(sum(fairness_vars) * self.weights.get("fairness", 5.0))
@@ -130,16 +130,25 @@ class RosterScoring:
         model: cp_model.CpModel,
         x: Dict[Tuple[str, date, str], cp_model.IntVar],
         employees: List[str],
-        dates: List[date]
+        dates: List[date],
+        skills: Dict[str, Dict[str, bool]]
     ) -> List[cp_model.IntVar]:
         """Add variables to penalize unfair distribution of shifts."""
         fairness_vars = []
         
-        # Count shifts per employee
+        # Filter out clinicians (clinic_only employees)
+        non_clinicians = [emp for emp in employees if not skills.get(emp, {}).get("clinic_only", False)]
+        
+        if len(non_clinicians) < 2:
+            return fairness_vars  # Need at least 2 non-clinicians for fairness
+        
+        # Count shifts per non-clinician employee
         night_counts = []
         afternoon_counts = []
+        total_working_counts = []
+        weekend_counts = []
         
-        for emp in employees:
+        for emp in non_clinicians:
             # Night shifts
             night_vars = [x[(emp, day, "N")] for day in dates]
             night_count = model.NewIntVar(0, len(dates), f"night_count_{emp}")
@@ -151,8 +160,28 @@ class RosterScoring:
             afternoon_count = model.NewIntVar(0, len(dates), f"afternoon_count_{emp}")
             model.Add(afternoon_count == sum(afternoon_vars))
             afternoon_counts.append(afternoon_count)
+            
+            # Total working days (all shifts except DO)
+            working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
+            working_vars = []
+            for day in dates:
+                for shift in working_shifts:
+                    working_vars.append(x[(emp, day, shift)])
+            total_working = model.NewIntVar(0, len(dates) * len(working_shifts), f"total_working_{emp}")
+            model.Add(total_working == sum(working_vars))
+            total_working_counts.append(total_working)
+            
+            # Weekend shifts (Friday=4, Saturday=5)
+            weekend_vars = []
+            for day in dates:
+                if day.weekday() in [4, 5]:  # Friday or Saturday
+                    for shift in working_shifts:
+                        weekend_vars.append(x[(emp, day, shift)])
+            weekend_count = model.NewIntVar(0, len(dates) * len(working_shifts), f"weekend_count_{emp}")
+            model.Add(weekend_count == sum(weekend_vars))
+            weekend_counts.append(weekend_count)
         
-        # Fairness penalties (minimize variance)
+        # Fairness penalties (minimize variance between non-clinicians)
         if night_counts:
             max_nights = model.NewIntVar(0, len(dates), "max_nights")
             min_nights = model.NewIntVar(0, len(dates), "min_nights")
@@ -172,6 +201,26 @@ class RosterScoring:
             afternoon_fairness = model.NewIntVar(0, len(dates), "afternoon_fairness")
             model.Add(afternoon_fairness == max_afternoons - min_afternoons)
             fairness_vars.append(afternoon_fairness)
+            
+        if total_working_counts:
+            max_working = model.NewIntVar(0, len(dates) * 8, "max_working")
+            min_working = model.NewIntVar(0, len(dates) * 8, "min_working")
+            for count in total_working_counts:
+                model.Add(max_working >= count)
+                model.Add(min_working <= count)
+            working_fairness = model.NewIntVar(0, len(dates) * 8, "working_fairness")
+            model.Add(working_fairness == max_working - min_working)
+            fairness_vars.append(working_fairness)
+            
+        if weekend_counts:
+            max_weekends = model.NewIntVar(0, len(dates) * 8, "max_weekends")
+            min_weekends = model.NewIntVar(0, len(dates) * 8, "min_weekends")
+            for count in weekend_counts:
+                model.Add(max_weekends >= count)
+                model.Add(min_weekends <= count)
+            weekend_fairness = model.NewIntVar(0, len(dates) * 8, "weekend_fairness")
+            model.Add(weekend_fairness == max_weekends - min_weekends)
+            fairness_vars.append(weekend_fairness)
         
         return fairness_vars
     
