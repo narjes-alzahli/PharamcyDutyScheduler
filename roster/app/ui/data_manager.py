@@ -1229,20 +1229,20 @@ def save_staff_requests():
     
     for req in st.session_state.staff_requests.get('leave_requests', []):
         serializable_req = req.copy()
-        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
-        serializable_req['from_date'] = req['from_date'].isoformat()
-        serializable_req['to_date'] = req['to_date'].isoformat()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat() if hasattr(req['submitted_at'], 'isoformat') else req['submitted_at']
+        serializable_req['from_date'] = req['from_date'].isoformat() if hasattr(req['from_date'], 'isoformat') else req['from_date']
+        serializable_req['to_date'] = req['to_date'].isoformat() if hasattr(req['to_date'], 'isoformat') else req['to_date']
         if 'approved_at' in req:
-            serializable_req['approved_at'] = req['approved_at'].isoformat()
+            serializable_req['approved_at'] = req['approved_at'].isoformat() if hasattr(req['approved_at'], 'isoformat') else req['approved_at']
         serializable_requests['leave_requests'].append(serializable_req)
     
     for req in st.session_state.staff_requests.get('shift_requests', []):
         serializable_req = req.copy()
-        serializable_req['submitted_at'] = req['submitted_at'].isoformat()
-        serializable_req['from_date'] = req['from_date'].isoformat()
-        serializable_req['to_date'] = req['to_date'].isoformat()
+        serializable_req['submitted_at'] = req['submitted_at'].isoformat() if hasattr(req['submitted_at'], 'isoformat') else req['submitted_at']
+        serializable_req['from_date'] = req['from_date'].isoformat() if hasattr(req['from_date'], 'isoformat') else req['from_date']
+        serializable_req['to_date'] = req['to_date'].isoformat() if hasattr(req['to_date'], 'isoformat') else req['to_date']
         if 'approved_at' in req:
-            serializable_req['approved_at'] = req['approved_at'].isoformat()
+            serializable_req['approved_at'] = req['approved_at'].isoformat() if hasattr(req['approved_at'], 'isoformat') else req['approved_at']
         serializable_requests['shift_requests'].append(serializable_req)
     
     with open(requests_file, 'w') as f:
