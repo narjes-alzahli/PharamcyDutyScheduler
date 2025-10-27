@@ -79,17 +79,20 @@ class RosterScoring:
             day_demand = demands[day]
             
             for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
-                if shift_type in day_demand and day_demand[shift_type] > 0:
+                if shift_type in day_demand:
                     # Count assigned employees
                     assigned_vars = [x[(emp, day, shift_type)] for emp in employees]
                     assigned_count = model.NewIntVar(0, len(employees), f"assigned_{day}_{shift_type}")
                     model.Add(assigned_count == sum(assigned_vars))
                     
-                    # Calculate shortfall
-                    shortfall = model.NewIntVar(0, day_demand[shift_type], f"shortfall_{day}_{shift_type}")
-                    model.Add(shortfall >= day_demand[shift_type] - assigned_count)
-                    
-                    unfilled_vars.append(shortfall)
+                    if day_demand[shift_type] > 0:
+                        # Calculate shortfall for positive demand
+                        shortfall = model.NewIntVar(0, day_demand[shift_type], f"shortfall_{day}_{shift_type}")
+                        model.Add(shortfall >= day_demand[shift_type] - assigned_count)
+                        unfilled_vars.append(shortfall)
+                    else:
+                        # Penalize any assignment when demand is 0
+                        unfilled_vars.append(assigned_count)
         
         return unfilled_vars
     
@@ -111,17 +114,20 @@ class RosterScoring:
             day_demand = demands[day]
             
             for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
-                if shift_type in day_demand and day_demand[shift_type] > 0:
+                if shift_type in day_demand:
                     # Count assigned employees
                     assigned_vars = [x[(emp, day, shift_type)] for emp in employees]
                     assigned_count = model.NewIntVar(0, len(employees), f"assigned_{day}_{shift_type}")
                     model.Add(assigned_count == sum(assigned_vars))
                     
-                    # Calculate over-staffing
-                    overstaffing = model.NewIntVar(0, len(employees), f"overstaffing_{day}_{shift_type}")
-                    model.Add(overstaffing >= assigned_count - day_demand[shift_type])
-                    
-                    overstaffing_vars.append(overstaffing)
+                    if day_demand[shift_type] > 0:
+                        # Calculate over-staffing for positive demand
+                        overstaffing = model.NewIntVar(0, len(employees), f"overstaffing_{day}_{shift_type}")
+                        model.Add(overstaffing >= assigned_count - day_demand[shift_type])
+                        overstaffing_vars.append(overstaffing)
+                    else:
+                        # Penalize any assignment when demand is 0
+                        overstaffing_vars.append(assigned_count)
         
         return overstaffing_vars
     
