@@ -381,12 +381,44 @@ def show_data_manager_page():
     # Month and year selection
     col1, col2 = st.columns(2)
     with col1:
-        selected_year = st.selectbox("Select Year", [2025, 2026, 2027], index=0)
+        # Initialize year selection in session state
+        if 'roster_generator_year' not in st.session_state:
+            st.session_state.roster_generator_year = None
+        
+        year_labels = ["Select Year..."] + [str(year) for year in [2025, 2026, 2027]]
+        
+        selected_year_idx = st.selectbox("Select Year", year_labels, index=0)
+        
+        if selected_year_idx == "Select Year...":
+            selected_year = None
+            st.session_state.roster_generator_year = None
+        else:
+            selected_year = int(selected_year_idx)
+            st.session_state.roster_generator_year = selected_year
+    
     with col2:
-        selected_month = st.selectbox("Select Month", [
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ], index=2)
+        month_names = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
+        
+        # Initialize month selection in session state
+        if 'roster_generator_month' not in st.session_state:
+            st.session_state.roster_generator_month = None
+        
+        month_labels = ["Select Month..."] + month_names
+        
+        selected_month_idx = st.selectbox("Select Month", month_labels, index=0)
+        
+        if selected_month_idx == "Select Month..." or selected_year is None:
+            selected_month = None
+            st.session_state.roster_generator_month = None
+        else:
+            selected_month = selected_month_idx
+            st.session_state.roster_generator_month = selected_month
+    
+    # Check if both year and month are selected
+    if selected_year is None or selected_month is None:
+        st.info("👆 Please select both a year and month to generate the roster.")
+        return
     
     month_num = ["January", "February", "March", "April", "May", "June",
                  "July", "August", "September", "October", "November", "December"].index(selected_month) + 1
@@ -405,42 +437,47 @@ def show_data_manager_page():
     </style>
     """, unsafe_allow_html=True)
     
-    # Workflow explanation box
-    st.markdown("""
-    <div style="background-color: #ffe6e6; padding: 8px 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #dc3545;">
-        <p style="margin: 0; color: #666; font-size: 16px;">
-            Complete each step in order: <strong>Employees</strong> → 
-            <strong>Staffing Needs</strong> → 
-            <strong>Leave Requests</strong> → 
-            <strong>Shift Requests</strong> → 
-            <strong>Generate Schedule</strong> → 
-            <strong>Review & Commit</strong>
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Main content tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "👥 Employee Management", "📋 Staffing Needs", "🏖️ Leave Requests", "🔒 Shift Requests", "⚙️ Generate Schedule", "📅 View Schedule"
+    # Main content tabs with workflow explanation as first tab
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "🚀 Getting Started", "👥 Employee Management", "📋 Staffing Needs", "🏖️ Leave Requests", "🔒 Shift Requests", "⚙️ Generate Schedule", "📅 View Schedule"
     ])
     
     with tab1:
-        show_employees_tab(roster_data['employees'])
+        show_workflow_tab()
     
     with tab2:
-        show_demands_tab(roster_data['demands'], selected_year, month_num)
+        show_employees_tab(roster_data['employees'])
     
     with tab3:
-        show_time_off_tab(roster_data['time_off'], selected_year, month_num)
+        show_demands_tab(roster_data['demands'], selected_year, month_num)
     
     with tab4:
-        show_locks_tab(roster_data['locks'], selected_year, month_num)
+        show_time_off_tab(roster_data['time_off'], selected_year, month_num)
     
     with tab5:
-        show_generate_tab(roster_data, selected_year, month_num)
+        show_locks_tab(roster_data['locks'], selected_year, month_num)
     
     with tab6:
+        show_generate_tab(roster_data, selected_year, month_num)
+    
+    with tab7:
         show_schedule_view_tab(selected_year, month_num)
+
+
+def show_workflow_tab():
+    """Show workflow explanation tab."""
+    st.subheader("🚀 Getting Started")
+    
+    st.markdown("**Complete each step in order:**")
+    
+    # Workflow button with light grey background
+    st.markdown("""
+    <div style="background-color: #f8f9fa; padding: 15px 20px; border-radius: 10px; margin: 15px 0; border: 1px solid #e9ecef; text-align: center;">
+        <p style="margin: 0; color: #495057; font-size: 16px; font-weight: 500;">
+            👥 Employee Management &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp; 📋 Staffing Needs &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp; 🏖️ Leave Requests &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp; 🔒 Shift Requests &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp; ⚙️ Generate Schedule &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp; 📅 View Schedule &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp; 💾 Commit
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def show_employees_tab(employees_df: pd.DataFrame):
@@ -992,14 +1029,7 @@ def show_generate_tab(roster_data: Dict[str, pd.DataFrame], year: int, month: in
 def show_schedule_view_tab(year: int, month: int):
     """Show schedule view tab."""
     st.subheader("📅 View Schedule")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        st.markdown("**View, analyze, and commit the generated schedule**")
-    
-    with col2:
-        pass  # Empty column for layout consistency
+    st.markdown("**View, analyze, and commit the generated schedule**")
     
     if 'generated_schedule' not in st.session_state:
         st.info("Generate a schedule first using the 'Generate Schedule' tab.")
@@ -1016,26 +1046,18 @@ def show_schedule_view_tab(year: int, month: int):
         st.info("Generate a schedule first using the 'Generate Schedule' tab.")
         return
     
-    # Display options
-    show_schedule = st.checkbox("Show Schedule", value=True)
+    # Display the schedule table without header
+    employee_df = st.session_state.get('employee_df', None)
+    st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year, employee_df, False)
     
-    # Use session state to properly manage checkbox state
-    if 'show_analysis' not in st.session_state:
-        st.session_state.show_analysis = False
+    # Page separator
+    st.markdown("---")
     
-    show_analysis = st.checkbox("Show Schedule Analysis", value=st.session_state.show_analysis)
-    st.session_state.show_analysis = show_analysis
+    # Schedule Analysis section
+    st.subheader("📈 Schedule Analysis")
     
-    # Display the schedule
-    if show_schedule:
-        st.subheader("Schedule Table")
-        employee_df = st.session_state.get('employee_df', None)
-        st.session_state.data_manager.schedule_display.create_enhanced_schedule_table(schedule_df, month, year, employee_df, False)
-    
-    # Display schedule analysis in logical order
-    if show_analysis:
-        # 1. Monthly Summary
-        st.subheader("Monthly Summary")
+    # Schedule Summary - Key numbers and metrics
+    with st.expander("📊 Schedule Summary - Key numbers and metrics", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total Assignments", len(schedule_df))
@@ -1046,33 +1068,18 @@ def show_schedule_view_tab(year: int, month: int):
         with col4:
             main_shifts = len(schedule_df[schedule_df['shift'].isin(['M', 'M3', 'M4'])])
             st.metric("Main Shifts", main_shifts)
-        
-        st.markdown("---")
-        
-        # 2. Solver Metrics
-        st.subheader("Solver Metrics")
-        if 'schedule_metrics' in st.session_state:
-            metrics = st.session_state.schedule_metrics
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
-            with col2:
-                st.metric("Status", metrics.get('status', 'Unknown'))
-        
-        st.markdown("---")
-        
-        # 3. Fairness Analysis
+    
+    # Fairness Analysis
+    with st.expander("🔍 Fairness Analysis - How fair is the schedule?", expanded=False):
         st.session_state.data_manager.schedule_display.create_fairness_charts(schedule_df, month, year)
-        
-        st.markdown("---")
-        
-        # 4. Employee Pending Off Analysis
+    
+    # Employee Details
+    with st.expander("👥 Employee Details - Individual staff information", expanded=False):
         if 'employee_df' in st.session_state and st.session_state.employee_df is not None:
-            st.subheader("Employee Pending Off")
             employee_df = st.session_state.employee_df
             
             # Show key metrics
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Employees", len(employee_df))
             with col2:
@@ -1081,9 +1088,6 @@ def show_schedule_view_tab(year: int, month: int):
             with col3:
                 max_pending = employee_df['pending_off'].max()
                 st.metric("Max Pending Off", f"{max_pending:.1f}")
-            with col4:
-                total_nights = employee_df['night_shifts'].sum()
-                st.metric("Total Night Shifts", total_nights)
             
             # Create pending off chart
             import plotly.express as px
@@ -1103,24 +1107,38 @@ def show_schedule_view_tab(year: int, month: int):
             fig.update_layout(
                 xaxis_title="Employee",
                 yaxis_title="Pending Off Days",
-                height=max(400, len(sorted_df) * 25 + 100)
+                height=300
             )
             
             st.plotly_chart(fig, use_container_width=True)
     
-    # Commit button section
+    # Technical Details
+    with st.expander("⚙️ Technical Details - How the schedule was created", expanded=False):
+        if 'schedule_metrics' in st.session_state:
+            metrics = st.session_state.schedule_metrics
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
+            with col2:
+                st.metric("Status", metrics.get('status', 'Unknown'))
+    
+    # Page separator
     st.markdown("---")
-    st.subheader("Commit Schedule")
-    st.markdown("Once satisfied with generated schedule, commit it to make available to staff.")
+    
+    # Commit section
+    st.subheader("💾 Ready to Use This Schedule?")
     
     col1, col2 = st.columns([1, 2])
     with col1:
-        if st.button("💾 Commit Schedule", type="primary", use_container_width=True):
+        if st.button("Commit Schedule", type="primary", use_container_width=True):
             schedule_df = st.session_state.generated_schedule
             coverage_df = st.session_state.coverage_df
             employee_df = st.session_state.employee_df
             metrics = st.session_state.schedule_metrics
             commit_schedule(schedule_df, coverage_df, employee_df, metrics, year, month)
+    
+    with col2:
+        st.markdown("*After committing, this schedule will be available in Monthly Roster and Reports pages for your staff.*")
 
 
 def load_committed_schedules():

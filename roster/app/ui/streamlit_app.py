@@ -521,24 +521,62 @@ def show_schedule_page():
     # Use the most recent committed schedule by default
     committed_schedule = committed_schedules[-1]  # Get the last (most recent) schedule
     schedule_df = committed_schedule['schedule_df']
+    employee_df = committed_schedule['employee_df']
     
     # Month and year selection
     col1, col2 = st.columns(2)
     with col1:
         schedule_df['date'] = pd.to_datetime(schedule_df['date'])
         available_years = sorted(schedule_df['date'].dt.year.unique())
-        selected_year = st.selectbox("Select Year", available_years, index=len(available_years) - 1)
+        
+        # Initialize year selection in session state
+        if 'monthly_roster_year' not in st.session_state:
+            st.session_state.monthly_roster_year = None
+        
+        year_labels = ["Select Year..."] + [str(year) for year in available_years]
+        
+        selected_year_idx = st.selectbox("Select Year", year_labels, index=0)
+        
+        if selected_year_idx == "Select Year...":
+            selected_year = None
+            st.session_state.monthly_roster_year = None
+        else:
+            selected_year = int(selected_year_idx)
+            st.session_state.monthly_roster_year = selected_year
     
     with col2:
         month_names = ["January", "February", "March", "April", "May", "June",
                       "July", "August", "September", "October", "November", "December"]
-        year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
-        available_months_for_year = sorted(year_data['date'].dt.month.unique())
-        month_options = [month_names[m-1] for m in available_months_for_year]
-        selected_month_name = st.selectbox("Select Month", month_options, index=len(month_options) - 1)
-        selected_month = available_months_for_year[month_options.index(selected_month_name)]
+        
+        if selected_year is not None:
+            year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
+            available_months_for_year = sorted(year_data['date'].dt.month.unique())
+            month_options = [month_names[m-1] for m in available_months_for_year]
+        else:
+            month_options = []
+        
+        # Initialize month selection in session state
+        if 'monthly_roster_month' not in st.session_state:
+            st.session_state.monthly_roster_month = None
+        
+        month_labels = ["Select Month..."] + month_options
+        
+        selected_month_idx = st.selectbox("Select Month", month_labels, index=0)
+        
+        if selected_month_idx == "Select Month..." or selected_year is None:
+            selected_month_name = None
+            selected_month = None
+            st.session_state.monthly_roster_month = None
+        else:
+            selected_month_name = selected_month_idx
+            selected_month = available_months_for_year[month_options.index(selected_month_name)]
+            st.session_state.monthly_roster_month = selected_month
     
     # Check if there's data for the selected year/month combination
+    if selected_year is None or selected_month is None:
+        st.info("👆 Please select both a year and month to view the roster.")
+        return
+    
     month_data = schedule_df[
         (schedule_df['date'].dt.month == selected_month) & 
         (schedule_df['date'].dt.year == selected_year)
@@ -550,7 +588,41 @@ def show_schedule_page():
 
     # Display the schedule (simple - just the table with legend and download)
     schedule_display = ScheduleDisplay()
-    schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year, show_summary=False)
+    schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year, employee_df, show_summary=False)
+    
+    # Add big red download button
+    st.markdown("---")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        csv = month_data.to_csv(index=False)
+        st.download_button(
+            "Download Schedule",
+            csv,
+            f"schedule_{selected_year}_{selected_month:02d}.csv",
+            "text/csv",
+            help="Download the current month's schedule as CSV",
+            use_container_width=True
+        )
+    
+    # Add custom CSS for red button matching app style
+    st.markdown("""
+    <style>
+    div[data-testid="stDownloadButton"] button {
+        background-color: #ff4b4b !important;
+        color: white !important;
+        font-size: 16px !important;
+        font-weight: bold !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 0.25rem !important;
+        border: none !important;
+        width: 100% !important;
+    }
+    div[data-testid="stDownloadButton"] button:hover {
+        background-color: #ff3333 !important;
+        border-color: #ff3333 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def show_reports_page():
@@ -576,17 +648,54 @@ def show_reports_page():
     with col1:
         schedule_df['date'] = pd.to_datetime(schedule_df['date'])
         available_years = sorted(schedule_df['date'].dt.year.unique())
-        selected_year = st.selectbox("Select Year", available_years, index=len(available_years) - 1)
+        
+        # Initialize year selection in session state
+        if 'reports_year' not in st.session_state:
+            st.session_state.reports_year = None
+        
+        year_labels = ["Select Year..."] + [str(year) for year in available_years]
+        
+        selected_year_idx = st.selectbox("Select Year", year_labels, index=0)
+        
+        if selected_year_idx == "Select Year...":
+            selected_year = None
+            st.session_state.reports_year = None
+        else:
+            selected_year = int(selected_year_idx)
+            st.session_state.reports_year = selected_year
     
     with col2:
         month_names = ["January", "February", "March", "April", "May", "June",
                       "July", "August", "September", "October", "November", "December"]
-        year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
-        available_months_for_year = sorted(year_data['date'].dt.month.unique())
-        month_options = [month_names[m-1] for m in available_months_for_year]
-        selected_month_name = st.selectbox("Select Month", month_options, index=len(month_options) - 1)
-        selected_month = available_months_for_year[month_options.index(selected_month_name)]
+        if selected_year is not None:
+            year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
+            available_months_for_year = sorted(year_data['date'].dt.month.unique())
+            month_options = [month_names[m-1] for m in available_months_for_year]
+        else:
+            month_options = []
+        
+        # Initialize month selection in session state
+        if 'reports_month' not in st.session_state:
+            st.session_state.reports_month = None
+        
+        month_labels = ["Select Month..."] + month_options
+        
+        selected_month_idx = st.selectbox("Select Month", month_labels, index=0)
+        
+        if selected_month_idx == "Select Month..." or selected_year is None:
+            selected_month_name = None
+            selected_month = None
+            st.session_state.reports_month = None
+        else:
+            selected_month_name = selected_month_idx
+            selected_month = available_months_for_year[month_options.index(selected_month_name)]
+            st.session_state.reports_month = selected_month
     
+    # Check if there's data for the selected year/month combination
+    if selected_year is None or selected_month is None:
+        st.info("👆 Please select both a year and month to view reports.")
+        return
+
     # Filter data for selected year/month
     month_schedule = schedule_df[
         (schedule_df['date'].dt.month == selected_month) &
@@ -599,81 +708,92 @@ def show_reports_page():
 
     # Display analysis content from View Schedule tab
     
-    # 1. Monthly Summary
-    st.subheader("Monthly Summary")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Assignments", len(month_schedule))
-    with col2:
-        st.metric("Employees", month_schedule['employee'].nunique())
-    with col3:
-        st.metric("Days", month_schedule['date'].nunique())
-    with col4:
-        main_shifts = len(month_schedule[month_schedule['shift'].isin(['M', 'M3', 'M4'])])
-        st.metric("Main Shifts", main_shifts)
+    # Custom CSS for bold and bigger tab names
+    st.markdown("""
+    <style>
+    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+        font-size: 18px !important;
+        font-weight: bold !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
-    st.markdown("---")
+    # Create tabs for better organization
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Overview", "📈 Fairness Analysis", "Employee Pending Off", "⚙️ Solver Metrics"
+    ])
     
-    # 2. Solver Metrics
-    st.subheader("Solver Metrics")
-    if metrics:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
-        with col2:
-            st.metric("Status", metrics.get('status', 'Unknown'))
-    
-    st.markdown("---")
-    
-    # 3. Fairness Analysis
-    from roster.app.ui.data_manager import DataManager
-    if 'data_manager' not in st.session_state:
-        st.session_state.data_manager = DataManager()
-    
-    st.session_state.data_manager.schedule_display.create_fairness_charts(month_schedule, selected_month, selected_year)
-    
-    st.markdown("---")
-    
-    # 4. Employee Pending Off Analysis
-    if employee_df is not None:
-        st.subheader("Employee Pending Off")
-        
-        # Show key metrics
+    with tab1:
+        # 1. Monthly Summary
+        st.subheader("📊 Monthly Overview")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Employees", len(employee_df))
+            st.metric("Total Assignments", len(month_schedule))
         with col2:
-            avg_pending = employee_df['pending_off'].mean()
-            st.metric("Avg Pending Off", f"{avg_pending:.1f}")
+            st.metric("Employees", month_schedule['employee'].nunique())
         with col3:
-            max_pending = employee_df['pending_off'].max()
-            st.metric("Max Pending Off", f"{max_pending:.1f}")
+            st.metric("Days", month_schedule['date'].nunique())
         with col4:
-            total_nights = employee_df['night_shifts'].sum()
-            st.metric("Total Night Shifts", total_nights)
+            main_shifts = len(month_schedule[month_schedule['shift'].isin(['M', 'M3', 'M4'])])
+            st.metric("Main Shifts", main_shifts)
         
-        # Create pending off chart
-        import plotly.express as px
-        import plotly.graph_objects as go
         
-        # Sort by pending off for better visualization
-        sorted_df = employee_df.sort_values('pending_off', ascending=True)
+    
+    with tab2:
+        st.subheader("📈 Fairness Analysis")
+        from roster.app.ui.data_manager import DataManager
+        if 'data_manager' not in st.session_state:
+            st.session_state.data_manager = DataManager()
         
-        fig = go.Figure(data=go.Bar(
-            x=sorted_df['employee'],
-            y=sorted_df['pending_off'],
-            text=sorted_df['pending_off'],
-            textposition='auto',
-            marker_color='#4ECDC4'
-        ))
+        st.session_state.data_manager.schedule_display.create_fairness_charts(month_schedule, selected_month, selected_year)
+    
+    with tab3:
+        st.subheader("👥 Employee Pending Off")
         
-        fig.update_layout(
-            xaxis_title="Employee",
-            yaxis_title="Pending Off Days",
-            height=max(400, len(sorted_df) * 25 + 100)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        # Employee Pending Off Analysis
+        if employee_df is not None:
+            # Show key metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Employees", len(employee_df))
+            with col2:
+                avg_pending = employee_df['pending_off'].mean()
+                st.metric("Avg Pending Off", f"{avg_pending:.1f}")
+            with col3:
+                max_pending = employee_df['pending_off'].max()
+                st.metric("Max Pending Off", f"{max_pending:.1f}")
+            
+            # Create pending off chart
+            import plotly.graph_objects as go
+            
+            # Sort by pending off for better visualization
+            sorted_df = employee_df.sort_values('pending_off', ascending=True)
+            
+            fig = go.Figure(data=go.Bar(
+                x=sorted_df['employee'],
+                y=sorted_df['pending_off'],
+                text=sorted_df['pending_off'],
+                textposition='auto',
+                marker_color='#4ECDC4'
+            ))
+            
+            fig.update_layout(
+                xaxis_title="Employee",
+                yaxis_title="Pending Off Days",
+                height=300
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with tab4:
+        st.subheader("⚙️ Solver Metrics")
+        if metrics:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Solve Time", f"{metrics.get('solve_time', 0):.2f}s")
+            with col2:
+                st.metric("Status", metrics.get('status', 'Unknown'))
+    
 
 
 def show_user_management_page():

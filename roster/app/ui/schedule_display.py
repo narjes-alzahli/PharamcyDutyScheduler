@@ -193,7 +193,7 @@ class ScheduleDisplay:
         self._display_simple_table(pivot_data, all_dates, year, month, employee_df)
         
         # Add download button
-        self._add_download_button(pivot_data, all_dates, year, month, employee_df)
+        # self._add_download_button(pivot_data, all_dates, year, month, employee_df)
         
         # Summary statistics removed - handled in data_manager.py to avoid duplication
     
@@ -613,7 +613,8 @@ class ScheduleDisplay:
         pivot_data: pd.DataFrame, 
         all_dates: pd.DatetimeIndex, 
         year: int, 
-        month: int
+        month: int,
+        employee_df: pd.DataFrame = None
     ) -> str:
         """Generate HTML table with color coding matching pharmacy roster format."""
         
@@ -1125,31 +1126,45 @@ class ScheduleDisplay:
         working_data = month_data[month_data['shift'].isin(working_shifts)]
         
         # Fairness Metrics (moved to top)
-        st.subheader("Fairness Metrics")
         
         if not working_data.empty:
             working_counts = working_data['employee'].value_counts()
             
+            # Simple approach: Exclude employees with the highest working days (likely clinical)
+            # Clinical employees typically have the highest working days
+            max_work_all = working_counts.max()
+            
+            # Filter out employees with the highest working day count
+            non_max_counts = working_counts[working_counts < max_work_all]
+            
+            if len(non_max_counts) > 0:
+                # Use max from employees who don't have the highest count
+                max_work_non_clinical = non_max_counts.max()
+                min_work = working_counts.min()
+                avg_work = working_counts.mean()
+                fairness_score = 1 - (max_work_non_clinical - min_work) / max(max_work_non_clinical, 1)
+            else:
+                # Fallback: if all employees have the same count, use that count
+                max_work_non_clinical = working_counts.max()
+                min_work = working_counts.min()
+                avg_work = working_counts.mean()
+                fairness_score = 1 - (max_work_non_clinical - min_work) / max(max_work_non_clinical, 1)
+            
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                min_work = working_counts.min()
                 st.metric("Min Working Days", min_work)
             
             with col2:
-                max_work = working_counts.max()
-                st.metric("Max Working Days", max_work)
+                st.metric("Max Working Days (Non-Clinical)", max_work_non_clinical)
             
             with col3:
-                avg_work = working_counts.mean()
                 st.metric("Avg Working Days", f"{avg_work:.1f}")
             
             with col4:
-                fairness_score = 1 - (max_work - min_work) / max(max_work, 1)
                 st.metric("Fairness Score", f"{fairness_score:.2f}")
         
         st.markdown("---")
-        st.subheader("Fairness Analysis")
         
         # Create 4 columns for the charts
         col1, col2, col3, col4 = st.columns(4)
@@ -1163,7 +1178,8 @@ class ScheduleDisplay:
                     values=night_counts.values,
                     names=night_counts.index,
                     title="🌙 Night Shift Distribution",
-                    color_discrete_sequence=px.colors.qualitative.Set3
+                    color_discrete_sequence=px.colors.qualitative.Set3,
+                    labels={'names': 'Employee', 'values': 'Shifts'}
                 )
                 fig_night.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_night, use_container_width=True)
@@ -1179,7 +1195,8 @@ class ScheduleDisplay:
                     values=afternoon_counts.values,
                     names=afternoon_counts.index,
                     title="🌅 Afternoon Shift Distribution",
-                    color_discrete_sequence=px.colors.qualitative.Pastel
+                    color_discrete_sequence=px.colors.qualitative.Pastel,
+                    labels={'names': 'Employee', 'values': 'Shifts'}
                 )
                 fig_afternoon.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_afternoon, use_container_width=True)
@@ -1198,7 +1215,8 @@ class ScheduleDisplay:
                     values=weekend_counts.values,
                     names=weekend_counts.index,
                     title="📅 Weekend Shift Distribution",
-                    color_discrete_sequence=px.colors.qualitative.Set2
+                    color_discrete_sequence=px.colors.qualitative.Set2,
+                    labels={'names': 'Employee', 'values': 'Shifts'}
                 )
                 fig_weekend.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_weekend, use_container_width=True)

@@ -70,15 +70,27 @@ def main():
     available_years = sorted(schedule_df['date'].dt.year.unique())
     available_months = sorted(schedule_df['date'].dt.month.unique())
     
-    selected_year = st.sidebar.selectbox(
-        "Select Year",
-        available_years,
-        index=len(available_years) - 1
-    )
+    # Initialize year selection in session state
+    if 'viewer_year' not in st.session_state:
+        st.session_state.viewer_year = None
+    
+    year_labels = ["Select Year..."] + [str(year) for year in available_years]
+    
+    selected_year_idx = st.sidebar.selectbox("Select Year", year_labels, index=0)
+    
+    if selected_year_idx == "Select Year...":
+        selected_year = None
+        st.session_state.viewer_year = None
+    else:
+        selected_year = int(selected_year_idx)
+        st.session_state.viewer_year = selected_year
     
     # Filter months for selected year
-    year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
-    available_months_for_year = sorted(year_data['date'].dt.month.unique())
+    if selected_year is not None:
+        year_data = schedule_df[schedule_df['date'].dt.year == selected_year]
+        available_months_for_year = sorted(year_data['date'].dt.month.unique())
+    else:
+        available_months_for_year = []
     
     month_names = [
         "January", "February", "March", "April", "May", "June",
@@ -86,13 +98,28 @@ def main():
     ]
     
     month_options = [month_names[m-1] for m in available_months_for_year]
-    selected_month_name = st.sidebar.selectbox(
-        "Select Month",
-        month_options,
-        index=len(month_options) - 1
-    )
     
-    selected_month = available_months_for_year[month_options.index(selected_month_name)]
+    # Initialize month selection in session state
+    if 'viewer_month' not in st.session_state:
+        st.session_state.viewer_month = None
+    
+    month_labels = ["Select Month..."] + month_options
+    
+    selected_month_idx = st.sidebar.selectbox("Select Month", month_labels, index=0)
+    
+    if selected_month_idx == "Select Month..." or selected_year is None:
+        selected_month_name = None
+        selected_month = None
+        st.session_state.viewer_month = None
+    else:
+        selected_month_name = selected_month_idx
+        selected_month = available_months_for_year[month_options.index(selected_month_name)]
+        st.session_state.viewer_month = selected_month
+    
+    # Check if both year and month are selected
+    if selected_year is None or selected_month is None:
+        st.info("👆 Please select both a year and month to view the schedule.")
+        return
     
     # Display options
     st.sidebar.subheader("Display Options")
@@ -116,7 +143,7 @@ def main():
     
     if show_table:
         st.subheader("📋 Detailed Schedule Table")
-        schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year, show_summary=True)
+        schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year, None, show_summary=True)
     
     if show_workload:
         st.subheader("👥 Employee Workload Analysis")
@@ -163,7 +190,8 @@ def main():
                 fig = px.pie(
                     values=shift_counts.values,
                     names=shift_counts.index,
-                    title="Shift Distribution"
+                    title="Shift Distribution",
+                    labels={'names': 'Employee', 'values': 'Shifts'}
                 )
                 st.plotly_chart(fig, use_container_width=True)
             
