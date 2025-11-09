@@ -59,6 +59,66 @@
       "request_id": "LR_5",
       "approved_by": "Admin",
       "approved_at": "2025-10-27T12:41:28.702709"
+    },
+    {
+      "employee": "Zeinab",
+      "from_date": "2026-02-11",
+      "to_date": "2026-02-11",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-10-28T02:06:22.129238",
+      "request_id": "LR_6",
+      "approved_by": "Admin",
+      "approved_at": "2025-10-28T02:06:47.201697"
+    },
+    {
+      "employee": "Ahmed",
+      "from_date": "2025-10-28",
+      "to_date": "2025-10-29",
+      "leave_type": "DO",
+      "reason": "Vacation",
+      "status": "Approved",
+      "submitted_at": "2025-10-28T02:33:53.172705",
+      "request_id": "LR_7",
+      "approved_by": "Admin",
+      "approved_at": "2025-10-28T02:43:58.777027"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2025-11-06",
+      "to_date": "2025-11-06",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-11-06T23:05:39.782822",
+      "request_id": "LR_8",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-06T23:22:19.096334"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2025-11-06",
+      "to_date": "2025-11-06",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Rejected",
+      "submitted_at": "2025-11-06T23:12:07.442699",
+      "request_id": "LR_9",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-06T23:22:46.237096"
+    },
+    {
+      "employee": "Shatha",
+      "from_date": "2025-11-08",
+      "to_date": "2025-11-10",
+      "leave_type": "ML",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-11-06T23:26:58.154511",
+      "request_id": "LR_10",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-06T23:27:22.080579"
     }
   ],
   "shift_requests": [
@@ -69,9 +129,24 @@
       "shift": "M",
       "force": true,
       "reason": "",
-      "status": "Pending",
+      "status": "Approved",
       "submitted_at": "2025-10-27T12:43:40.265710",
-      "request_id": "SR_4"
+      "request_id": "SR_4",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-06T23:23:16.580202"
+    },
+    {
+      "employee": "Ahmed",
+      "from_date": "2025-11-06",
+      "to_date": "2025-11-06",
+      "shift": "N",
+      "force": false,
+      "reason": "Appointment",
+      "status": "Approved",
+      "submitted_at": "2025-10-28T02:34:34.790351",
+      "request_id": "SR_2",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-06T23:23:17.420479"
     }
   ]
 }

@@ -1,0 +1,26 @@
+employee,total_working_days,night_shifts,afternoon_shifts,weekend_shifts,DOs_given,pending_off
+Idris,12,1,1,2,0,3
+Karima W,12,2,2,2,0,4
+Rahma,12,3,2,2,0,5
+Ghadeer,13,2,1,1,0,3
+Lamees,13,1,1,0,0,1
+Noor,12,3,1,2,0,5
+Marwa J,13,1,2,0,0,1
+Huda,13,1,2,1,0,2
+Ameera,13,2,1,0,0,2
+Sumayia,14,1,2,1,0,2
+Saja,15,1,1,2,0,3
+Muna,12,1,1,0,0,1
+Aya,14,1,2,1,0,2
+Rashida,12,0,0,0,0,0
+Shatha,13,4,1,2,0,6
+Widad,12,4,0,2,0,6
+Khawla,13,2,2,1,0,3
+Amna,12,2,1,1,0,3
+Karima H,12,0,0,0,0,0
+Sultan,13,2,1,1,0,3
+Nasra,13,2,2,2,0,4
+Anisa,14,0,2,1,0,1
+Faiza,14,0,0,0,0,0
+Hawra,20,0,0,0,1,-1
+Abdullah,20,0,0,0,1,-1

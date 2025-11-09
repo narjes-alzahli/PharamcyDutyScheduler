@@ -24,8 +24,8 @@ MANIFEST
 # Virtual Environment
 scheduler_env/
 venv/
-env/
 ENV/
+env/
 
 # IDE
 .vscode/
@@ -36,24 +36,26 @@ ENV/
 
 # OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Streamlit
-.streamlit/
-
-# Output files
-output/
-*.csv
-!roster/app/data/*.csv
+# React
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
 
 # Logs
-*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Temporary files
-*.tmp
-*.temp
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Data files (optional - uncomment if you want to ignore data)
+# roster/app/data/*.csv
+# roster/app/data/*.json

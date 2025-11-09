@@ -85,7 +85,7 @@ Sara,2025-03-14,N,0
 - **A** = Evening shift (2:30 PM - 9:30 PM)
 - **N** = Night shift (9:30 PM - 7:00 AM)
 - **DO** = Day off
-- **CL** = Casual leave
+- **CL** = Clinic
 - **ML** = Medical leave
 - **W** = Weekend
 - **UL** = Unpaid leave

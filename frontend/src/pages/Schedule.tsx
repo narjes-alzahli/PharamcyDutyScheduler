@@ -1,0 +1,212 @@
+import React, { useState, useEffect } from 'react';
+import { schedulesAPI, Schedule } from '../services/api';
+import { ScheduleTable } from '../components/ScheduleTable';
+
+export const SchedulePage: React.FC = () => {
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadSchedules();
+  }, []);
+
+  useEffect(() => {
+    if (selectedYear && selectedMonth) {
+      loadSchedule(selectedYear, selectedMonth);
+    }
+  }, [selectedYear, selectedMonth]);
+
+  const loadSchedules = async () => {
+    try {
+      setLoading(true);
+      const data = await schedulesAPI.getCommittedSchedules();
+      setSchedules(data);
+
+      if (data.length === 0) {
+        setSelectedYear(null);
+        setSelectedMonth(null);
+        setCurrentSchedule(null);
+      } else if (
+        selectedYear &&
+        selectedMonth &&
+        !data.some((s) => s.year === selectedYear && s.month === selectedMonth)
+      ) {
+        // Previously selected schedule no longer exists
+        setCurrentSchedule(null);
+        setSelectedMonth(null);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load schedules');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSchedule = async (year: number, month: number) => {
+    try {
+      setLoading(true);
+      const schedule = await schedulesAPI.getSchedule(year, month);
+      setCurrentSchedule(schedule);
+      setError(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load schedule');
+      setCurrentSchedule(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get available years and months
+  const availableYears = Array.from(new Set(schedules.map(s => s.year))).sort();
+  const availableMonths = selectedYear
+    ? Array.from(
+        new Set(
+          schedules
+            .filter(s => s.year === selectedYear)
+            .map(s => s.month)
+        )
+      ).sort()
+    : [];
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  if (loading && !currentSchedule) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2 className="text-3xl font-bold text-gray-900 mb-6">Monthly Roster</h2>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+          {error}
+        </div>
+      )}
+
+      {schedules.length === 0 ? (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+          No committed schedules available. Please generate and commit a schedule in the Roster Generator first.
+        </div>
+      ) : (
+        <>
+          {/* Year and Month Selection */}
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Year
+                </label>
+                <select
+                  value={selectedYear || ''}
+                  onChange={(e) => {
+                    setSelectedYear(e.target.value ? parseInt(e.target.value) : null);
+                    setSelectedMonth(null);
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="">Select Year...</option>
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Month
+                </label>
+                <select
+                  value={selectedMonth || ''}
+                  onChange={(e) => setSelectedMonth(e.target.value ? parseInt(e.target.value) : null)}
+                  disabled={!selectedYear}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                >
+                  <option value="">Select Month...</option>
+                  {availableMonths.map(month => (
+                    <option key={month} value={month}>
+                      {monthNames[month - 1]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+        {(!selectedYear || !selectedMonth) && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-6">
+            Please select both a year and month to view the schedule.
+          </div>
+        )}
+
+          {selectedYear && selectedMonth && currentSchedule && (
+            <>
+              {/* Schedule Table */}
+              <div className="bg-white rounded-lg shadow p-6 mb-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">
+                  {monthNames[selectedMonth - 1]} {selectedYear} Schedule
+                </h3>
+                <ScheduleTable
+                  schedule={currentSchedule.schedule}
+                  year={selectedYear}
+                  month={selectedMonth}
+                  employees={currentSchedule.employees}
+                />
+              </div>
+
+              {/* Download Button */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <button
+                  onClick={() => {
+                    // Convert schedule to CSV and download
+                    const csv = [
+                      ['employee', 'date', 'shift'],
+                      ...currentSchedule.schedule.map((s: any) => [
+                        s.employee,
+                        s.date,
+                        s.shift,
+                      ]),
+                    ]
+                      .map(row => row.join(','))
+                      .join('\n');
+
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `schedule_${selectedYear}_${selectedMonth.toString().padStart(2, '0')}.csv`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                  }}
+                  className="w-full md:w-auto px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
+                >
+                  Download Schedule CSV
+                </button>
+              </div>
+            </>
+          )}
+
+          {selectedYear && selectedMonth && !currentSchedule && !loading && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+              No schedule data available for {monthNames[selectedMonth - 1]} {selectedYear}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+

@@ -258,6 +258,10 @@ def show_login_form():
                         st.session_state.user_logged_in = True
                         st.session_state.current_user = user_data
                         
+                        # Clear page selection when user logs in to prevent cross-user page persistence
+                        if 'current_page' in st.session_state:
+                            del st.session_state.current_page
+                        
                         # Save login state if "Remember Me" is checked
                         if remember_me:
                             save_login_state(username)
@@ -574,7 +578,7 @@ def show_schedule_page():
     
     # Check if there's data for the selected year/month combination
     if selected_year is None or selected_month is None:
-        st.info("👆 Please select both a year and month to view the roster.")
+        st.info("Please select both a year and month to view the roster.")
         return
     
     month_data = schedule_df[
@@ -693,7 +697,7 @@ def show_reports_page():
     
     # Check if there's data for the selected year/month combination
     if selected_year is None or selected_month is None:
-        st.info("👆 Please select both a year and month to view reports.")
+        st.info("Please select both a year and month to view reports.")
         return
 
     # Filter data for selected year/month
@@ -919,7 +923,7 @@ def show_roster_requests_page():
                 leave_type = st.selectbox(
                     "Leave Type",
                     ["DO", "CL", "ML", "W", "UL", "STL"],
-                    help="DO: Day Off, CL: Casual Leave, ML: Maternity Leave, W: Workshop, UL: Unpaid Leave, STL: Study Leave"
+                    help="DO: Day Off, ML: Maternity Leave, W: Workshop, UL: Unpaid Leave, STL: Study Leave"
                 )
             
             with col2:

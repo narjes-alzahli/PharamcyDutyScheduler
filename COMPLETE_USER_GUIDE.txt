@@ -116,7 +116,6 @@ BUTTONS & FUNCTIONS:
 
 LEAVE TYPES AVAILABLE:
 • DO: Day Off (regular day off)
-• CL: Casual Leave (personal leave)
 • ML: Maternity Leave (maternity/paternity)
 • W: Workshop (training/meetings)
 • UL: Unpaid Leave (unpaid time off)
@@ -336,7 +335,7 @@ SOLUTION:
 • A (Evening): Orange
 • N (Night): Yellow
 • DO (Day Off): Light Green
-• CL (Casual Leave): Light Pink
+• CL (Clinic): Light Pink
 • ML (Maternity Leave): Purple
 
 📊 WORKLOAD CHART:

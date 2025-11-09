@@ -237,7 +237,7 @@ class DataManager:
                     'need_M3': base_demand.get('M3', 1),
                     'need_M4': base_demand.get('M4', 1),
                     'need_H': h_value,  # Randomly distributed H shifts
-                    'need_CL': base_demand.get('CL', 3)
+                    'need_CL': base_demand.get('CL', 2)
                 })
         
         return pd.DataFrame(demands)
@@ -417,7 +417,7 @@ def show_data_manager_page():
     
     # Check if both year and month are selected
     if selected_year is None or selected_month is None:
-        st.info("👆 Please select both a year and month to generate the roster.")
+        st.info("Please select both a year and month to generate the roster.")
         return
     
     month_num = ["January", "February", "March", "April", "May", "June",
@@ -611,7 +611,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
     with col2:
         if st.button("🔄 Reset to Defaults", type="secondary"):
             base_demand = {
-                'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 3
+                'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2
             }
             weekend_demand = {
                 'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
@@ -627,7 +627,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
     # Auto-generate month demands if empty (use defaults on first load)
     if month_demands.empty:
         base_demand = {
-            'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 3
+            'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2
         }
         weekend_demand = {
             'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
@@ -703,7 +703,7 @@ def show_demands_tab(demands_df: pd.DataFrame, year: int, month: int):
         st.markdown("**Each Weekday**")
         weekday_config = pd.DataFrame({
             'Shift': ['M', 'IP', 'A', 'N', 'M3', 'M4', 'CL'],
-            'Count': [6, 3, 1, 1, 1, 1, 3]
+            'Count': [6, 3, 1, 1, 1, 1, 2]
         })
         edited_weekday = st.data_editor(
             weekday_config,

@@ -1,0 +1,438 @@
+{
+  "coverage_shortfalls": {
+    "2025-02-01": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-02": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-03": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-04": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-05": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-06": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-07": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-08": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-09": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-10": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-11": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-12": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-13": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-14": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-15": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-16": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-17": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-18": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-19": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-20": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-21": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-22": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-23": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-24": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-25": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-26": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-27": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    },
+    "2025-02-28": {
+      "M": 0,
+      "IP": 0,
+      "A": 0,
+      "N": 0,
+      "M3": 0,
+      "M4": 0,
+      "H": 0,
+      "CL": 0
+    }
+  },
+  "employee_metrics": {
+    "Idris": {
+      "total_working_days": 12,
+      "night_shifts": 1,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 2
+    },
+    "Karima W": {
+      "total_working_days": 12,
+      "night_shifts": 2,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 2
+    },
+    "Rahma": {
+      "total_working_days": 12,
+      "night_shifts": 2,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 2
+    },
+    "Ghadeer": {
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 1
+    },
+    "Lamees": {
+      "total_working_days": 13,
+      "night_shifts": 1,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 0
+    },
+    "Noor": {
+      "total_working_days": 12,
+      "night_shifts": 2,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 2
+    },
+    "Marwa J": {
+      "total_working_days": 13,
+      "night_shifts": 1,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 0
+    },
+    "Huda": {
+      "total_working_days": 13,
+      "night_shifts": 1,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
+    },
+    "Ameera": {
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 0
+    },
+    "Sumayia": {
+      "total_working_days": 14,
+      "night_shifts": 1,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
+    },
+    "Saja": {
+      "total_working_days": 15,
+      "night_shifts": 1,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 2
+    },
+    "Muna": {
+      "total_working_days": 12,
+      "night_shifts": 1,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 0
+    },
+    "Aya": {
+      "total_working_days": 14,
+      "night_shifts": 1,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
+    },
+    "Rashida": {
+      "total_working_days": 12,
+      "night_shifts": 0,
+      "afternoon_shifts": 0,
+      "weekend_shifts": 0
+    },
+    "Shatha": {
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 2
+    },
+    "Widad": {
+      "total_working_days": 12,
+      "night_shifts": 2,
+      "afternoon_shifts": 0,
+      "weekend_shifts": 2
+    },
+    "Khawla": {
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
+    },
+    "Amna": {
+      "total_working_days": 12,
+      "night_shifts": 1,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 1
+    },
+    "Karima H": {
+      "total_working_days": 12,
+      "night_shifts": 0,
+      "afternoon_shifts": 0,
+      "weekend_shifts": 0
+    },
+    "Sultan": {
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 1
+    },
+    "Nasra": {
+      "total_working_days": 13,
+      "night_shifts": 1,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 2
+    },
+    "Anisa": {
+      "total_working_days": 14,
+      "night_shifts": 0,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
+    },
+    "Faiza": {
+      "total_working_days": 14,
+      "night_shifts": 0,
+      "afternoon_shifts": 0,
+      "weekend_shifts": 0
+    },
+    "Hawra": {
+      "total_working_days": 20,
+      "night_shifts": 0,
+      "afternoon_shifts": 0,
+      "weekend_shifts": 0
+    },
+    "Abdullah": {
+      "total_working_days": 20,
+      "night_shifts": 0,
+      "afternoon_shifts": 0,
+      "weekend_shifts": 0
+    }
+  },
+  "solve_time": 6.5482177734375,
+  "status": "OPTIMAL"
+}

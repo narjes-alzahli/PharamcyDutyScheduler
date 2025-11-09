@@ -313,43 +313,43 @@
   },
   "employee_metrics": {
     "Idris": {
-      "total_working_days": 10,
-      "night_shifts": 2,
-      "afternoon_shifts": 2,
-      "weekend_shifts": 3
+      "total_working_days": 13,
+      "night_shifts": 1,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 0
     },
     "Karima": {
-      "total_working_days": 7,
+      "total_working_days": 15,
       "night_shifts": 2,
       "afternoon_shifts": 1,
       "weekend_shifts": 1
     },
     "Rahma": {
-      "total_working_days": 9,
-      "night_shifts": 1,
-      "afternoon_shifts": 2,
-      "weekend_shifts": 2
-    },
-    "Noor": {
-      "total_working_days": 9,
+      "total_working_days": 13,
       "night_shifts": 2,
       "afternoon_shifts": 0,
-      "weekend_shifts": 0
+      "weekend_shifts": 1
+    },
+    "Noor": {
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 0,
+      "weekend_shifts": 1
     },
     "Ameera": {
-      "total_working_days": 8,
+      "total_working_days": 15,
       "night_shifts": 2,
-      "afternoon_shifts": 2,
-      "weekend_shifts": 3
+      "afternoon_shifts": 1,
+      "weekend_shifts": 1
     },
     "Shatha": {
-      "total_working_days": 10,
-      "night_shifts": 1,
-      "afternoon_shifts": 2,
+      "total_working_days": 16,
+      "night_shifts": 0,
+      "afternoon_shifts": 1,
       "weekend_shifts": 0
     },
     "Rasha": {
-      "total_working_days": 22,
+      "total_working_days": 21,
       "night_shifts": 0,
       "afternoon_shifts": 0,
       "weekend_shifts": 0
@@ -367,114 +367,114 @@
       "weekend_shifts": 0
     },
     "Layla": {
-      "total_working_days": 10,
+      "total_working_days": 13,
+      "night_shifts": 0,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
+    },
+    "Mariam": {
+      "total_working_days": 14,
       "night_shifts": 2,
       "afternoon_shifts": 1,
       "weekend_shifts": 2
     },
-    "Mariam": {
-      "total_working_days": 6,
-      "night_shifts": 2,
-      "afternoon_shifts": 0,
-      "weekend_shifts": 0
-    },
     "Fatima": {
-      "total_working_days": 10,
-      "night_shifts": 2,
-      "afternoon_shifts": 2,
-      "weekend_shifts": 0
-    },
-    "Khaled": {
       "total_working_days": 13,
-      "night_shifts": 2,
+      "night_shifts": 1,
       "afternoon_shifts": 2,
       "weekend_shifts": 2
     },
-    "Omar": {
+    "Khaled": {
       "total_working_days": 13,
-      "night_shifts": 2,
+      "night_shifts": 0,
       "afternoon_shifts": 2,
       "weekend_shifts": 0
     },
-    "Ahmed": {
-      "total_working_days": 9,
+    "Omar": {
+      "total_working_days": 13,
       "night_shifts": 1,
       "afternoon_shifts": 0,
+      "weekend_shifts": 1
+    },
+    "Ahmed": {
+      "total_working_days": 13,
+      "night_shifts": 1,
+      "afternoon_shifts": 2,
       "weekend_shifts": 1
     },
     "Youssef": {
       "total_working_days": 15,
       "night_shifts": 2,
-      "afternoon_shifts": 2,
-      "weekend_shifts": 0
+      "afternoon_shifts": 1,
+      "weekend_shifts": 2
     },
     "Hassan": {
-      "total_working_days": 15,
+      "total_working_days": 13,
       "night_shifts": 1,
-      "afternoon_shifts": 1,
-      "weekend_shifts": 0
+      "afternoon_shifts": 0,
+      "weekend_shifts": 1
     },
     "Sara": {
-      "total_working_days": 15,
+      "total_working_days": 13,
       "night_shifts": 1,
-      "afternoon_shifts": 0,
-      "weekend_shifts": 0
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
     },
     "Dina": {
-      "total_working_days": 15,
-      "night_shifts": 0,
-      "afternoon_shifts": 2,
-      "weekend_shifts": 0
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 1,
+      "weekend_shifts": 1
     },
     "Nada": {
-      "total_working_days": 15,
+      "total_working_days": 13,
       "night_shifts": 1,
-      "afternoon_shifts": 0,
-      "weekend_shifts": 0
-    },
-    "Hala": {
-      "total_working_days": 16,
-      "night_shifts": 2,
       "afternoon_shifts": 2,
       "weekend_shifts": 2
     },
+    "Hala": {
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
+    },
     "Mona": {
-      "total_working_days": 20,
-      "night_shifts": 0,
-      "afternoon_shifts": 1,
-      "weekend_shifts": 3
+      "total_working_days": 13,
+      "night_shifts": 2,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 1
     },
     "Yasmin": {
-      "total_working_days": 22,
-      "night_shifts": 0,
+      "total_working_days": 13,
+      "night_shifts": 1,
       "afternoon_shifts": 2,
       "weekend_shifts": 1
     },
     "Nour": {
-      "total_working_days": 12,
+      "total_working_days": 13,
       "night_shifts": 1,
-      "afternoon_shifts": 1,
+      "afternoon_shifts": 0,
       "weekend_shifts": 0
     },
     "Dalia": {
-      "total_working_days": 19,
-      "night_shifts": 1,
-      "afternoon_shifts": 0,
-      "weekend_shifts": 1
+      "total_working_days": 14,
+      "night_shifts": 2,
+      "afternoon_shifts": 2,
+      "weekend_shifts": 2
     },
     "Rana": {
-      "total_working_days": 16,
-      "night_shifts": 0,
+      "total_working_days": 14,
+      "night_shifts": 1,
       "afternoon_shifts": 2,
       "weekend_shifts": 2
     },
     "Zeinab": {
-      "total_working_days": 22,
+      "total_working_days": 16,
       "night_shifts": 1,
       "afternoon_shifts": 2,
-      "weekend_shifts": 4
+      "weekend_shifts": 2
     }
   },
-  "solve_time": 1.4138827323913574,
+  "solve_time": 10.18130612373352,
   "status": "OPTIMAL"
 }

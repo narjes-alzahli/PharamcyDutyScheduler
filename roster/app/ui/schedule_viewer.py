@@ -44,7 +44,7 @@ def main():
     
     # Check if we have data
     if 'schedule_df' not in st.session_state:
-        st.info("👆 Please upload a schedule CSV file or load sample data to get started.")
+        st.info("Please upload a schedule CSV file or load sample data to get started.")
         st.markdown("""
         ### Expected CSV Format:
         ```
@@ -118,13 +118,12 @@ def main():
     
     # Check if both year and month are selected
     if selected_year is None or selected_month is None:
-        st.info("👆 Please select both a year and month to view the schedule.")
+        st.info("Please select both a year and month to view the schedule.")
         return
     
     # Display options
     st.sidebar.subheader("Display Options")
     
-    show_heatmap = st.sidebar.checkbox("Show Heatmap", value=True)
     show_table = st.sidebar.checkbox("Show Schedule Table", value=True)
     show_workload = st.sidebar.checkbox("Show Employee Workload", value=False)
     show_stats = st.sidebar.checkbox("Show Statistics", value=True)
@@ -133,14 +132,6 @@ def main():
     st.header(f"📅 {selected_month_name} {selected_year} Schedule")
     
     # Display the schedule
-    if show_heatmap:
-        st.subheader("📊 Schedule Heatmap")
-        fig = schedule_display.create_schedule_heatmap(schedule_df, selected_month, selected_year)
-        if fig.data:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning(f"No data available for {selected_month_name} {selected_year}")
-    
     if show_table:
         st.subheader("📋 Detailed Schedule Table")
         schedule_display.create_enhanced_schedule_table(schedule_df, selected_month, selected_year, None, show_summary=True)
