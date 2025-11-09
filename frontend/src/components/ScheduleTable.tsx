@@ -249,7 +249,6 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
       {/* Legend with Color Pickers */}
       <div className="mt-6 bg-white p-4 rounded-lg shadow">
         <div className="flex justify-between items-center mb-3">
-          <h3 className="font-bold text-lg">Shift Legend</h3>
           <button
             onClick={() => {
               if (window.confirm('Reset all colors to defaults?')) {

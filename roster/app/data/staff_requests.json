@@ -119,6 +119,30 @@
       "request_id": "LR_10",
       "approved_by": "Admin",
       "approved_at": "2025-11-06T23:27:22.080579"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2026-01-07",
+      "to_date": "2026-01-09",
+      "leave_type": "DO",
+      "reason": "",
+      "status": "Rejected",
+      "submitted_at": "2025-11-09T12:29:31.828825",
+      "request_id": "LR_11",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-09T12:29:52.711980"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2025-11-22",
+      "to_date": "2025-11-22",
+      "leave_type": "ML",
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-11-09T12:33:44.017740",
+      "request_id": "LR_12",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-09T12:34:21.976889"
     }
   ],
   "shift_requests": [
@@ -147,6 +171,45 @@
       "request_id": "SR_2",
       "approved_by": "Admin",
       "approved_at": "2025-11-06T23:23:17.420479"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2025-11-21",
+      "to_date": "2025-11-21",
+      "shift": "M",
+      "force": true,
+      "reason": "",
+      "status": "Approved",
+      "submitted_at": "2025-11-09T12:25:41.442884",
+      "request_id": "SR_3",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-09T12:26:57.789835"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2025-11-09",
+      "to_date": "2025-11-10",
+      "shift": "M",
+      "force": true,
+      "reason": "",
+      "status": "Rejected",
+      "submitted_at": "2025-11-09T12:33:07.886410",
+      "request_id": "SR_4",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-09T12:37:03.316587"
+    },
+    {
+      "employee": "Rahma",
+      "from_date": "2025-11-09",
+      "to_date": "2025-11-09",
+      "shift": "M",
+      "force": true,
+      "reason": "",
+      "status": "Rejected",
+      "submitted_at": "2025-11-09T12:33:49.819057",
+      "request_id": "SR_5",
+      "approved_by": "Admin",
+      "approved_at": "2025-11-09T12:34:07.681003"
     }
   ]
 }

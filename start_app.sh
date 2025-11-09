@@ -20,9 +20,9 @@ echo "🐍 Using Python: $(which python)"
 echo "📦 OR-Tools version: $(python -c 'import ortools; print(ortools.__version__)')"
 echo "📦 Protobuf version: $(python -c 'import google.protobuf; print(google.protobuf.__version__)')"
 echo ""
-echo "🚀 Starting Streamlit application..."
-echo "🌐 App will be available at: http://localhost:8501"
+echo "🚀 Starting FastAPI backend..."
+echo "🌐 API available at: http://localhost:8000"
 echo "=============================================="
 
-# Start the application
-python run_streamlit.py
+# Start the backend API
+uvicorn backend.main:app --reload

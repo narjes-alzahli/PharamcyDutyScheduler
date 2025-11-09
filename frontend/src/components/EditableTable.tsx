@@ -79,7 +79,7 @@ export const EditableTable: React.FC<EditableTableProps> = ({
             checked={!!value}
             onChange={(e) => handleCellChange(rowIndex, col.key, e.target.checked)}
             onBlur={handleBlur}
-            className="mx-auto"
+            className="mx-auto accent-primary-600"
           />
         );
       } else if (col.type === 'select' && col.options) {
@@ -89,7 +89,7 @@ export const EditableTable: React.FC<EditableTableProps> = ({
             onChange={(e) => handleCellChange(rowIndex, col.key, e.target.value)}
             onBlur={handleBlur}
             className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-            autoFocus
+            autoFocus={isEditing}
           >
             {col.options.map(opt => (
               <option key={opt} value={opt}>{opt}</option>
@@ -106,7 +106,7 @@ export const EditableTable: React.FC<EditableTableProps> = ({
             min={col.min}
             max={col.max}
             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center"
-            autoFocus
+            autoFocus={isEditing}
           />
         );
       } else {
@@ -117,7 +117,7 @@ export const EditableTable: React.FC<EditableTableProps> = ({
             onChange={(e) => handleCellChange(rowIndex, col.key, e.target.value)}
             onBlur={handleBlur}
             className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-            autoFocus
+            autoFocus={isEditing}
           />
         );
       }
@@ -127,7 +127,11 @@ export const EditableTable: React.FC<EditableTableProps> = ({
           onClick={() => setEditingCell({ row: rowIndex, col: col.key })}
           className="px-2 py-1 cursor-pointer hover:bg-gray-50 min-h-[32px] flex items-center"
         >
-          {col.type === 'checkbox' ? (value ? '✓' : '') : String(value || '')}
+          {col.type === 'checkbox' ? (
+            value ? <span className="text-primary-600 font-semibold">✓</span> : ''
+          ) : (
+            String(value || '')
+          )}
         </div>
       );
     }

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { authAPI } from '../services/api';
+import { authAPI, requestsAPI } from '../services/api';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -15,6 +15,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
 
   const handleLogout = async () => {
     await logout();
@@ -38,6 +39,44 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       alert(error.response?.data?.detail || 'Failed to change password');
     }
   };
+
+  useEffect(() => {
+    const fetchPendingRequests = async () => {
+      if (user?.employee_type !== 'Manager') {
+        setPendingRequestCount(0);
+        return;
+      }
+
+      try {
+        const [leaveRes, shiftRes] = await Promise.all([
+          requestsAPI.getAllLeaveRequests(),
+          requestsAPI.getAllShiftRequests(),
+        ]);
+
+        const leavePending = leaveRes.filter((req: any) => req.status === 'Pending').length;
+        const shiftPending = shiftRes.filter((req: any) => req.status === 'Pending').length;
+        setPendingRequestCount(leavePending + shiftPending);
+      } catch (error) {
+        console.error('Failed to fetch pending requests:', error);
+      }
+    };
+
+    fetchPendingRequests();
+  }, [user, location.pathname]);
+
+  useEffect(() => {
+    const handlePendingRequestsUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{ count: number }>;
+      if (typeof customEvent.detail?.count === 'number') {
+        setPendingRequestCount(customEvent.detail.count);
+      }
+    };
+
+    window.addEventListener('pendingRequestsUpdated', handlePendingRequestsUpdated as EventListener);
+    return () => {
+      window.removeEventListener('pendingRequestsUpdated', handlePendingRequestsUpdated as EventListener);
+    };
+  }, []);
 
   const navigation = user?.employee_type === 'Manager'
     ? [
@@ -82,26 +121,33 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`block px-4 py-2 rounded-lg transition-colors ${
+                className={`flex items-center justify-between px-4 py-2 rounded-lg transition-colors ${
                   location.pathname === item.path
                     ? 'bg-primary-100 text-primary-700 font-medium'
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                {item.name}
+                <span>{item.name}</span>
+                {item.path === '/users' && pendingRequestCount > 0 && (
+                  <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
+                    {pendingRequestCount}
+                  </span>
+                )}
               </Link>
             ))}
-            <div className="pt-4 border-t border-gray-200 mt-4">
-              <button
-                onClick={() => setShowPasswordForm(!showPasswordForm)}
-                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg"
-              >
-                Change Password
-              </button>
-            </div>
+            {user?.employee_type === 'Manager' && (
+              <div className="pt-4 border-t border-gray-200 mt-4">
+                <button
+                  onClick={() => setShowPasswordForm(!showPasswordForm)}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg"
+                >
+                  Change Password
+                </button>
+              </div>
+            )}
           </nav>
 
-          {showPasswordForm && (
+          {user?.employee_type === 'Manager' && showPasswordForm && (
             <div className="p-4 border-t border-gray-200">
               <form onSubmit={handlePasswordChange} className="space-y-3">
                 <input

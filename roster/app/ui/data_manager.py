@@ -358,6 +358,69 @@ class DataManager:
             st.error(f"Error saving demands for {year}-{month:02d}: {e}")
             return False
 
+    def save_time_off(self, entries: List[dict]) -> bool:
+        """Persist time off entries to CSV."""
+        try:
+            time_off_file = self.data_dir / "time_off.csv"
+            if not entries:
+                df = self._create_empty_time_off_df()
+            else:
+                df = pd.DataFrame(entries)
+                required_columns = ['employee', 'from_date', 'to_date', 'code']
+                for col in required_columns:
+                    if col not in df.columns:
+                        df[col] = '' if col == 'code' else None
+                df = df[required_columns]
+                df['from_date'] = pd.to_datetime(df['from_date'], errors='coerce')
+                df['to_date'] = pd.to_datetime(df['to_date'], errors='coerce')
+                df['to_date'] = df.apply(
+                    lambda row: row['from_date'] if pd.isna(row['to_date']) else row['to_date'],
+                    axis=1
+                )
+                df = df.dropna(subset=['employee', 'from_date', 'to_date'])
+                df['from_date'] = df['from_date'].dt.strftime('%Y-%m-%d')
+                df['to_date'] = df['to_date'].dt.strftime('%Y-%m-%d')
+            df.to_csv(time_off_file, index=False)
+            return True
+        except Exception as e:
+            st.error(f"Error saving time off data: {e}")
+            return False
+
+    def save_locks(self, entries: List[dict]) -> bool:
+        """Persist shift lock entries to CSV."""
+        try:
+            locks_file = self.data_dir / "locks.csv"
+            if not entries:
+                df = self._create_empty_locks_df()
+            else:
+                df = pd.DataFrame(entries)
+                required_columns = ['employee', 'from_date', 'to_date', 'shift', 'force']
+                for col in required_columns:
+                    if col not in df.columns:
+                        df[col] = None
+                df = df[required_columns]
+                df['from_date'] = pd.to_datetime(df['from_date'], errors='coerce')
+                df['to_date'] = pd.to_datetime(df['to_date'], errors='coerce')
+                df['to_date'] = df.apply(
+                    lambda row: row['from_date'] if pd.isna(row['to_date']) else row['to_date'],
+                    axis=1
+                )
+                df = df.dropna(subset=['employee', 'from_date', 'to_date', 'shift'])
+                df['from_date'] = df['from_date'].dt.strftime('%Y-%m-%d')
+                df['to_date'] = df['to_date'].dt.strftime('%Y-%m-%d')
+                def _coerce_force(value: Any) -> bool:
+                    if isinstance(value, str):
+                        normalized = value.strip().lower()
+                        return normalized in {'1', 'true', 'force', 'force (must)', 'yes'}
+                    return bool(value)
+
+                df['force'] = df['force'].apply(lambda value: 1 if _coerce_force(value) else 0)
+            df.to_csv(locks_file, index=False)
+            return True
+        except Exception as e:
+            st.error(f"Error saving locks data: {e}")
+            return False
+
 
 def show_data_manager_page():
     """Show the main data management page."""
@@ -922,7 +985,7 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
                 to_date = st.date_input("To Date", value=date(year, month, 1))
             
             with col4:
-                shift = st.selectbox("Shift", ["M", "IP", "A", "N", "M3", "M4", "H", "CL"])
+                shift = st.selectbox("Shift", ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "MS", "C"])
             
             with col5:
                 force = st.selectbox("Action", ["Force (Must)", "Forbid (Cannot)"])
@@ -976,7 +1039,7 @@ def show_locks_tab(locks_df: pd.DataFrame, year: int, month: int):
                     "employee": st.column_config.SelectboxColumn("Employee", options=st.session_state.roster_data['employees']['employee'].tolist()),
                     "from_date": st.column_config.TextColumn("From Date", width="medium"),
                     "to_date": st.column_config.TextColumn("To Date", width="medium"),
-                    "shift": st.column_config.SelectboxColumn("Shift", options=["M", "IP", "A", "N", "M3", "M4", "H", "CL"]),
+                    "shift": st.column_config.SelectboxColumn("Shift", options=["M", "IP", "A", "N", "M3", "M4", "H", "CL", "MS", "C"]),
                     "force": st.column_config.SelectboxColumn("Action", options=["Force (Must)", "Forbid (Cannot)"])
                 },
                 use_container_width=True

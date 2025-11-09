@@ -26,6 +26,9 @@ export const UserManagement: React.FC = () => {
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
 
+  const pendingLeaveCount = leaveRequests.filter((req) => req.status === 'Pending').length;
+  const pendingShiftCount = shiftRequests.filter((req) => req.status === 'Pending').length;
+
   useEffect(() => {
     loadData();
     if (currentUser?.employee_type === 'Manager') {
@@ -47,6 +50,12 @@ export const UserManagement: React.FC = () => {
       ]);
       setLeaveRequests(leaveRes);
       setShiftRequests(shiftRes);
+      const pendingCount =
+        leaveRes.filter((req: any) => req.status === 'Pending').length +
+        shiftRes.filter((req: any) => req.status === 'Pending').length;
+      window.dispatchEvent(
+        new CustomEvent('pendingRequestsUpdated', { detail: { count: pendingCount } })
+      );
     } catch (error) {
       console.error('Failed to load requests:', error);
     }
@@ -244,7 +253,14 @@ export const UserManagement: React.FC = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              🏖️ Leave Requests
+              <span className="inline-flex items-center space-x-2">
+                <span>🏖️ Leave Requests</span>
+                {pendingLeaveCount > 0 && (
+                  <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
+                    {pendingLeaveCount}
+                  </span>
+                )}
+              </span>
             </button>
             <button
               onClick={() => setActiveTab('shift')}
@@ -254,7 +270,14 @@ export const UserManagement: React.FC = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              🔒 Shift Requests
+              <span className="inline-flex items-center space-x-2">
+                <span>🔒 Shift Requests</span>
+                {pendingShiftCount > 0 && (
+                  <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
+                    {pendingShiftCount}
+                  </span>
+                )}
+              </span>
             </button>
           </nav>
         </div>
@@ -263,7 +286,21 @@ export const UserManagement: React.FC = () => {
       {/* Leave Requests Tab */}
       {activeTab === 'leave' && currentUser?.employee_type === 'Manager' && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">🏖️ Leave Requests</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+              <span>🏖️ Leave Requests</span>
+              {pendingLeaveCount > 0 && (
+                <span className="inline-flex items-center justify-center h-7 min-w-[1.75rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
+                  {pendingLeaveCount}
+                </span>
+              )}
+            </h3>
+            {pendingLeaveCount > 0 && (
+              <span className="text-sm text-gray-500">
+                Pending approval
+              </span>
+            )}
+          </div>
           {leaveRequests.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
@@ -336,14 +373,29 @@ export const UserManagement: React.FC = () => {
       {/* Shift Requests Tab */}
       {activeTab === 'shift' && currentUser?.employee_type === 'Manager' && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">🔒 Shift Requests</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+              <span>🔒 Shift Requests</span>
+              {pendingShiftCount > 0 && (
+                <span className="inline-flex items-center justify-center h-7 min-w-[1.75rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
+                  {pendingShiftCount}
+                </span>
+              )}
+            </h3>
+            {pendingShiftCount > 0 && (
+              <span className="text-sm text-gray-500">
+                Pending approval
+              </span>
+            )}
+          </div>
           {shiftRequests.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To Date</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Shift</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Reason</th>
@@ -357,6 +409,7 @@ export const UserManagement: React.FC = () => {
                     <tr key={req.request_id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
                       <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date || req.from_date)}</td>
                       <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.shift}</td>
                       <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">
                         {req.force ? 'Force (Must)' : 'Forbid (Cannot)'}

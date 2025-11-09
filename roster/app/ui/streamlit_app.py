@@ -724,7 +724,7 @@ def show_reports_page():
     
     # Create tabs for better organization
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Overview", "📈 Fairness Analysis", "Employee Pending Off", "⚙️ Solver Metrics"
+        "📊 Overview", "📈 Fairness Analysis", "👥 Employee Pending Off", "⚙️ Solver Metrics"
     ])
     
     with tab1:

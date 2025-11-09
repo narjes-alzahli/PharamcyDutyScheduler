@@ -40,6 +40,21 @@ class DemandData(BaseModel):
     need_CL: int = 0
 
 
+class TimeOffEntry(BaseModel):
+    employee: str
+    from_date: str
+    to_date: str
+    code: str
+
+
+class LockEntry(BaseModel):
+    employee: str
+    from_date: str
+    to_date: str
+    shift: str
+    force: bool
+
+
 @router.get("/employees")
 async def get_employees(current_user: dict = Depends(get_current_user)):
     """Get all employees."""
@@ -276,6 +291,38 @@ async def get_roster_data(current_user: dict = Depends(get_current_user)):
         "time_off": roster_data['time_off'].to_dict('records'),
         "locks": roster_data['locks'].to_dict('records')
     }
+
+
+@router.put("/time-off")
+async def update_time_off(
+    entries: List[TimeOffEntry],
+    current_user: dict = Depends(get_current_user)
+):
+    """Persist time off entries."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can update time off data")
+
+    data_manager = DataManager()
+    success = data_manager.save_time_off([entry.dict() for entry in entries])
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save time off data")
+    return {"message": "Time off updated successfully"}
+
+
+@router.put("/locks")
+async def update_locks(
+    entries: List[LockEntry],
+    current_user: dict = Depends(get_current_user)
+):
+    """Persist shift lock entries."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can update shift requests")
+
+    data_manager = DataManager()
+    success = data_manager.save_locks([entry.dict() for entry in entries])
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save shift request data")
+    return {"message": "Shift requests updated successfully"}
 
 
 class GenerateDemandsRequest(BaseModel):

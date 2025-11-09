@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { schedulesAPI, Schedule } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
+import * as htmlToImage from 'html-to-image';
 
 export const SchedulePage: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -9,6 +10,9 @@ export const SchedulePage: React.FC = () => {
   const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const scheduleCardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadSchedules();
@@ -77,6 +81,38 @@ export const SchedulePage: React.FC = () => {
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
+  const handleDownloadImage = async () => {
+    if (!scheduleCardRef.current || !selectedYear || !selectedMonth) {
+      return;
+    }
+
+    try {
+      setDownloading(true);
+      setDownloadError(null);
+
+      const dataUrl = await htmlToImage.toPng(scheduleCardRef.current, {
+        cacheBust: true,
+        pixelRatio: Math.min(3, (window.devicePixelRatio || 2) + 0.5),
+        backgroundColor: '#ffffff',
+        width: scheduleCardRef.current.scrollWidth + 80,
+        height: scheduleCardRef.current.scrollHeight + 80,
+        style: {
+          padding: '40px',
+        },
+      });
+
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `schedule_${selectedYear}_${selectedMonth.toString().padStart(2, '0')}.png`;
+      link.click();
+    } catch (err) {
+      console.error('Failed to download schedule image', err);
+      setDownloadError('Failed to download schedule image. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (loading && !currentSchedule) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -144,18 +180,22 @@ export const SchedulePage: React.FC = () => {
                 </select>
               </div>
             </div>
-          </div>
 
-        {(!selectedYear || !selectedMonth) && (
-          <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-6">
-            Please select both a year and month to view the schedule.
+            {(!selectedYear || !selectedMonth) && (
+              <div className="mt-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
+                Please select both a year and month to view the schedule.
+              </div>
+            )}
           </div>
-        )}
 
           {selectedYear && selectedMonth && currentSchedule && (
             <>
               {/* Schedule Table */}
-              <div className="bg-white rounded-lg shadow p-6 mb-6">
+              <div
+                ref={scheduleCardRef}
+                className="bg-white rounded-lg shadow p-6 mb-6"
+                style={{ overflow: 'visible' }}
+              >
                 <h3 className="text-xl font-bold text-gray-900 mb-4">
                   {monthNames[selectedMonth - 1]} {selectedYear} Schedule
                 </h3>
@@ -170,31 +210,17 @@ export const SchedulePage: React.FC = () => {
               {/* Download Button */}
               <div className="bg-white rounded-lg shadow p-6">
                 <button
-                  onClick={() => {
-                    // Convert schedule to CSV and download
-                    const csv = [
-                      ['employee', 'date', 'shift'],
-                      ...currentSchedule.schedule.map((s: any) => [
-                        s.employee,
-                        s.date,
-                        s.shift,
-                      ]),
-                    ]
-                      .map(row => row.join(','))
-                      .join('\n');
-
-                    const blob = new Blob([csv], { type: 'text/csv' });
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `schedule_${selectedYear}_${selectedMonth.toString().padStart(2, '0')}.csv`;
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                  }}
-                  className="w-full md:w-auto px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
+                  onClick={handleDownloadImage}
+                  disabled={downloading}
+                  className={`w-full md:w-auto px-6 py-3 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors ${
+                    downloading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
+                  }`}
                 >
-                  Download Schedule CSV
+                  {downloading ? 'Preparing Image...' : 'Download Schedule'}
                 </button>
+                {downloadError && (
+                  <p className="mt-3 text-sm text-red-600">{downloadError}</p>
+                )}
               </div>
             </>
           )}

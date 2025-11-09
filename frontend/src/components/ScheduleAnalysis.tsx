@@ -83,7 +83,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
 
   return (
     <div className="mt-8 space-y-4">
-      <h3 className="text-xl font-bold text-gray-900">📈 Schedule Analysis</h3>
+      <h3 className="text-xl font-bold text-gray-900">Schedule Analysis</h3>
 
       {/* Schedule Summary */}
       <div className="bg-white border border-gray-200 rounded-lg">
@@ -91,7 +91,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
           onClick={() => toggleSection('summary')}
           className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
         >
-          <span>📊 Schedule Summary - Key numbers and metrics</span>
+          <span>Schedule Summary - Key numbers and metrics</span>
           <span>{expandedSections.summary ? '▼' : '▶'}</span>
         </button>
         {expandedSections.summary && (
@@ -124,7 +124,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
           onClick={() => toggleSection('fairness')}
           className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
         >
-          <span>🔍 Fairness Analysis - How fair is the schedule?</span>
+          <span>Fairness Analysis - How fair is the schedule?</span>
           <span>{expandedSections.fairness ? '▼' : '▶'}</span>
         </button>
         {expandedSections.fairness && (
@@ -310,7 +310,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
             onClick={() => toggleSection('employeeDetails')}
             className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
           >
-            <span>👥 Employee Details - Individual staff information</span>
+            <span>Employee Details - Individual staff information</span>
             <span>{expandedSections.employeeDetails ? '▼' : '▶'}</span>
           </button>
           {expandedSections.employeeDetails && (
@@ -374,7 +374,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
             onClick={() => toggleSection('technical')}
             className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
           >
-            <span>⚙️ Technical Details - How the schedule was created</span>
+            <span>Technical Details - How the schedule was created</span>
             <span>{expandedSections.technical ? '▼' : '▶'}</span>
           </button>
           {expandedSections.technical && (

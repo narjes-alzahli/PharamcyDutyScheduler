@@ -93,6 +93,21 @@ export interface Demand {
   need_CL: number;
 }
 
+export interface TimeOffEntry {
+  employee: string;
+  from_date: string;
+  to_date: string;
+  code: string;
+}
+
+export interface LockEntry {
+  employee: string;
+  from_date: string;
+  to_date: string;
+  shift: string;
+  force: boolean;
+}
+
 export const dataAPI = {
   getEmployees: async (): Promise<Employee[]> => {
     const response = await api.get<Employee[]>('/api/data/employees');
@@ -112,6 +127,12 @@ export const dataAPI = {
   getRosterData: async () => {
     const response = await api.get('/api/data/roster-data');
     return response.data;
+  },
+  updateTimeOff: async (timeOff: TimeOffEntry[]): Promise<void> => {
+    await api.put('/api/data/time-off', timeOff);
+  },
+  updateLocks: async (locks: LockEntry[]): Promise<void> => {
+    await api.put('/api/data/locks', locks);
   },
 };
 
@@ -189,7 +210,8 @@ export interface LeaveRequest {
 }
 
 export interface ShiftRequest {
-  date: string;
+  from_date: string;
+  to_date: string;
   shift: string;
   request_type: string;
   reason?: string;

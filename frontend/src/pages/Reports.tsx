@@ -275,7 +275,7 @@ export const ReportsPage: React.FC = () => {
                 {/* Overview Tab */}
                 {activeTab === 'overview' && metrics && (
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">📊 Monthly Overview</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Monthly Overview</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="bg-gray-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600">Total Assignments</p>
@@ -300,7 +300,7 @@ export const ReportsPage: React.FC = () => {
                 {/* Fairness Analysis Tab */}
                 {activeTab === 'fairness' && fairnessData && (
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">📈 Fairness Analysis</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Fairness Analysis</h3>
                     
                     {/* Fairness Metrics */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -434,7 +434,7 @@ export const ReportsPage: React.FC = () => {
                 {/* Employee Pending Off Tab */}
                 {activeTab === 'pending-off' && currentSchedule.employees && (
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">👥 Employee Pending Off</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Employee Pending Off</h3>
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                       <div className="bg-gray-50 p-4 rounded-lg">
@@ -490,7 +490,7 @@ export const ReportsPage: React.FC = () => {
                 {/* Solver Metrics Tab */}
                 {activeTab === 'solver' && currentSchedule.metrics && (
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">⚙️ Solver Metrics</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Solver Metrics</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="bg-gray-50 p-4 rounded-lg">
                         <p className="text-sm text-gray-600">Solve Time</p>

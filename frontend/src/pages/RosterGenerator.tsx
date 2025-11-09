@@ -5,8 +5,10 @@ import { EditableTable } from '../components/EditableTable';
 import { DemandsTab } from '../components/DemandsTab';
 import { ScheduleAnalysis } from '../components/ScheduleAnalysis';
 
+const SHIFT_OPTIONS = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'MS', 'C'] as const;
+
 export const RosterGenerator: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('getting-started');
+  const [activeTab, setActiveTab] = useState('employees');
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [rosterData, setRosterData] = useState<any>(null);
@@ -21,6 +23,7 @@ export const RosterGenerator: React.FC = () => {
   const [showAddTimeOff, setShowAddTimeOff] = useState(false);
   const [showAddLock, setShowAddLock] = useState(false);
   const [newEmployeeName, setNewEmployeeName] = useState('');
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -31,18 +34,23 @@ export const RosterGenerator: React.FC = () => {
     loadRosterData();
   }, []);
 
-  // Reload roster data when switching to time-off or locks tabs to show newly approved requests
+  // Reload roster data when switching to time-off or shift request steps to show newly approved requests
   useEffect(() => {
     if (activeTab === 'time-off' || activeTab === 'locks') {
       loadRosterData();
     }
   }, [activeTab]);
 
-  // Reset tabs when year/month are not selected
+  // Reset active step when year/month are not selected
   useEffect(() => {
     if (!selectedYear || !selectedMonth) {
-      setActiveTab('getting-started');
+      setActiveTab('employees');
     }
+  }, [selectedYear, selectedMonth]);
+
+  useEffect(() => {
+    clearGeneratedResults();
+    setSolving(false);
   }, [selectedYear, selectedMonth]);
 
   useEffect(() => {
@@ -76,7 +84,7 @@ export const RosterGenerator: React.FC = () => {
         setGeneratedSchedule(status.result.schedule);
         setGeneratedEmployees(status.result.employees || null);
         setScheduleMetrics(status.result.metrics || { solve_time: 0, status: 'completed' });
-        setActiveTab('view');
+        setActiveTab('schedule');
       } else if (status.status === 'failed') {
         setSolving(false);
         alert(`Solver failed: ${status.error || 'Unknown error'}`);
@@ -84,6 +92,14 @@ export const RosterGenerator: React.FC = () => {
     } catch (error) {
       console.error('Failed to check job status:', error);
     }
+  };
+
+  const clearGeneratedResults = () => {
+    setGeneratedSchedule(null);
+    setGeneratedEmployees(null);
+    setScheduleMetrics(null);
+    setJobId(null);
+    setJobStatus(null);
   };
 
   const handleGenerate = async () => {
@@ -114,6 +130,8 @@ export const RosterGenerator: React.FC = () => {
 
   const saveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const initialEmployeesRef = React.useRef<any[] | null>(null);
+  const timeOffSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const locksSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const [saveNotification, setSaveNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Store initial employees data when it's loaded
@@ -158,6 +176,8 @@ export const RosterGenerator: React.FC = () => {
       return;
     }
 
+    clearGeneratedResults();
+
     // Clear any existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -187,6 +207,7 @@ export const RosterGenerator: React.FC = () => {
 
   const handleDemandsChange = async (newData: any[]) => {
     // TODO: Implement API call to save demands
+    clearGeneratedResults();
     setRosterData({ ...rosterData, demands: newData });
   };
 
@@ -210,14 +231,57 @@ export const RosterGenerator: React.FC = () => {
     }
   };
 
-  const handleTimeOffChange = async (newData: any[]) => {
-    // TODO: Implement API call to save time off
-    setRosterData({ ...rosterData, time_off: newData });
+  const handleTimeOffChange = (newData: any[]) => {
+    clearGeneratedResults();
+    setRosterData((prev: any) => (prev ? { ...prev, time_off: newData } : prev));
+
+    if (timeOffSaveTimeoutRef.current) {
+      clearTimeout(timeOffSaveTimeoutRef.current);
+    }
+
+    timeOffSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await dataAPI.updateTimeOff(newData);
+        setSaveNotification({ message: '✅ Leave data saved successfully!', type: 'success' });
+        setTimeout(() => setSaveNotification(null), 2000);
+      } catch (error: any) {
+        console.error('Failed to save time off:', error);
+        setSaveNotification({
+          message: `❌ ${error.response?.data?.detail || 'Failed to save leave data'}`,
+          type: 'error',
+        });
+        setTimeout(() => setSaveNotification(null), 4000);
+      }
+    }, 800);
   };
 
-  const handleLocksChange = async (newData: any[]) => {
-    // TODO: Implement API call to save locks
-    setRosterData({ ...rosterData, locks: newData });
+  const handleLocksChange = (newData: any[]) => {
+    const normalizedLocks = newData.map((lock: any) => ({
+      ...lock,
+      force: !!lock.force,
+    }));
+
+    clearGeneratedResults();
+    setRosterData((prev: any) => (prev ? { ...prev, locks: normalizedLocks } : prev));
+
+    if (locksSaveTimeoutRef.current) {
+      clearTimeout(locksSaveTimeoutRef.current);
+    }
+
+    locksSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await dataAPI.updateLocks(normalizedLocks);
+        setSaveNotification({ message: '✅ Shift requests saved successfully!', type: 'success' });
+        setTimeout(() => setSaveNotification(null), 2000);
+      } catch (error: any) {
+        console.error('Failed to save shift requests:', error);
+        setSaveNotification({
+          message: `❌ ${error.response?.data?.detail || 'Failed to save shift requests'}`,
+          type: 'error',
+        });
+        setTimeout(() => setSaveNotification(null), 4000);
+      }
+    }, 800);
   };
 
   const addEmployee = () => {
@@ -302,14 +366,32 @@ export const RosterGenerator: React.FC = () => {
     );
   }
 
-  const tabs = [
-    { id: 'getting-started', name: '🚀 Getting Started' },
-    { id: 'employees', name: '👥 Employee Management' },
-    { id: 'demands', name: '📋 Staffing Needs' },
-    { id: 'time-off', name: '🏖️ Leave Requests' },
-    { id: 'locks', name: '🔒 Shift Requests' },
-    { id: 'generate', name: '⚙️ Generate Schedule' },
-    { id: 'view', name: '📅 View Schedule' },
+  const steps = [
+    {
+      id: 'employees',
+      name: 'Employees',
+      description: 'Add, edit, or remove staff members and their skills.',
+    },
+    {
+      id: 'demands',
+      name: 'Staffing Needs',
+      description: 'Configure daily demand for each shift type.',
+    },
+    {
+      id: 'time-off',
+      name: 'Leave Requests',
+      description: 'Review and adjust time-off entries before scheduling.',
+    },
+    {
+      id: 'locks',
+      name: 'Shift Requests',
+      description: 'Set must-have or blocked shift assignments.',
+    },
+    {
+      id: 'schedule',
+      name: 'Generate Schedule',
+      description: 'Run the solver and review results before committing.',
+    },
   ];
 
   // Filter data for selected month
@@ -377,45 +459,44 @@ export const RosterGenerator: React.FC = () => {
       <h2 className="text-3xl font-bold text-gray-900 mb-6">Roster Generator</h2>
       {selectionControls}
 
-      {/* Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b border-gray-200">
-          <nav className="flex -mb-px overflow-x-auto">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-primary-500 text-primary-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.name}
-              </button>
-            ))}
-          </nav>
-        </div>
-
-        <div className="p-6">
-          {/* Getting Started Tab */}
-          {activeTab === 'getting-started' && (
-            <div>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">🚀 Getting Started</h3>
-              <p className="text-gray-700 mb-4 font-semibold">Complete each step in order:</p>
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                <p className="text-gray-700 font-medium">
-                  👥 Employee Management &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp;
-                  📋 Staffing Needs &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp;
-                  🏖️ Leave Requests &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp;
-                  🔒 Shift Requests &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp;
-                  ⚙️ Generate Schedule &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp;
-                  📅 View Schedule &nbsp;&nbsp;&nbsp; → &nbsp;&nbsp;&nbsp;
-                  💾 Commit
-                </p>
-              </div>
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex flex-col md:flex-row">
+          <aside className="md:w-56 md:pr-4 md:border-r md:border-gray-200 mb-6 md:mb-0">
+            <div className="space-y-3">
+              {steps.map((step, index) => {
+                const isActive = activeTab === step.id;
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    onClick={() => setActiveTab(step.id)}
+                    className={`w-full flex items-start space-x-2 rounded-lg border px-3 py-3 text-left transition ${
+                      isActive
+                        ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
+                        : 'border-gray-200 hover:border-primary-300 hover:shadow-sm'
+                    }`}
+                  >
+                    <span
+                      className={`flex items-center justify-center w-8 h-8 mt-0.5 rounded-full border ${
+                        isActive
+                          ? 'bg-primary-500 border-primary-500 text-white'
+                          : 'border-gray-300 text-gray-500'
+                      }`}
+                    >
+                      {index + 1}
+                    </span>
+                    <div>
+                      <p className={`font-semibold ${isActive ? 'text-primary-700' : 'text-gray-800'}`}>
+                        {step.name}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-          )}
+          </aside>
+
+          <div className="flex-1 md:pl-8 space-y-8" ref={contentRef}>
           {/* Employees Tab */}
           {activeTab === 'employees' && (
             <div>
@@ -648,7 +729,7 @@ export const RosterGenerator: React.FC = () => {
                     { key: 'employee', label: 'Employee', type: 'select', options: rosterData.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
                     { key: 'to_date', label: 'To Date', type: 'text' },
-                    { key: 'shift', label: 'Shift', type: 'select', options: ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'] },
+                    { key: 'shift', label: 'Shift', type: 'select', options: Array.from(SHIFT_OPTIONS) },
                     { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
                   ]}
                   onDataChange={(newData) => {
@@ -673,22 +754,20 @@ export const RosterGenerator: React.FC = () => {
             </div>
           )}
 
-          {/* Generate Tab */}
-          {activeTab === 'generate' && (
+          {/* Schedule Generation & Review */}
+          {activeTab === 'schedule' && (
             <div>
               <h3 className="text-xl font-bold text-gray-900 mb-4">⚙️ Generate Schedule</h3>
-              <p className="text-gray-600 mb-4">Create an optimized schedule based on staffing needs and constraints</p>
-              
+              <p className="text-gray-600 mb-4">
+                Run the solver to build the monthly roster, review the assignments, and commit when you’re satisfied.
+              </p>
+
               {!selectedYear || !selectedMonth ? (
                 <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
                   Please select a year and month first.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
-                    <p className="font-semibold mb-2">Ready to generate schedule for: {monthNames[selectedMonth - 1]} {selectedYear}</p>
-                  </div>
-
+                <div className="space-y-6">
                   {solving ? (
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
                       <div className="flex items-center space-x-4">
@@ -704,7 +783,7 @@ export const RosterGenerator: React.FC = () => {
                       onClick={handleGenerate}
                       className="w-full px-6 py-3 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700"
                     >
-                      🚀 Generate Schedule
+                      Generate Schedule
                     </button>
                   )}
 
@@ -714,54 +793,40 @@ export const RosterGenerator: React.FC = () => {
                       <p>{jobStatus.error || 'Unknown error'}</p>
                     </div>
                   )}
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* View Schedule Tab */}
-          {activeTab === 'view' && (
-            <div>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">📅 View Schedule</h3>
-              <p className="text-gray-600 mb-4">View, analyze, and commit the generated schedule</p>
-              
-              {generatedSchedule && selectedYear && selectedMonth ? (
-                <>
-                  <ScheduleTable
-                    schedule={generatedSchedule}
-                    year={selectedYear}
-                    month={selectedMonth}
-                    employees={generatedEmployees || rosterData?.employees}
-                  />
-                  
-                  {/* Schedule Analysis */}
-                  <ScheduleAnalysis
-                    schedule={generatedSchedule}
-                    employees={rosterData?.employees}
-                    metrics={scheduleMetrics}
-                    year={selectedYear}
-                    month={selectedMonth}
-                  />
-                  
-                  {/* Commit Section */}
-                  <div className="mt-8 border-t border-gray-200 pt-6">
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">💾 Ready to Use This Schedule?</h3>
-                    <div className="flex items-center space-x-4">
-                      <button
-                        onClick={handleCommitSchedule}
-                        className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700"
-                      >
-                        Commit Schedule
-                      </button>
-                      <p className="text-sm text-gray-600">
-                        After committing, this schedule will be available in Monthly Roster and Reports pages for your staff.
-                      </p>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-                  No schedule generated yet. Use the "Generate Schedule" tab to create one.
+                  {generatedSchedule && selectedYear && selectedMonth ? (
+                    <>
+                      <ScheduleTable
+                        schedule={generatedSchedule}
+                        year={selectedYear}
+                        month={selectedMonth}
+                        employees={generatedEmployees || rosterData?.employees}
+                      />
+
+                      <ScheduleAnalysis
+                        schedule={generatedSchedule}
+                        employees={rosterData?.employees}
+                        metrics={scheduleMetrics}
+                        year={selectedYear}
+                        month={selectedMonth}
+                      />
+
+                      <div className="mt-8 border-t border-gray-200 pt-6">
+                        <h3 className="text-xl font-bold text-gray-900 mb-4">Ready to Use This Schedule?</h3>
+                        <div className="flex items-center space-x-4">
+                          <button
+                            onClick={handleCommitSchedule}
+                            className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700"
+                          >
+                            Commit Schedule
+                          </button>
+                          <p className="text-sm text-gray-600">
+                            After committing, this schedule will be available in Monthly Roster and Reports pages for your staff.
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -769,6 +834,7 @@ export const RosterGenerator: React.FC = () => {
         </div>
       </div>
     </div>
+  </div>
   );
 };
 
@@ -816,7 +882,7 @@ const AddLockForm: React.FC<{
   const [employee, setEmployee] = useState(employees[0] || '');
   const [fromDate, setFromDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
   const [toDate, setToDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
-  const [shift, setShift] = useState('M');
+  const [shift, setShift] = useState<typeof SHIFT_OPTIONS[number]>(SHIFT_OPTIONS[0]);
   const [force, setForce] = useState(true);
 
   return (
@@ -828,8 +894,8 @@ const AddLockForm: React.FC<{
         </select>
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="px-3 py-2 border rounded" />
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="px-3 py-2 border rounded" />
-        <select value={shift} onChange={(e) => setShift(e.target.value)} className="px-3 py-2 border rounded">
-          {['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'].map(s => <option key={s} value={s}>{s}</option>)}
+        <select value={shift} onChange={(e) => setShift(e.target.value as typeof SHIFT_OPTIONS[number])} className="px-3 py-2 border rounded">
+          {SHIFT_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <select value={force ? 'Force' : 'Forbid'} onChange={(e) => setForce(e.target.value === 'Force')} className="px-3 py-2 border rounded">
           <option value="Force">Force (Must)</option>

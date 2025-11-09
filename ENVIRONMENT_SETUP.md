@@ -1,81 +1,82 @@
-# 🏥 Pharmacy Staff Rostering System - Environment Setup
+# 🏥 Pharmacy Staff Rostering System — Environment Setup
 
-## ✅ Virtual Environment Created Successfully!
+The project now runs as a FastAPI backend + React/Tailwind frontend.  
+Follow the steps below to recreate a working environment.
 
-Your project now has a clean, isolated environment with all dependencies properly configured.
+---
 
-## 📁 Files Created
+## 1. Backend (Python / FastAPI)
 
-- **`scheduler_env/`** - Virtual environment directory
-- **`requirements.txt`** - Exact package versions that work together
-- **`activate_env.sh`** - Easy activation script
-
-## 🚀 How to Use
-
-### Option 1: One-Click Launcher (Easiest)
 ```bash
-./start_app.sh
-```
-
-### Option 2: Use the Activation Script
-```bash
-./activate_env.sh
-python run_streamlit.py
-```
-
-### Option 3: Manual Activation
-```bash
-source scheduler_env/bin/activate
-python run_streamlit.py
-```
-
-### Option 4: Direct Python Execution
-```bash
-scheduler_env/bin/python run_streamlit.py
-```
-
-## 📦 Installed Packages
-
-All packages are now installed with compatible versions:
-
-- **OR-Tools 9.8.3296** - Optimization engine (✅ Protobuf conflict resolved)
-- **Streamlit 1.28.1** - Web interface
-- **Pandas 2.1.4** - Data handling
-- **Pydantic 2.5.0** - Data validation
-- **Plotly 5.17.0** - Visualization
-- **Protobuf 4.25.1** - Compatible version
-
-## 🎯 Benefits of This Setup
-
-✅ **No more dependency conflicts**  
-✅ **Reproducible environment**  
-✅ **Easy to share with others**  
-✅ **Clean system Python**  
-✅ **Version-controlled dependencies**
-
-## 🔧 Troubleshooting
-
-### If you get "command not found" errors:
-```bash
-chmod +x activate_env.sh
-./activate_env.sh
-```
-
-### If you need to reinstall:
-```bash
-rm -rf scheduler_env
 python -m venv scheduler_env
-source scheduler_env/bin/activate
+source scheduler_env/bin/activate          # Windows: scheduler_env\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
+uvicorn backend.main:app --reload
 ```
 
-### To deactivate the environment:
+### Key Python Dependencies
+
+- **ortools 9.8.x** — optimisation solver
+- **fastapi / uvicorn** — REST API & ASGI server
+- **pandas / numpy** — data wrangling
+- **pydantic** — data validation
+
+Deactivate with `deactivate` when finished.
+
+---
+
+## 2. Frontend (React / Tailwind)
+
 ```bash
-deactivate
+cd frontend
+npm install
+cp .env.example .env        # set VITE_API_URL if backend differs
+npm start
 ```
 
-## 🎉 Ready to Go!
+This launches the dev server at `http://localhost:3000`.
 
-Your system is now running at: **http://localhost:8501**
+### Production Build
 
-The virtual environment ensures all dependencies work together perfectly without conflicts!
+```bash
+npm run build
+# Serve contents of frontend/build/ with nginx or another static server
+```
+
+---
+
+## 3. Directory Overview
+
+```
+backend/        FastAPI app & solver routers
+frontend/       React UI (src/, public/)
+roster/app/     Data utilities + legacy Streamlit (optional)
+requirements.txt    Backend Python dependencies
+```
+
+Sample CSV data lives under `roster/app/data/`.
+
+---
+
+## 4. Troubleshooting
+
+| Issue | Fix |
+| --- | --- |
+| `ModuleNotFoundError` | Verify the virtual environment is activated before running uvicorn. |
+| CORS errors | Ensure `VITE_API_URL` matches the backend hostname/port. |
+| npm permission errors | Re-run `npm install` with proper user permissions (avoid sudo). |
+| Solver fails quickly | Check demands vs employee skills; regenerate defaults if needed. |
+
+---
+
+## 5. Deployment Tips
+
+- Run the backend with `uvicorn backend.main:app --host 0.0.0.0 --port 8000` under systemd/pm2/supervisor.
+- Serve the compiled React build behind Nginx; proxy `/api/` to the FastAPI service.
+- Keep `roster/app/data/` mounted on persistent storage if you need durable edits.
+
+---
+
+All set! Backend on `http://localhost:8000`, frontend on `http://localhost:3000`.  
+Happy scheduling! 🎉

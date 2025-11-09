@@ -27,7 +27,8 @@ class LeaveRequest(BaseModel):
 
 
 class ShiftRequest(BaseModel):
-    date: str
+    from_date: str
+    to_date: str
     shift: str
     request_type: str  # "Force (Must)" or "Forbid (Cannot)"
     reason: Optional[str] = None
@@ -58,6 +59,22 @@ def save_staff_requests(requests: dict):
     requests_file.parent.mkdir(parents=True, exist_ok=True)
     with open(requests_file, 'w') as f:
         json.dump(requests, f, indent=2)
+
+
+def generate_request_id(existing_requests: List[dict], prefix: str) -> str:
+    """Generate a unique incremental request ID with the given prefix."""
+    max_number = 0
+    for req in existing_requests:
+        req_id = req.get('request_id', '')
+        if not req_id or not req_id.startswith(f"{prefix}_"):
+            continue
+        try:
+            number = int(req_id.split('_')[1])
+            if number > max_number:
+                max_number = number
+        except (IndexError, ValueError):
+            continue
+    return f"{prefix}_{max_number + 1}"
 
 
 @router.get("/leave")
@@ -94,7 +111,7 @@ async def create_leave_request(
         'reason': request.reason or '',
         'status': 'Pending',
         'submitted_at': datetime.now().isoformat(),
-        'request_id': f"LR_{len(requests.get('leave_requests', [])) + 1}"
+        'request_id': generate_request_id(requests.get('leave_requests', []), "LR")
     }
     
     requests['leave_requests'].append(new_request)
@@ -122,18 +139,25 @@ async def create_shift_request(
     """Create a new shift request."""
     requests = load_staff_requests()
     
+    # Validate dates
+    from_date = date.fromisoformat(request.from_date)
+    to_date = date.fromisoformat(request.to_date)
+
+    if from_date > to_date:
+        raise HTTPException(status_code=400, detail="From date cannot be after to date")
+
     force = request.request_type == "Force (Must)"
     
     new_request = {
         'employee': current_user['employee_name'],
-        'from_date': request.date,
-        'to_date': request.date,
+        'from_date': request.from_date,
+        'to_date': request.to_date,
         'shift': request.shift,
         'force': force,
         'reason': request.reason or '',
         'status': 'Pending',
         'submitted_at': datetime.now().isoformat(),
-        'request_id': f"SR_{len(requests.get('shift_requests', [])) + 1}"
+        'request_id': generate_request_id(requests.get('shift_requests', []), "SR")
     }
     
     requests['shift_requests'].append(new_request)
@@ -174,7 +198,12 @@ async def approve_leave_request(
     requests = load_staff_requests()
     leave_requests = requests.get('leave_requests', [])
     
-    request = next((req for req in leave_requests if req.get('request_id') == request_id), None)
+    request = next(
+        (req for req in leave_requests if req.get('request_id') == request_id and req.get('status') == 'Pending'),
+        None,
+    )
+    if request is None:
+        request = next((req for req in leave_requests if req.get('request_id') == request_id), None)
     if not request:
         raise HTTPException(status_code=404, detail="Leave request not found")
     
@@ -244,7 +273,12 @@ async def reject_leave_request(
     requests = load_staff_requests()
     leave_requests = requests.get('leave_requests', [])
     
-    request = next((req for req in leave_requests if req.get('request_id') == request_id), None)
+    request = next(
+        (req for req in leave_requests if req.get('request_id') == request_id and req.get('status') == 'Pending'),
+        None,
+    )
+    if request is None:
+        request = next((req for req in leave_requests if req.get('request_id') == request_id), None)
     if not request:
         raise HTTPException(status_code=404, detail="Leave request not found")
     
@@ -273,7 +307,12 @@ async def approve_shift_request(
     requests = load_staff_requests()
     shift_requests = requests.get('shift_requests', [])
     
-    request = next((req for req in shift_requests if req.get('request_id') == request_id), None)
+    request = next(
+        (req for req in shift_requests if req.get('request_id') == request_id and req.get('status') == 'Pending'),
+        None,
+    )
+    if request is None:
+        request = next((req for req in shift_requests if req.get('request_id') == request_id), None)
     if not request:
         raise HTTPException(status_code=404, detail="Shift request not found")
     
@@ -309,6 +348,7 @@ async def approve_shift_request(
         existing = locks_df[
             (locks_df['employee'] == employee) &
             (locks_df['from_date'] == from_date_str) &
+            (locks_df['to_date'] == to_date_str) &
             (locks_df['shift'] == shift) &
             (locks_df['force'] == force)
         ]
@@ -345,7 +385,12 @@ async def reject_shift_request(
     requests = load_staff_requests()
     shift_requests = requests.get('shift_requests', [])
     
-    request = next((req for req in shift_requests if req.get('request_id') == request_id), None)
+    request = next(
+        (req for req in shift_requests if req.get('request_id') == request_id and req.get('status') == 'Pending'),
+        None,
+    )
+    if request is None:
+        request = next((req for req in shift_requests if req.get('request_id') == request_id), None)
     if not request:
         raise HTTPException(status_code=404, detail="Shift request not found")
     

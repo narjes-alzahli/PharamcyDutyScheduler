@@ -30,6 +30,7 @@ export const RosterRequests: React.FC = () => {
   const [shiftRequests, setShiftRequests] = useState<ShiftRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Form states for leave request
   const [leaveFromDate, setLeaveFromDate] = useState('');
@@ -38,7 +39,8 @@ export const RosterRequests: React.FC = () => {
   const [leaveReason, setLeaveReason] = useState('');
 
   // Form states for shift request
-  const [shiftDate, setShiftDate] = useState('');
+  const [shiftFromDate, setShiftFromDate] = useState('');
+  const [shiftToDate, setShiftToDate] = useState('');
   const [shiftType, setShiftType] = useState('M');
   const [requestType, setRequestType] = useState('Force (Must)');
   const [shiftReason, setShiftReason] = useState('');
@@ -49,7 +51,8 @@ export const RosterRequests: React.FC = () => {
     const today = new Date().toISOString().split('T')[0];
     setLeaveFromDate(today);
     setLeaveToDate(today);
-    setShiftDate(today);
+    setShiftFromDate(today);
+    setShiftToDate(today);
   }, []);
 
   const loadRequests = async () => {
@@ -94,9 +97,14 @@ export const RosterRequests: React.FC = () => {
       
       // Reload requests
       await loadRequests();
-      alert('✅ Leave request submitted successfully!');
+      setNotification({ message: '✅ Leave request submitted successfully!', type: 'success' });
+      setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to submit leave request');
+      setNotification({
+        message: error.response?.data?.detail || 'Failed to submit leave request',
+        type: 'error',
+      });
+      setTimeout(() => setNotification(null), 4000);
     } finally {
       setSubmitting(false);
     }
@@ -105,10 +113,16 @@ export const RosterRequests: React.FC = () => {
   const handleSubmitShift = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (new Date(shiftFromDate) > new Date(shiftToDate)) {
+      alert('From date cannot be after to date');
+      return;
+    }
+
     try {
       setSubmitting(true);
       await requestsAPI.createShiftRequest({
-        date: shiftDate,
+        from_date: shiftFromDate,
+        to_date: shiftToDate,
         shift: shiftType,
         request_type: requestType,
         reason: shiftReason,
@@ -116,16 +130,22 @@ export const RosterRequests: React.FC = () => {
       
       // Reset form
       const today = new Date().toISOString().split('T')[0];
-      setShiftDate(today);
+      setShiftFromDate(today);
+      setShiftToDate(today);
       setShiftType('M');
       setRequestType('Force (Must)');
       setShiftReason('');
       
       // Reload requests
       await loadRequests();
-      alert('✅ Shift request submitted successfully!');
+      setNotification({ message: '✅ Shift request submitted successfully!', type: 'success' });
+      setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to submit shift request');
+      setNotification({
+        message: error.response?.data?.detail || 'Failed to submit shift request',
+        type: 'error',
+      });
+      setTimeout(() => setNotification(null), 4000);
     } finally {
       setSubmitting(false);
     }
@@ -150,6 +170,20 @@ export const RosterRequests: React.FC = () => {
   return (
     <div>
       <h2 className="text-3xl font-bold text-gray-900 mb-6">Roster Requests</h2>
+
+      {/* Auto-dismissing notification toast */}
+      {notification && (
+        <div
+          className={`fixed top-20 right-4 z-50 px-4 py-3 rounded-lg shadow-lg ${
+            notification.type === 'success'
+              ? 'bg-green-500 text-white'
+              : 'bg-red-500 text-white'
+          }`}
+          style={{ animation: 'slideIn 0.3s ease-out' }}
+        >
+          {notification.message}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-lg shadow">
@@ -332,12 +366,25 @@ export const RosterRequests: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Date
+                      From Date
                     </label>
                     <input
                       type="date"
-                      value={shiftDate}
-                      onChange={(e) => setShiftDate(e.target.value)}
+                      value={shiftFromDate}
+                      onChange={(e) => setShiftFromDate(e.target.value)}
+                      required
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      To Date
+                    </label>
+                    <input
+                      type="date"
+                      value={shiftToDate}
+                      onChange={(e) => setShiftToDate(e.target.value)}
                       required
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                     />
@@ -360,6 +407,8 @@ export const RosterRequests: React.FC = () => {
                       <option value="M4">M4 - M4</option>
                       <option value="H">H - Harat</option>
                       <option value="CL">CL - Clinic</option>
+                      <option value="MS">MS - Medical Store</option>
+                      <option value="C">C - Course</option>
                     </select>
                   </div>
 
@@ -409,7 +458,10 @@ export const RosterRequests: React.FC = () => {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                            Date
+                            From Date
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                            To Date
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
                             Shift
@@ -434,6 +486,9 @@ export const RosterRequests: React.FC = () => {
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-300">
                               {formatDate(req.from_date)}
                             </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-300">
+                                  {formatDate(req.to_date || req.from_date)}
+                                </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
                               {req.shift}
                             </td>
