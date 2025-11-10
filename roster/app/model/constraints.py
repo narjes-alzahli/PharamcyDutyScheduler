@@ -323,6 +323,67 @@ def add_all_constraints(
     
     # CL availability constraint
     add_cl_availability_constraints(model, x, employees, dates, time_off)
+    
+    # Single skill employees work their shift Sun-Thu and rest Fri-Sat
+    add_single_skill_employee_constraints(
+        model, x, employees, dates, shifts, skills, time_off, locks
+    )
+
+
+def add_single_skill_employee_constraints(
+    model: cp_model.CpModel,
+    x: Dict[Tuple[str, date, str], cp_model.IntVar],
+    employees: List[str],
+    dates: List[date],
+    shifts: List[str],
+    skills: Dict[str, Dict[str, bool]],
+    time_off: Dict[Tuple[str, date], str],
+    locks: Dict[Tuple[str, date, str], bool]
+) -> None:
+    """Force single-skill employees to work their skill Sun-Thu and rest Fri-Sat."""
+    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    weekend_days = {4, 5}  # Friday=4, Saturday=5
+    
+    for employee in employees:
+        employee_skills = skills.get(employee, {})
+        qualified_shifts = [
+            shift for shift in working_shifts
+            if employee_skills.get(shift, False)
+        ]
+        
+        if len(qualified_shifts) != 1:
+            continue
+        
+        single_shift = qualified_shifts[0]
+        
+        for day in dates:
+            key = (employee, day, single_shift)
+            if key not in x:
+                continue
+            
+            if time_off and (employee, day) in time_off:
+                continue
+            
+            lock_value = locks.get(key)
+            if lock_value is False:
+                continue
+            
+            if day.weekday() in weekend_days:
+                # Skip if there is an explicit lock forcing work on weekend
+                if lock_value is True:
+                    continue
+                model.Add(x[key] == 0)
+            else:
+                # Skip if another shift is explicitly locked in
+                other_forced_shift = any(
+                    locks.get((employee, day, shift)) is True
+                    for shift in shifts
+                    if shift != single_shift and (employee, day, shift) in x
+                )
+                if other_forced_shift:
+                    continue
+                
+                model.Add(x[key] == 1)
 
 
 def add_cl_availability_constraints(
