@@ -19,6 +19,11 @@ interface ScheduleTableProps {
   employees?: Employee[];
 }
 
+const WEEKEND_HEADER_BACKGROUND = '#D1FAE5'; // Light green for weekend headers
+const WEEKEND_BACKGROUND = '#E8FDF2'; // Slightly different green for weekend cells
+const TOTAL_MAIN_BACKGROUND = '#E5E7EB'; // Light gray for TOTAL MAIN
+const TOTAL_IP_BACKGROUND = '#D1D5DB'; // Slightly darker gray for TOTAL IP
+
 export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, month, employees: employeeData }) => {
   // Load custom colors from localStorage or use defaults
   const loadCustomColors = (): Record<string, string> => {
@@ -144,6 +149,11 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
     return days[date.getDay()];
   };
 
+  const isWeekend = (dateStr: string) => {
+    const day = getDayOfWeek(dateStr);
+    return day === 'Fri' || day === 'Sat';
+  };
+
   return (
     <div className="overflow-x-auto">
       <div className="inline-block min-w-full">
@@ -156,16 +166,20 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
               <th className="border border-black px-2 py-2 text-center font-bold">
                 P/O
               </th>
-              {dates.map(dateStr => (
-                <th
-                  key={dateStr}
-                  className="border border-black px-1 py-1 text-center font-semibold min-w-[40px]"
-                  title={`${getDayOfWeek(dateStr)} ${formatDate(dateStr)}`}
-                >
-                  <div className="text-xs">{formatDate(dateStr)}</div>
-                  <div className="text-xs text-gray-500">{getDayOfWeek(dateStr)}</div>
-                </th>
-              ))}
+              {dates.map(dateStr => {
+                const weekend = isWeekend(dateStr);
+                return (
+                  <th
+                    key={dateStr}
+                    className="border border-black px-1 py-1 text-center font-semibold min-w-[40px]"
+                    title={`${getDayOfWeek(dateStr)} ${formatDate(dateStr)}`}
+                    style={weekend ? { backgroundColor: WEEKEND_HEADER_BACKGROUND } : undefined}
+                  >
+                    <div className="text-xs">{formatDate(dateStr)}</div>
+                    <div className="text-xs text-gray-500">{getDayOfWeek(dateStr)}</div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -179,15 +193,20 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                 </td>
                 {dates.map(dateStr => {
                   const shift = pivotData[employee][dateStr] || '';
-                  const bgColor = getShiftColor(shift);
+                  const baseColor = getShiftColor(shift);
+                  const weekend = isWeekend(dateStr);
+                  const backgroundColor =
+                    weekend && (!shift || shift === 'O')
+                      ? WEEKEND_BACKGROUND
+                      : baseColor;
                   const isDark = shift === 'M' || shift === 'M3' || shift === 'M4';
-                  
+
                   return (
                     <td
                       key={dateStr}
                       className="border border-black px-1 py-1 text-center font-bold text-xs cursor-pointer transition-transform hover:scale-110"
                       style={{
-                        backgroundColor: bgColor,
+                        backgroundColor,
                         color: isDark ? '#000000' : '#000000',
                       }}
                       title={shift ? `${employee} - ${getShiftLabel(shift)}` : `${employee} - No shift`}
@@ -200,7 +219,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
             ))}
             
             {/* TOTAL MAIN row */}
-            <tr className="bg-gray-400 font-bold">
+            <tr className="bg-gray-200 font-bold">
               <td className="border border-black px-2 py-1 text-center" colSpan={2}>
                 TOTAL MAIN
               </td>
@@ -213,7 +232,8 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                 return (
                   <td
                     key={dateStr}
-                    className="border border-black px-1 py-1 text-center font-bold bg-purple-200"
+                    className="border border-black px-1 py-1 text-center font-bold"
+                    style={{ backgroundColor: TOTAL_MAIN_BACKGROUND }}
                   >
                     {mainCount}
                   </td>
@@ -222,7 +242,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
             </tr>
             
             {/* TOTAL IP row */}
-            <tr className="bg-gray-400 font-bold">
+            <tr className="bg-gray-200 font-bold">
               <td className="border border-black px-2 py-1 text-center" colSpan={2}>
                 TOTAL IP
               </td>
@@ -235,7 +255,8 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                 return (
                   <td
                     key={dateStr}
-                    className="border border-black px-1 py-1 text-center font-bold bg-purple-300"
+                    className="border border-black px-1 py-1 text-center font-bold"
+                    style={{ backgroundColor: TOTAL_IP_BACKGROUND }}
                   >
                     {ipCount}
                   </td>
