@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { schedulesAPI, Schedule } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
 import * as htmlToImage from 'html-to-image';
+import { useAuth } from '../contexts/AuthContext';
 
 export const SchedulePage: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -13,6 +14,8 @@ export const SchedulePage: React.FC = () => {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const scheduleCardRef = useRef<HTMLDivElement>(null);
+  const { user } = useAuth();
+  const isManager = user?.employee_type === 'Manager';
 
   useEffect(() => {
     loadSchedules();
@@ -133,7 +136,8 @@ export const SchedulePage: React.FC = () => {
 
       {schedules.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-          No committed schedules available.
+          No committed schedules available
+          {isManager ? '. Generate a new roster from the Roster Generator when you are ready.' : '.'}
         </div>
       ) : (
         <>

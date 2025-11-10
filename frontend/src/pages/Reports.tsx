@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { schedulesAPI, Schedule } from '../services/api';
 import Plot from 'react-plotly.js';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
+import { useAuth } from '../contexts/AuthContext';
 
 export const ReportsPage: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -10,6 +11,8 @@ export const ReportsPage: React.FC = () => {
   const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const isManager = user?.employee_type === 'Manager';
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -126,7 +129,8 @@ export const ReportsPage: React.FC = () => {
 
       {schedules.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-          No committed schedules available.
+          No committed schedules available
+          {isManager ? '. Commit a schedule to view reports and visualizations.' : '.'}
         </div>
       ) : (
         <>
