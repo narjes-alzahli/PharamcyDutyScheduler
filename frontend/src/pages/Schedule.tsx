@@ -133,7 +133,7 @@ export const SchedulePage: React.FC = () => {
 
       {schedules.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-          No committed schedules available. Please generate and commit a schedule in the Roster Generator first.
+          No committed schedules available.
         </div>
       ) : (
         <>
