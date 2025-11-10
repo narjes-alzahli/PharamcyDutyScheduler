@@ -12,6 +12,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -65,6 +66,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   }, [user, location.pathname]);
 
   useEffect(() => {
+    // Close mobile nav on route change
+    setIsMobileNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
     const handlePendingRequestsUpdated = (event: Event) => {
       const customEvent = event as CustomEvent<{ count: number }>;
       if (typeof customEvent.detail?.count === 'number') {
@@ -94,17 +100,26 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm">
+      <header className="bg-white shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <h1 className="text-2xl font-bold text-gray-900">📅 Staff Rostering System</h1>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
+          <div className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-3">
+              <button
+                className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 md:hidden"
+                onClick={() => setIsMobileNavOpen(true)}
+                aria-label="Open navigation menu"
+              >
+                <span className="text-lg">☰</span>
+              </button>
+              <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">📅 Staff Rostering System</h1>
+            </div>
+            <div className="flex items-center gap-3 sm:gap-4">
+              <span className="hidden text-sm text-gray-600 sm:inline">
                 Welcome, {user?.employee_name}
               </span>
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                className="rounded-lg px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900"
               >
                 Logout
               </button>
@@ -113,33 +128,34 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </header>
 
-      <div className="flex">
+      <div className="flex flex-col md:flex-row">
         {/* Sidebar */}
-        <aside className="w-64 bg-white shadow-sm min-h-screen">
-          <nav className="p-4 space-y-2">
+        <aside className="hidden min-h-screen w-64 bg-white shadow-sm md:block">
+          <nav className="space-y-2 p-4">
             {navigation.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center justify-between px-4 py-2 rounded-lg transition-colors ${
+                onClick={() => setShowPasswordForm(false)}
+                className={`flex items-center justify-between rounded-lg px-4 py-2 transition-colors ${
                   location.pathname === item.path
-                    ? 'bg-primary-100 text-primary-700 font-medium'
+                    ? 'bg-primary-100 font-medium text-primary-700'
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
                 <span>{item.name}</span>
                 {item.path === '/users' && pendingRequestCount > 0 && (
-                  <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
+                  <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
                     {pendingRequestCount}
                   </span>
                 )}
               </Link>
             ))}
             {user?.employee_type === 'Manager' && (
-              <div className="pt-4 border-t border-gray-200 mt-4">
+              <div className="mt-4 border-t border-gray-200 pt-4">
                 <button
                   onClick={() => setShowPasswordForm(!showPasswordForm)}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg"
+                  className="w-full rounded-lg px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
                 >
                   Change Password
                 </button>
@@ -148,40 +164,40 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           </nav>
 
           {user?.employee_type === 'Manager' && showPasswordForm && (
-            <div className="p-4 border-t border-gray-200">
+            <div className="border-t border-gray-200 p-4">
               <form onSubmit={handlePasswordChange} className="space-y-3">
                 <input
                   type="password"
                   placeholder="Current Password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />
                 <input
                   type="password"
                   placeholder="New Password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />
                 <input
                   type="password"
                   placeholder="Confirm Password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />
                 <div className="flex space-x-2">
                   <button
                     type="submit"
-                    className="flex-1 px-3 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                    className="flex-1 rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700"
                   >
                     Update
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowPasswordForm(false)}
-                    className="flex-1 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                    className="flex-1 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-300"
                   >
                     Cancel
                   </button>
@@ -191,8 +207,110 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           )}
         </aside>
 
+        {/* Mobile navigation drawer */}
+        {isMobileNavOpen && (
+          <div className="fixed inset-0 z-40 flex md:hidden">
+            <div className="h-full w-72 max-w-full overflow-y-auto bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b border-gray-200 px-4 py-4">
+                <span className="text-base font-semibold text-gray-900">Menu</span>
+                <button
+                  onClick={() => setIsMobileNavOpen(false)}
+                  className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+                  aria-label="Close navigation menu"
+                >
+                  ✕
+                </button>
+              </div>
+              <nav className="space-y-2 p-4">
+                {navigation.map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => {
+                      setShowPasswordForm(false);
+                      setIsMobileNavOpen(false);
+                    }}
+                    className={`flex items-center justify-between rounded-lg px-4 py-2 text-sm transition-colors ${
+                      location.pathname === item.path
+                        ? 'bg-primary-100 font-medium text-primary-700'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span>{item.name}</span>
+                    {item.path === '/users' && pendingRequestCount > 0 && (
+                      <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
+                        {pendingRequestCount}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </nav>
+              {user?.employee_type === 'Manager' && (
+                <div className="border-t border-gray-200 p-4">
+                  <button
+                    onClick={() => setShowPasswordForm((prev) => !prev)}
+                    className="w-full rounded-lg px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Change Password
+                  </button>
+                  {showPasswordForm && (
+                    <form onSubmit={handlePasswordChange} className="mt-4 space-y-3">
+                      <input
+                        type="password"
+                        placeholder="Current Password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="password"
+                        placeholder="New Password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="password"
+                        placeholder="Confirm Password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      />
+                      <div className="flex space-x-2">
+                        <button
+                          type="submit"
+                          className="flex-1 rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700"
+                        >
+                          Update
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPasswordForm(false);
+                            setIsMobileNavOpen(false);
+                          }}
+                          className="flex-1 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              )}
+            </div>
+            <div
+              className="flex-1 bg-black/30"
+              onClick={() => {
+                setIsMobileNavOpen(false);
+                setShowPasswordForm(false);
+              }}
+            />
+          </div>
+        )}
+
         {/* Main Content */}
-        <main className="flex-1 p-8">
+        <main className="flex-1 p-4 sm:p-6 md:p-8">
           {children}
         </main>
       </div>

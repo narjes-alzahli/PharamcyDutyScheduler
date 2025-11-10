@@ -168,13 +168,19 @@ export const RosterRequests: React.FC = () => {
   }
 
   return (
-    <div>
-      <h2 className="text-3xl font-bold text-gray-900 mb-6">Roster Requests</h2>
+    <div className="pb-16">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
+        <header className="flex flex-col gap-2">
+          <h2 className="text-2xl font-bold text-gray-900 sm:text-3xl">Roster Requests</h2>
+          <p className="text-sm text-gray-600 sm:text-base">
+            Submit new leave or shift preferences and track existing requests in one place.
+          </p>
+        </header>
 
       {/* Auto-dismissing notification toast */}
       {notification && (
         <div
-          className={`fixed top-20 right-4 z-50 px-4 py-3 rounded-lg shadow-lg ${
+          className={`fixed left-4 right-4 top-20 z-50 px-4 py-3 rounded-lg shadow-lg sm:left-auto sm:right-6 ${
             notification.type === 'success'
               ? 'bg-green-500 text-white'
               : 'bg-red-500 text-white'
@@ -185,43 +191,43 @@ export const RosterRequests: React.FC = () => {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b border-gray-200">
-          <nav className="flex -mb-px">
-            <button
-              onClick={() => setActiveTab('leave')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'leave'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              🏖️ Leave Requests
-            </button>
-            <button
-              onClick={() => setActiveTab('shift')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'shift'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              🔒 Shift Requests
-            </button>
-          </nav>
+        {/* Tabs */}
+        <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+          <div className="border-b border-gray-200 bg-gray-50/60">
+            <nav className="flex items-center gap-2 px-4 py-4 sm:items-end sm:gap-0 sm:px-6 sm:pt-0">
+              <button
+                onClick={() => setActiveTab('leave')}
+                className={`flex-1 rounded-lg px-4 py-3 text-sm font-semibold transition-colors sm:flex-none sm:rounded-none sm:border-b-2 sm:px-6 sm:py-4 sm:font-medium ${
+                  activeTab === 'leave'
+                    ? 'bg-white text-primary-600 shadow-sm sm:border-primary-500 sm:bg-transparent sm:text-primary-600 sm:shadow-none'
+                    : 'text-gray-500 hover:text-gray-700 sm:border-transparent sm:hover:border-gray-300'
+                }`}
+              >
+                🏖️ Leave Requests
+              </button>
+              <button
+                onClick={() => setActiveTab('shift')}
+                className={`flex-1 rounded-lg px-4 py-3 text-sm font-semibold transition-colors sm:flex-none sm:rounded-none sm:border-b-2 sm:px-6 sm:py-4 sm:font-medium ${
+                  activeTab === 'shift'
+                    ? 'bg-white text-primary-600 shadow-sm sm:border-primary-500 sm:bg-transparent sm:text-primary-600 sm:shadow-none'
+                    : 'text-gray-500 hover:text-gray-700 sm:border-transparent sm:hover:border-gray-300'
+                }`}
+              >
+                🔒 Shift Requests
+              </button>
+            </nav>
         </div>
 
-        <div className="p-6">
+          <div className="px-4 py-6 sm:px-6 sm:py-8">
           {/* Leave Requests Tab */}
           {activeTab === 'leave' && (
             <div>
               <h3 className="text-xl font-bold text-gray-900 mb-4">Request Leave</h3>
               <p className="text-gray-600 mb-6">Submit a request for time off or leave.</p>
 
-              <form onSubmit={handleSubmitLeave} className="bg-gray-50 rounded-lg p-6 mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
+              <form onSubmit={handleSubmitLeave} className="mb-8 space-y-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 sm:px-6">
+                <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
+                  <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       From Date
                     </label>
@@ -230,11 +236,11 @@ export const RosterRequests: React.FC = () => {
                       value={leaveFromDate}
                       onChange={(e) => setLeaveFromDate(e.target.value)}
                       required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
 
-                  <div>
+                  <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       To Date
                     </label>
@@ -243,18 +249,18 @@ export const RosterRequests: React.FC = () => {
                       value={leaveToDate}
                       onChange={(e) => setLeaveToDate(e.target.value)}
                       required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
 
-                  <div>
+                  <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Leave Type
                     </label>
                     <select
                       value={leaveType}
                       onChange={(e) => setLeaveType(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
                       <option value="DO">DO - Day Off</option>
                       <option value="ML">ML - Maternity Leave</option>
@@ -264,7 +270,7 @@ export const RosterRequests: React.FC = () => {
                     </select>
                   </div>
 
-                  <div>
+                  <div className="flex flex-col gap-2 md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Reason (Optional)
                     </label>
@@ -272,7 +278,7 @@ export const RosterRequests: React.FC = () => {
                       value={leaveReason}
                       onChange={(e) => setLeaveReason(e.target.value)}
                       rows={3}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                       placeholder="Enter reason for leave..."
                     />
                   </div>
@@ -281,7 +287,7 @@ export const RosterRequests: React.FC = () => {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full md:w-auto px-6 py-3 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
                 >
                   {submitting ? 'Submitting...' : 'Submit Leave Request'}
                 </button>
@@ -291,7 +297,45 @@ export const RosterRequests: React.FC = () => {
               {leaveRequests.length > 0 ? (
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-4">Your Leave Requests</h3>
-                  <div className="overflow-x-auto">
+                  <div className="space-y-4 md:hidden">
+                    {leaveRequests.map((req, index) => (
+                      <div
+                        key={index}
+                        className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {formatDate(req.from_date)} → {formatDate(req.to_date)}
+                          </span>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              req.status === 'Pending'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : req.status === 'Approved'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}
+                          >
+                            {req.status}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 text-sm text-gray-600">
+                          <span className="font-medium text-gray-900">Type: <span className="font-normal text-gray-600">{req.leave_type}</span></span>
+                          <span className="font-medium text-gray-900">
+                            Reason:{' '}
+                            <span className="font-normal text-gray-600">
+                              {req.reason || '—'}
+                            </span>
+                          </span>
+                          <span className="font-medium text-gray-900">
+                            Submitted:{' '}
+                            <span className="font-normal text-gray-600">{formatDateTime(req.submitted_at)}</span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="hidden overflow-x-auto rounded-lg border border-gray-200 md:block">
                     <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
                       <thead className="bg-gray-50">
                         <tr>
@@ -362,9 +406,9 @@ export const RosterRequests: React.FC = () => {
               <h3 className="text-xl font-bold text-gray-900 mb-4">Request Special Shift</h3>
               <p className="text-gray-600 mb-6">Submit a request for a specific shift assignment.</p>
 
-              <form onSubmit={handleSubmitShift} className="bg-gray-50 rounded-lg p-6 mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
+              <form onSubmit={handleSubmitShift} className="mb-8 space-y-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 sm:px-6">
+                <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
+                  <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       From Date
                     </label>
@@ -373,11 +417,11 @@ export const RosterRequests: React.FC = () => {
                       value={shiftFromDate}
                       onChange={(e) => setShiftFromDate(e.target.value)}
                       required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
 
-                  <div>
+                  <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       To Date
                     </label>
@@ -386,18 +430,18 @@ export const RosterRequests: React.FC = () => {
                       value={shiftToDate}
                       onChange={(e) => setShiftToDate(e.target.value)}
                       required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
 
-                  <div>
+                  <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Shift Type
                     </label>
                     <select
                       value={shiftType}
                       onChange={(e) => setShiftType(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
                       <option value="M">M - Main</option>
                       <option value="IP">IP - Inpatient</option>
@@ -412,21 +456,21 @@ export const RosterRequests: React.FC = () => {
                     </select>
                   </div>
 
-                  <div>
+                  <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Request Type
                     </label>
                     <select
                       value={requestType}
                       onChange={(e) => setRequestType(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
                       <option value="Force (Must)">Force (Must) - I must work this shift</option>
                       <option value="Forbid (Cannot)">Forbid (Cannot) - I cannot work this shift</option>
                     </select>
                   </div>
 
-                  <div>
+                  <div className="flex flex-col gap-2 md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Reason (Optional)
                     </label>
@@ -434,7 +478,7 @@ export const RosterRequests: React.FC = () => {
                       value={shiftReason}
                       onChange={(e) => setShiftReason(e.target.value)}
                       rows={3}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                       placeholder="Enter reason for shift request..."
                     />
                   </div>
@@ -443,7 +487,7 @@ export const RosterRequests: React.FC = () => {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full md:w-auto px-6 py-3 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
                 >
                   {submitting ? 'Submitting...' : 'Submit Shift Request'}
                 </button>
@@ -453,7 +497,52 @@ export const RosterRequests: React.FC = () => {
               {shiftRequests.length > 0 ? (
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-4">Your Shift Requests</h3>
-                  <div className="overflow-x-auto">
+                  <div className="space-y-4 md:hidden">
+                    {shiftRequests.map((req, index) => (
+                      <div
+                        key={index}
+                        className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {formatDate(req.from_date)} → {formatDate(req.to_date || req.from_date)}
+                          </span>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              req.status === 'Pending'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : req.status === 'Approved'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}
+                          >
+                            {req.status}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 text-sm text-gray-600">
+                          <span className="font-medium text-gray-900">
+                            Shift:{' '}
+                            <span className="font-normal text-gray-600">{req.shift}</span>
+                          </span>
+                          <span className="font-medium text-gray-900">
+                            Type:{' '}
+                            <span className="font-normal text-gray-600">{req.force ? 'Force' : 'Forbid'}</span>
+                          </span>
+                          <span className="font-medium text-gray-900">
+                            Reason:{' '}
+                            <span className="font-normal text-gray-600">
+                              {req.reason || '—'}
+                            </span>
+                          </span>
+                          <span className="font-medium text-gray-900">
+                            Submitted:{' '}
+                            <span className="font-normal text-gray-600">{formatDateTime(req.submitted_at)}</span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="hidden overflow-x-auto rounded-lg border border-gray-200 md:block">
                     <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
                       <thead className="bg-gray-50">
                         <tr>
@@ -525,6 +614,7 @@ export const RosterRequests: React.FC = () => {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 };
