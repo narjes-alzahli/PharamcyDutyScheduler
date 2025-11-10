@@ -117,35 +117,35 @@ export const ReportsPage: React.FC = () => {
   }
 
   const tabs = [
-    { id: 'overview', name: '📊 Overview' },
-    { id: 'fairness', name: '📈 Fairness Analysis' },
-    { id: 'pending-off', name: '👥 Employee Pending Off' },
-    { id: 'solver', name: '⚙️ Solver Metrics' },
-  ];
+    { id: 'overview', emoji: '📊', label: 'Overview' },
+    { id: 'fairness', emoji: '📈', label: 'Fairness Analysis' },
+    { id: 'pending-off', emoji: '👥', label: 'Employee Pending Off' },
+    { id: 'solver', emoji: '⚙️', label: 'Solver Metrics' },
+  ] as const;
 
   return (
-    <div>
-      <h2 className="text-3xl font-bold text-gray-900 mb-6">Reports & Visualization</h2>
+    <div className="space-y-6">
+      <h2 className="text-3xl font-bold text-gray-900">Reports & Visualization</h2>
 
       {schedules.length === 0 ? (
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-yellow-800">
           No committed schedules available
           {isManager ? '. Commit a schedule to view reports and visualizations.' : '.'}
         </div>
       ) : (
         <>
           {/* Year and Month Selection */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-lg bg-white p-4 shadow sm:p-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Year</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Select Year</label>
                 <select
                   value={selectedYear || ''}
                   onChange={(e) => {
                     setSelectedYear(e.target.value ? parseInt(e.target.value) : null);
                     setSelectedMonth(null);
                   }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-primary-500"
                 >
                   <option value="">Select Year...</option>
                   {availableYears.map(year => (
@@ -155,12 +155,12 @@ export const ReportsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Month</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Select Month</label>
                 <select
                   value={selectedMonth || ''}
                   onChange={(e) => setSelectedMonth(e.target.value ? parseInt(e.target.value) : null)}
                   disabled={!selectedYear}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-gray-100"
                 >
                   <option value="">Select Month...</option>
                   {availableMonths.map(month => (
@@ -171,52 +171,75 @@ export const ReportsPage: React.FC = () => {
             </div>
 
             {(!selectedYear || !selectedMonth) && (
-              <div className="mt-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
+              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-blue-800">
                 Please select both a year and month to view reports.
               </div>
             )}
           </div>
 
           {selectedYear && selectedMonth && currentSchedule && monthSchedule.length > 0 ? (
-            <div className="bg-white rounded-lg shadow">
+            <div className="overflow-hidden rounded-lg bg-white shadow">
               {/* Tabs */}
               <div className="border-b border-gray-200">
-                <nav className="flex -mb-px overflow-x-auto">
-                  {tabs.map(tab => (
+                <div className="p-4 md:hidden">
+                  <label className="sr-only" htmlFor="reports-tab-select">
+                    Select report section
+                  </label>
+                  <select
+                    id="reports-tab-select"
+                    value={activeTab}
+                    onChange={(e) => setActiveTab(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-primary-500"
+                  >
+                    {tabs.map((tab) => (
+                      <option key={tab.id} value={tab.id}>
+                        {`${tab.emoji} ${tab.label}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <nav className="hidden -mb-px overflow-x-auto md:flex">
+                  {tabs.map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`px-6 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                      className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors ${
                         activeTab === tab.id
-                          ? 'border-primary-500 text-primary-600'
-                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                          ? 'border-b-2 border-primary-500 text-primary-600'
+                          : 'border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                       }`}
                     >
-                      {tab.name}
+                      <span aria-hidden>{tab.emoji}</span>
+                      <span>{tab.label}</span>
                     </button>
                   ))}
                 </nav>
               </div>
 
-              <div className="p-6">
+              <div className="space-y-6 p-4 sm:p-6">
                 {/* Overview Tab */}
                 {activeTab === 'overview' && metrics && (
+                  <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Monthly Overview</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <h3 className="text-xl font-bold text-gray-900">📊 Monthly Overview</h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Quick stats that highlight how this roster was distributed across the team.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Total Assignments</p>
                         <p className="text-2xl font-bold">{metrics.totalAssignments}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Employees</p>
                         <p className="text-2xl font-bold">{metrics.employees}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Days</p>
                         <p className="text-2xl font-bold">{metrics.days}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Main Shifts</p>
                         <p className="text-2xl font-bold">{metrics.mainShifts}</p>
                       </div>
@@ -226,34 +249,41 @@ export const ReportsPage: React.FC = () => {
 
                 {/* Fairness Analysis Tab */}
                 {activeTab === 'fairness' && fairnessData && (
+                  <div className="space-y-6">
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Fairness Analysis</h3>
+                      <h3 className="text-xl font-bold text-gray-900">📈 Fairness Analysis</h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Compare how shifts are shared across the team. Scroll horizontally on smaller screens
+                        to see every chart.
+                      </p>
+                    </div>
                     
                     {/* Fairness Metrics */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Min Working Days</p>
                         <p className="text-2xl font-bold">{fairnessData.metrics.minWork}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Max Working Days</p>
                         <p className="text-2xl font-bold">{fairnessData.metrics.maxWork}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Avg Working Days</p>
                         <p className="text-2xl font-bold">{fairnessData.metrics.avgWork.toFixed(1)}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Fairness Score</p>
                         <p className="text-2xl font-bold">{fairnessData.metrics.fairnessScore.toFixed(2)}</p>
                       </div>
                     </div>
 
-                    <div className="border-t border-gray-200 pt-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="-mx-4 overflow-x-auto border-t border-gray-200 pt-6 md:mx-0 md:overflow-visible">
+                      <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:grid-cols-4">
                         {/* Night Shift Distribution */}
                         {fairnessData.nightData.length > 0 ? (
-                          <div>
+                          <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
+                            <h4 className="text-sm font-semibold text-gray-800">🌙 Night Shift Distribution</h4>
                             <Plot
                               data={[{
                                 type: 'pie',
@@ -264,21 +294,22 @@ export const ReportsPage: React.FC = () => {
                                 marker: { colors: ['#FFB6C1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'] },
                               }]}
                               layout={{
-                                title: '🌙 Night Shift Distribution',
                                 height: 300,
                               }}
-                              style={{ width: '100%' }}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', minWidth: '220px' }}
                             />
                           </div>
                         ) : (
-                          <div className="bg-gray-50 p-4 rounded-lg text-center">
+                          <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
                             <p className="text-gray-600">No night shifts assigned</p>
                           </div>
                         )}
 
                         {/* Afternoon Shift Distribution */}
                         {fairnessData.afternoonData.length > 0 ? (
-                          <div>
+                          <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
+                            <h4 className="text-sm font-semibold text-gray-800">🌅 Afternoon Shift Distribution</h4>
                             <Plot
                               data={[{
                                 type: 'pie',
@@ -289,21 +320,22 @@ export const ReportsPage: React.FC = () => {
                                 marker: { colors: ['#FFE4E1', '#F0E68C', '#DDA0DD', '#B0E0E6', '#98FB98', '#F5DEB3'] },
                               }]}
                               layout={{
-                                title: '🌅 Afternoon Shift Distribution',
                                 height: 300,
                               }}
-                              style={{ width: '100%' }}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', minWidth: '220px' }}
                             />
                           </div>
                         ) : (
-                          <div className="bg-gray-50 p-4 rounded-lg text-center">
+                          <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
                             <p className="text-gray-600">No afternoon shifts assigned</p>
                           </div>
                         )}
 
                         {/* Weekend Shift Distribution */}
                         {fairnessData.weekendData.length > 0 ? (
-                          <div>
+                          <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
+                            <h4 className="text-sm font-semibold text-gray-800">📅 Weekend Shift Distribution</h4>
                             <Plot
                               data={[{
                                 type: 'pie',
@@ -314,21 +346,22 @@ export const ReportsPage: React.FC = () => {
                                 marker: { colors: ['#C5E1A5', '#FFCCBC', '#B2DFDB', '#FFE082', '#CE93D8', '#90CAF9'] },
                               }]}
                               layout={{
-                                title: '📅 Weekend Shift Distribution',
                                 height: 300,
                               }}
-                              style={{ width: '100%' }}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', minWidth: '220px' }}
                             />
                           </div>
                         ) : (
-                          <div className="bg-gray-50 p-4 rounded-lg text-center">
+                          <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
                             <p className="text-gray-600">No weekend shifts assigned</p>
                           </div>
                         )}
 
                         {/* Total Working Days */}
                         {fairnessData.workingData.length > 0 ? (
-                          <div>
+                          <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
+                            <h4 className="text-sm font-semibold text-gray-800">📊 Total Working Days</h4>
                             <Plot
                               data={[{
                                 type: 'bar',
@@ -340,16 +373,16 @@ export const ReportsPage: React.FC = () => {
                                 marker: { color: 'lightcoral' },
                               }]}
                               layout={{
-                                title: '📊 Total Working Days',
                                 xaxis: { title: 'Working Days' },
                                 yaxis: { title: 'Employee' },
                                 height: Math.max(300, fairnessData.workingData.length * 20 + 100),
                               }}
-                              style={{ width: '100%' }}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', minWidth: '220px' }}
                             />
                           </div>
                         ) : (
-                          <div className="bg-gray-50 p-4 rounded-lg text-center">
+                          <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
                             <p className="text-gray-600">No working shifts assigned</p>
                           </div>
                         )}
@@ -360,15 +393,20 @@ export const ReportsPage: React.FC = () => {
 
                 {/* Employee Pending Off Tab */}
                 {activeTab === 'pending-off' && currentSchedule.employees && (
+                  <div className="space-y-6">
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Employee Pending Off</h3>
+                      <h3 className="text-xl font-bold text-gray-900">👥 Employee Pending Off</h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Track remaining days off so employees know what’s still available.
+                      </p>
+                    </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Total Employees</p>
                         <p className="text-2xl font-bold">{currentSchedule.employees.length}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Avg Pending Off</p>
                         <p className="text-2xl font-bold">
                           {(
@@ -377,7 +415,7 @@ export const ReportsPage: React.FC = () => {
                           ).toFixed(1)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Max Pending Off</p>
                         <p className="text-2xl font-bold">
                           {Math.max(...currentSchedule.employees.map((emp: any) => emp.pending_off || 0)).toFixed(1)}
@@ -386,29 +424,34 @@ export const ReportsPage: React.FC = () => {
                     </div>
 
                     {currentSchedule.employees.length > 0 && (
-                      <div>
-                        <Plot
-                          data={[{
-                            type: 'bar',
-                            x: currentSchedule.employees
-                              .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0))
-                              .map((emp: any) => emp.employee),
-                            y: currentSchedule.employees
-                              .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0))
-                              .map((emp: any) => emp.pending_off || 0),
-                            text: currentSchedule.employees
-                              .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0))
-                              .map((emp: any) => emp.pending_off || 0),
-                            textposition: 'auto',
-                            marker: { color: '#4ECDC4' },
-                          }]}
-                          layout={{
-                            xaxis: { title: 'Employee' },
-                            yaxis: { title: 'Pending Off Days' },
-                            height: 300,
-                          }}
-                          style={{ width: '100%' }}
-                        />
+                      <div className="-mx-4 overflow-x-auto md:mx-0 md:overflow-visible">
+                        {(() => {
+                          const sortedEmployees = currentSchedule.employees
+                            .slice()
+                            .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0));
+                          const pendingValues = sortedEmployees.map((emp: any) => emp.pending_off || 0);
+                          return (
+                            <Plot
+                              data={[{
+                                type: 'bar',
+                                x: sortedEmployees.map((emp: any) => emp.employee),
+                                y: pendingValues,
+                                text: pendingValues.map((value: number) => value.toFixed(1)),
+                                textposition: 'auto',
+                                marker: { color: '#5DADE2' },
+                                orientation: 'v',
+                              }]}
+                              layout={{
+                                xaxis: { title: 'Employee' },
+                                yaxis: { title: 'Pending Off Days' },
+                                height: 300,
+                                margin: { l: 60, r: 20, t: 20, b: 80 },
+                              }}
+                              config={{ responsive: true }}
+                              style={{ width: '100%', minWidth: '280px' }}
+                            />
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
@@ -416,10 +459,10 @@ export const ReportsPage: React.FC = () => {
 
                 {/* Solver Metrics Tab */}
                 {activeTab === 'solver' && currentSchedule.metrics && (
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Solver Metrics</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-bold text-gray-900">⚙️ Solver Metrics</h3>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Solve Time</p>
                         <p className="text-2xl font-bold">
                           {currentSchedule.metrics.solve_time
@@ -427,7 +470,7 @@ export const ReportsPage: React.FC = () => {
                             : 'N/A'}
                         </p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Status</p>
                         <p className="text-2xl font-bold">{currentSchedule.metrics.status || 'Unknown'}</p>
                       </div>

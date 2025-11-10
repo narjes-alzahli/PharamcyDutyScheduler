@@ -195,27 +195,27 @@ export const RosterRequests: React.FC = () => {
         <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
           <div className="border-b border-gray-200 bg-gray-50/60">
             <nav className="flex items-center gap-2 px-4 py-4 sm:items-end sm:gap-0 sm:px-6 sm:pt-0">
-              <button
-                onClick={() => setActiveTab('leave')}
+            <button
+              onClick={() => setActiveTab('leave')}
                 className={`flex-1 rounded-lg px-4 py-3 text-sm font-semibold transition-colors sm:flex-none sm:rounded-none sm:border-b-2 sm:px-6 sm:py-4 sm:font-medium ${
-                  activeTab === 'leave'
+                activeTab === 'leave'
                     ? 'bg-white text-primary-600 shadow-sm sm:border-primary-500 sm:bg-transparent sm:text-primary-600 sm:shadow-none'
                     : 'text-gray-500 hover:text-gray-700 sm:border-transparent sm:hover:border-gray-300'
-                }`}
-              >
-                🏖️ Leave Requests
-              </button>
-              <button
-                onClick={() => setActiveTab('shift')}
+              }`}
+            >
+              🏖️ Leave Requests
+            </button>
+            <button
+              onClick={() => setActiveTab('shift')}
                 className={`flex-1 rounded-lg px-4 py-3 text-sm font-semibold transition-colors sm:flex-none sm:rounded-none sm:border-b-2 sm:px-6 sm:py-4 sm:font-medium ${
-                  activeTab === 'shift'
+                activeTab === 'shift'
                     ? 'bg-white text-primary-600 shadow-sm sm:border-primary-500 sm:bg-transparent sm:text-primary-600 sm:shadow-none'
                     : 'text-gray-500 hover:text-gray-700 sm:border-transparent sm:hover:border-gray-300'
-                }`}
-              >
-                🔒 Shift Requests
-              </button>
-            </nav>
+              }`}
+            >
+              🔒 Shift Requests
+            </button>
+          </nav>
         </div>
 
           <div className="px-4 py-6 sm:px-6 sm:py-8">

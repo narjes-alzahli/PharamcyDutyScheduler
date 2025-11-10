@@ -805,7 +805,7 @@ export const RosterGenerator: React.FC = () => {
 
                       <ScheduleAnalysis
                         schedule={generatedSchedule}
-                        employees={rosterData?.employees}
+                        employees={generatedEmployees || rosterData?.employees}
                         metrics={scheduleMetrics}
                         year={selectedYear}
                         month={selectedMonth}

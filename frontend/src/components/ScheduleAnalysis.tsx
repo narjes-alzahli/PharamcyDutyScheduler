@@ -45,6 +45,24 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
 
   const fairnessData = calculateFairnessData(schedule);
 
+  const employeeDetails = employees || [];
+  const sortedEmployeesByPendingOff = employeeDetails
+    .slice()
+    .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0));
+  const pendingOffValues = sortedEmployeesByPendingOff.map(
+    (emp: any) => emp.pending_off || 0
+  );
+  const totalEmployees = employeeDetails.length;
+  const averagePendingOff =
+    totalEmployees > 0
+      ? employeeDetails.reduce(
+          (sum: number, emp: any) => sum + (emp.pending_off || 0),
+          0
+        ) / totalEmployees
+      : 0;
+  const maxPendingOff =
+    pendingOffValues.length > 0 ? Math.max(...pendingOffValues) : 0;
+
   return (
     <div className="mt-8 space-y-4">
       <h3 className="text-xl font-bold text-gray-900">Schedule Analysis</h3>
@@ -238,7 +256,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
       </div>
 
       {/* Employee Details */}
-      {employees && employees.length > 0 && (
+      {employeeDetails.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg">
           <button
             onClick={() => toggleSection('employeeDetails')}
@@ -252,21 +270,18 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
               <div className="grid grid-cols-3 gap-4 mb-4">
                 <div className="bg-gray-50 p-4 rounded">
                   <p className="text-sm text-gray-600">Total Employees</p>
-                  <p className="text-2xl font-bold">{employees.length}</p>
+                  <p className="text-2xl font-bold">{totalEmployees}</p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded">
                   <p className="text-sm text-gray-600">Avg Pending Off</p>
                   <p className="text-2xl font-bold">
-                    {(
-                      employees.reduce((sum: number, emp: any) => sum + (emp.pending_off || 0), 0) /
-                      employees.length
-                    ).toFixed(1)}
+                    {averagePendingOff.toFixed(1)}
                   </p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded">
                   <p className="text-sm text-gray-600">Max Pending Off</p>
                   <p className="text-2xl font-bold">
-                    {Math.max(...employees.map((emp: any) => emp.pending_off || 0))}
+                    {maxPendingOff.toFixed(1)}
                   </p>
                 </div>
               </div>
@@ -277,14 +292,12 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                 <Plot
                   data={[
                     {
-                      x: employees
-                        .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0))
-                        .map((emp: any) => emp.employee),
-                      y: employees
-                        .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0))
-                        .map((emp: any) => emp.pending_off || 0),
+                      x: sortedEmployeesByPendingOff.map((emp: any) => emp.employee),
+                      y: pendingOffValues,
                       type: 'bar',
-                      marker: { color: '#4ECDC4' },
+                      text: pendingOffValues.map((value: number) => value.toFixed(1)),
+                      textposition: 'auto',
+                      marker: { color: '#5DADE2' },
                     },
                   ]}
                   layout={{

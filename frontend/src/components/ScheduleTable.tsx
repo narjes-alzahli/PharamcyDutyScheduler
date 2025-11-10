@@ -19,6 +19,21 @@ interface ScheduleTableProps {
   employees?: Employee[];
 }
 
+interface MobileAssignment {
+  date: string;
+  label: string;
+  shift: string;
+  shiftLabel: string;
+  isWeekend: boolean;
+}
+
+interface EmployeeMobileSummary {
+  employee: string;
+  pendingOff: number;
+  daysWithAssignments: MobileAssignment[];
+  shiftCount: number;
+}
+
 const SPECIAL_COLOR_KEYS = {
   weekend: '__weekend',
   totals: '__totals',
@@ -197,7 +212,13 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
     return day === 'Fri' || day === 'Sat';
   };
 
+  const formatDayLabel = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return `${date.getDate().toString().padStart(2, '0')} ${getDayOfWeek(dateStr)}`;
+  };
+
   return (
+    <div className="space-y-6">
     <div className="overflow-x-auto">
       <div className="inline-block min-w-full">
         <table className="min-w-full border-2 border-black text-sm">
@@ -316,6 +337,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Legend with Color Pickers */}
