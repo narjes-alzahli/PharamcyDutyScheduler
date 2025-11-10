@@ -1,5 +1,5 @@
 employee,skill_M,skill_IP,skill_A,skill_N,skill_M3,skill_M4,skill_H,skill_CL,clinic_only,maxN,maxA,min_days_off,weight,pending_off
-Idris,True,True,True,True,True,True,True,False,False,3,6,4,1.0,0.0
+Idris,True,False,False,False,False,False,False,False,False,3,6,4,1.0,0.0
 Karima W,True,True,True,True,True,True,True,False,False,3,6,4,1.0,0.0
 Rahma,True,True,True,True,True,True,True,False,False,3,6,4,1.0,0.0
 Ghadeer,True,True,True,True,True,True,True,False,False,3,6,4,1.0,0.0

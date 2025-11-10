@@ -19,10 +19,48 @@ interface ScheduleTableProps {
   employees?: Employee[];
 }
 
-const WEEKEND_HEADER_BACKGROUND = '#D1FAE5'; // Light green for weekend headers
-const WEEKEND_BACKGROUND = '#E8FDF2'; // Slightly different green for weekend cells
-const TOTAL_MAIN_BACKGROUND = '#E5E7EB'; // Light gray for TOTAL MAIN
-const TOTAL_IP_BACKGROUND = '#D1D5DB'; // Slightly darker gray for TOTAL IP
+const SPECIAL_COLOR_KEYS = {
+  weekend: '__weekend',
+  totals: '__totals',
+} as const;
+
+const defaultSpecialColors: Record<string, string> = {
+  [SPECIAL_COLOR_KEYS.weekend]: '#E8FDF2',
+  [SPECIAL_COLOR_KEYS.totals]: '#D8DDE5',
+};
+
+const adjustColorBrightness = (hexColor: string, factor: number): string => {
+  const sanitized = hexColor.replace('#', '');
+  if (![3, 6].includes(sanitized.length)) return hexColor;
+
+  const fullHex =
+    sanitized.length === 3
+      ? sanitized
+          .split('')
+          .map((char) => char + char)
+          .join('')
+      : sanitized;
+
+  const num = parseInt(fullHex, 16);
+  if (Number.isNaN(num)) return hexColor;
+
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+
+  const adjust = (component: number) => {
+    if (factor < 0) {
+      return Math.max(0, Math.min(255, Math.round(component * (1 + factor))));
+    }
+    return Math.max(0, Math.min(255, Math.round(component + (255 - component) * factor)));
+  };
+
+  const newR = adjust(r);
+  const newG = adjust(g);
+  const newB = adjust(b);
+
+  return `#${[newR, newG, newB].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+};
 
 export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, month, employees: employeeData }) => {
   // Load custom colors from localStorage or use defaults
@@ -32,12 +70,12 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
       if (saved) {
         const parsed = JSON.parse(saved);
         // Merge with defaults to ensure all shifts have colors
-        return { ...defaultShiftColors, ...parsed };
+        return { ...defaultShiftColors, ...defaultSpecialColors, ...parsed };
       }
     } catch (e) {
       console.error('Failed to load custom colors:', e);
     }
-    return { ...defaultShiftColors };
+    return { ...defaultShiftColors, ...defaultSpecialColors };
   };
 
   const [customColors, setCustomColors] = useState<Record<string, string>>(loadCustomColors);
@@ -149,6 +187,11 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
     return days[date.getDay()];
   };
 
+  const weekendColor =
+    customColors[SPECIAL_COLOR_KEYS.weekend] || defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend];
+  const derivedWeekendHeaderColor = weekendColor;
+  const totalsColor = customColors[SPECIAL_COLOR_KEYS.totals] || defaultSpecialColors[SPECIAL_COLOR_KEYS.totals];
+
   const isWeekend = (dateStr: string) => {
     const day = getDayOfWeek(dateStr);
     return day === 'Fri' || day === 'Sat';
@@ -173,7 +216,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                     key={dateStr}
                     className="border border-black px-1 py-1 text-center font-semibold min-w-[40px]"
                     title={`${getDayOfWeek(dateStr)} ${formatDate(dateStr)}`}
-                    style={weekend ? { backgroundColor: WEEKEND_HEADER_BACKGROUND } : undefined}
+                    style={weekend ? { backgroundColor: derivedWeekendHeaderColor } : undefined}
                   >
                     <div className="text-xs">{formatDate(dateStr)}</div>
                     <div className="text-xs text-gray-500">{getDayOfWeek(dateStr)}</div>
@@ -197,7 +240,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                   const weekend = isWeekend(dateStr);
                   const backgroundColor =
                     weekend && (!shift || shift === 'O')
-                      ? WEEKEND_BACKGROUND
+                      ? weekendColor
                       : baseColor;
                   const isDark = shift === 'M' || shift === 'M3' || shift === 'M4';
 
@@ -219,8 +262,12 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
             ))}
             
             {/* TOTAL MAIN row */}
-            <tr className="bg-gray-200 font-bold">
-              <td className="border border-black px-2 py-1 text-center" colSpan={2}>
+            <tr className="font-bold">
+              <td
+                className="border border-black px-2 py-1 text-center"
+                colSpan={2}
+                style={{ backgroundColor: totalsColor }}
+              >
                 TOTAL MAIN
               </td>
               {dates.map(dateStr => {
@@ -233,7 +280,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                   <td
                     key={dateStr}
                     className="border border-black px-1 py-1 text-center font-bold"
-                    style={{ backgroundColor: TOTAL_MAIN_BACKGROUND }}
+                    style={{ backgroundColor: totalsColor }}
                   >
                     {mainCount}
                   </td>
@@ -242,8 +289,12 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
             </tr>
             
             {/* TOTAL IP row */}
-            <tr className="bg-gray-200 font-bold">
-              <td className="border border-black px-2 py-1 text-center" colSpan={2}>
+            <tr className="font-bold">
+              <td
+                className="border border-black px-2 py-1 text-center"
+                colSpan={2}
+                style={{ backgroundColor: totalsColor }}
+              >
                 TOTAL IP
               </td>
               {dates.map(dateStr => {
@@ -256,7 +307,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                   <td
                     key={dateStr}
                     className="border border-black px-1 py-1 text-center font-bold"
-                    style={{ backgroundColor: TOTAL_IP_BACKGROUND }}
+                    style={{ backgroundColor: totalsColor }}
                   >
                     {ipCount}
                   </td>
@@ -273,7 +324,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
           <button
             onClick={() => {
               if (window.confirm('Reset all colors to defaults?')) {
-                setCustomColors({ ...defaultShiftColors });
+                setCustomColors({ ...defaultShiftColors, ...defaultSpecialColors });
               }
             }}
             className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
@@ -282,18 +333,35 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
           </button>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
-          {Object.entries(defaultShiftColors).map(([shift, defaultColor]) => {
-            if (!shift || shift === '0' || shift === '') return null;
-            const currentColor = customColors[shift] || defaultColor;
-            const isEditing = editingColor === shift;
+          {[
+            ...Object.entries(defaultShiftColors)
+              .filter(([shift]) => shift && shift !== '0' && shift !== '')
+              .map(([shift, defaultColor]) => ({
+                key: shift,
+                defaultColor,
+                label: `${shift}: ${getShiftLabel(shift)}`,
+              })),
+            {
+              key: SPECIAL_COLOR_KEYS.weekend,
+              defaultColor: defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend],
+              label: 'Weekend',
+            },
+            {
+              key: SPECIAL_COLOR_KEYS.totals,
+              defaultColor: defaultSpecialColors[SPECIAL_COLOR_KEYS.totals],
+              label: 'Totals',
+            },
+          ].map(({ key, defaultColor, label }) => {
+            const currentColor = customColors[key] || defaultColor;
+            const isEditing = editingColor === key;
             
             return (
-              <div key={shift} className="flex items-center space-x-2 group">
+              <div key={key} className="flex items-center space-x-2 group">
                 <div className="relative color-picker-container">
                   <div
                     className="w-6 h-6 border border-gray-300 rounded cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all"
                     style={{ backgroundColor: currentColor }}
-                    onClick={() => setEditingColor(isEditing ? null : shift)}
+                    onClick={() => setEditingColor(isEditing ? null : key)}
                     title="Click to change color"
                   />
                   {isEditing && (
@@ -302,7 +370,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                         type="color"
                         value={currentColor}
                         onChange={(e) => {
-                          setCustomColors({ ...customColors, [shift]: e.target.value });
+                          setCustomColors({ ...customColors, [key]: e.target.value });
                         }}
                         className="w-full h-8 cursor-pointer"
                         autoFocus
@@ -311,7 +379,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setCustomColors({ ...customColors, [shift]: defaultColor });
+                            setCustomColors({ ...customColors, [key]: defaultColor });
                             setEditingColor(null);
                           }}
                           className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
@@ -332,7 +400,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                   )}
                 </div>
                 <span className="text-xs">
-                  <strong>{shift}</strong>: {getShiftLabel(shift)}
+                  {label}
                 </span>
               </div>
             );

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Plot from 'react-plotly.js';
+import { calculateFairnessData } from '../utils/fairnessMetrics';
 
 interface ScheduleAnalysisProps {
   schedule: any[];
@@ -42,44 +43,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
     shiftCounts[s.shift] = (shiftCounts[s.shift] || 0) + 1;
   });
 
-  // Calculate employee shift counts
-  const employeeShiftCounts: { [key: string]: number } = {};
-  schedule.forEach((s: any) => {
-    employeeShiftCounts[s.employee] = (employeeShiftCounts[s.employee] || 0) + 1;
-  });
-
-  // Fairness analysis - shift distribution by employee
-  const nightShifts = ['N'];
-  const afternoonShifts = ['A'];
-  const mainShiftTypes = ['M', 'M3', 'M4'];
-
-  const nightData = schedule.filter((s: any) => nightShifts.includes(s.shift));
-  const afternoonData = schedule.filter((s: any) => afternoonShifts.includes(s.shift));
-  const mainData = schedule.filter((s: any) => mainShiftTypes.includes(s.shift));
-
-  // Calculate night shift distribution
-  const nightCounts: { [key: string]: number } = {};
-  nightData.forEach((s: any) => {
-    nightCounts[s.employee] = (nightCounts[s.employee] || 0) + 1;
-  });
-
-  // Calculate afternoon shift distribution
-  const afternoonCounts: { [key: string]: number } = {};
-  afternoonData.forEach((s: any) => {
-    afternoonCounts[s.employee] = (afternoonCounts[s.employee] || 0) + 1;
-  });
-
-  // Calculate main shift distribution
-  const mainCounts: { [key: string]: number } = {};
-  mainData.forEach((s: any) => {
-    mainCounts[s.employee] = (mainCounts[s.employee] || 0) + 1;
-  });
-
-  // Calculate total shifts per employee
-  const totalShiftsPerEmployee: { [key: string]: number } = {};
-  schedule.forEach((s: any) => {
-    totalShiftsPerEmployee[s.employee] = (totalShiftsPerEmployee[s.employee] || 0) + 1;
-  });
+  const fairnessData = calculateFairnessData(schedule);
 
   return (
     <div className="mt-8 space-y-4">
@@ -132,37 +96,23 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
             {/* Fairness Metrics */}
             <div className="grid grid-cols-4 gap-4 mb-6">
               {(() => {
-                const workingShifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
-                const workingData = schedule.filter((s: any) => workingShifts.includes(s.shift));
-                const workingCounts: { [key: string]: number } = {};
-                workingData.forEach((s: any) => {
-                  workingCounts[s.employee] = (workingCounts[s.employee] || 0) + 1;
-                });
-                const counts = Object.values(workingCounts);
-                const maxWork = Math.max(...counts);
-                const minWork = Math.min(...counts);
-                const avgWork = counts.reduce((a, b) => a + b, 0) / counts.length;
-                const nonMaxCounts = counts.filter(c => c < maxWork);
-                const maxWorkNonClinical = nonMaxCounts.length > 0 ? Math.max(...nonMaxCounts) : maxWork;
-                const fairnessScore = 1 - (maxWorkNonClinical - minWork) / Math.max(maxWorkNonClinical, 1);
-
                 return (
                   <>
                     <div className="bg-gray-50 p-4 rounded">
                       <p className="text-sm text-gray-600">Min Working Days</p>
-                      <p className="text-2xl font-bold">{minWork}</p>
+                      <p className="text-2xl font-bold">{fairnessData.metrics.minWork}</p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
                       <p className="text-sm text-gray-600">Max Working Days (Non-Clinical)</p>
-                      <p className="text-2xl font-bold">{maxWorkNonClinical}</p>
+                      <p className="text-2xl font-bold">{fairnessData.metrics.maxWork}</p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
                       <p className="text-sm text-gray-600">Avg Working Days</p>
-                      <p className="text-2xl font-bold">{avgWork.toFixed(1)}</p>
+                      <p className="text-2xl font-bold">{fairnessData.metrics.avgWork.toFixed(1)}</p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
                       <p className="text-sm text-gray-600">Fairness Score</p>
-                      <p className="text-2xl font-bold">{fairnessScore.toFixed(2)}</p>
+                      <p className="text-2xl font-bold">{fairnessData.metrics.fairnessScore.toFixed(2)}</p>
                     </div>
                   </>
                 );
@@ -172,14 +122,14 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
             {/* Charts Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Night Shift Distribution */}
-              {Object.keys(nightCounts).length > 0 ? (
+              {fairnessData.nightData.length > 0 ? (
                 <div>
                   <h4 className="font-semibold mb-2">🌙 Night Shift Distribution</h4>
                   <Plot
                     data={[
                       {
-                        values: Object.values(nightCounts),
-                        labels: Object.keys(nightCounts),
+                        values: fairnessData.nightData.map((d) => d.count),
+                        labels: fairnessData.nightData.map((d) => d.emp),
                         type: 'pie',
                       },
                     ]}
@@ -198,14 +148,14 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
               )}
 
               {/* Afternoon Shift Distribution */}
-              {Object.keys(afternoonCounts).length > 0 ? (
+              {fairnessData.afternoonData.length > 0 ? (
                 <div>
                   <h4 className="font-semibold mb-2">🌅 Afternoon Shift Distribution</h4>
                   <Plot
                     data={[
                       {
-                        values: Object.values(afternoonCounts),
-                        labels: Object.keys(afternoonCounts),
+                        values: fairnessData.afternoonData.map((d) => d.count),
+                        labels: fairnessData.afternoonData.map((d) => d.emp),
                         type: 'pie',
                       },
                     ]}
@@ -225,23 +175,14 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
 
               {/* Weekend Shift Distribution */}
               {(() => {
-                const weekendShifts = schedule.filter((s: any) => {
-                  const date = new Date(s.date);
-                  const day = date.getDay();
-                  return day === 5 || day === 6; // Friday or Saturday
-                });
-                const weekendCounts: { [key: string]: number } = {};
-                weekendShifts.forEach((s: any) => {
-                  weekendCounts[s.employee] = (weekendCounts[s.employee] || 0) + 1;
-                });
-                return Object.keys(weekendCounts).length > 0 ? (
+                return fairnessData.weekendData.length > 0 ? (
                   <div>
                     <h4 className="font-semibold mb-2">📅 Weekend Shift Distribution</h4>
                     <Plot
                       data={[
                         {
-                          values: Object.values(weekendCounts),
-                          labels: Object.keys(weekendCounts),
+                          values: fairnessData.weekendData.map((d) => d.count),
+                          labels: fairnessData.weekendData.map((d) => d.emp),
                           type: 'pie',
                         },
                       ]}
@@ -262,21 +203,14 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
 
               {/* Total Working Days */}
               {(() => {
-                const workingShifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
-                const workingData = schedule.filter((s: any) => workingShifts.includes(s.shift));
-                const workingCounts: { [key: string]: number } = {};
-                workingData.forEach((s: any) => {
-                  workingCounts[s.employee] = (workingCounts[s.employee] || 0) + 1;
-                });
-                const sortedEntries = Object.entries(workingCounts).sort((a, b) => a[1] - b[1]);
-                return sortedEntries.length > 0 ? (
+                return fairnessData.workingData.length > 0 ? (
                   <div>
                     <h4 className="font-semibold mb-2">📊 Total Working Days</h4>
                     <Plot
                       data={[
                         {
-                          x: sortedEntries.map(e => e[1]),
-                          y: sortedEntries.map(e => e[0]),
+                          x: fairnessData.workingData.map((d) => d.count),
+                          y: fairnessData.workingData.map((d) => d.emp),
                           type: 'bar',
                           orientation: 'h',
                           marker: { color: 'lightcoral' },
@@ -286,7 +220,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                         title: 'Total Working Days',
                         xaxis: { title: 'Working Days' },
                         yaxis: { title: 'Employee' },
-                        height: Math.max(300, sortedEntries.length * 20 + 100),
+                        height: Math.max(300, fairnessData.workingData.length * 20 + 100),
                       }}
                       config={{ responsive: true }}
                       style={{ width: '100%' }}

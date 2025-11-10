@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { schedulesAPI, Schedule } from '../services/api';
 import Plot from 'react-plotly.js';
+import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
 
 export const ReportsPage: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -98,88 +99,10 @@ export const ReportsPage: React.FC = () => {
     };
   };
 
-  // Create fairness charts data
-  const createFairnessCharts = () => {
+  const fairnessData: FairnessData | null = useMemo(() => {
     if (!monthSchedule.length) return null;
-
-    const nightShifts = ['N'];
-    const afternoonShifts = ['A'];
-    const workingShifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
-
-    // Count shifts by employee
-    const employeeCounts: Record<string, Record<string, number>> = {};
-    const weekendCounts: Record<string, number> = {};
-    const workingCounts: Record<string, number> = {};
-
-    monthSchedule.forEach((entry: any) => {
-      const emp = entry.employee;
-      const shift = entry.shift;
-      const date = new Date(entry.date);
-      const isWeekend = date.getDay() === 5 || date.getDay() === 6; // Friday or Saturday
-
-      if (!employeeCounts[emp]) {
-        employeeCounts[emp] = {};
-        workingCounts[emp] = 0;
-        weekendCounts[emp] = 0;
-      }
-
-      if (workingShifts.includes(shift)) {
-        workingCounts[emp] = (workingCounts[emp] || 0) + 1;
-        if (isWeekend) {
-          weekendCounts[emp] = (weekendCounts[emp] || 0) + 1;
-        }
-      }
-
-      if (nightShifts.includes(shift)) {
-        employeeCounts[emp].night = (employeeCounts[emp].night || 0) + 1;
-      }
-      if (afternoonShifts.includes(shift)) {
-        employeeCounts[emp].afternoon = (employeeCounts[emp].afternoon || 0) + 1;
-      }
-    });
-
-    // Night shift distribution
-    const nightData = Object.entries(employeeCounts)
-      .filter(([_, counts]) => counts.night > 0)
-      .map(([emp, counts]) => ({ emp, count: counts.night }));
-
-    // Afternoon shift distribution
-    const afternoonData = Object.entries(employeeCounts)
-      .filter(([_, counts]) => counts.afternoon > 0)
-      .map(([emp, counts]) => ({ emp, count: counts.afternoon }));
-
-    // Weekend shift distribution
-    const weekendData = Object.entries(weekendCounts)
-      .filter(([_, count]) => count > 0)
-      .map(([emp, count]) => ({ emp, count }));
-
-    // Working days distribution
-    const workingData = Object.entries(workingCounts)
-      .sort(([, a], [, b]) => a - b)
-      .map(([emp, count]) => ({ emp, count }));
-
-    // Calculate fairness metrics
-    const workingValues = Object.values(workingCounts);
-    const maxWork = Math.max(...workingValues, 0);
-    const minWork = Math.min(...workingValues.filter(v => v > 0), 0) || 0;
-    const avgWork = workingValues.reduce((a, b) => a + b, 0) / (workingValues.length || 1);
-    const fairnessScore = maxWork > 0 ? 1 - (maxWork - minWork) / maxWork : 0;
-
-    return {
-      nightData,
-      afternoonData,
-      weekendData,
-      workingData,
-      metrics: {
-        minWork,
-        maxWork,
-        avgWork,
-        fairnessScore,
-      },
-    };
-  };
-
-  const fairnessData = createFairnessCharts();
+    return calculateFairnessData(monthSchedule);
+  }, [monthSchedule]);
   const metrics = calculateMetrics();
 
   if (loading) {
