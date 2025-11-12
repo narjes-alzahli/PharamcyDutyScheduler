@@ -404,7 +404,7 @@ def show_config_page():
                 "area_switching": 1.0,
                 "do_after_n": 1.0
             },
-            "rest_codes": ["DO", "ML", "W"],
+            "rest_codes": ["DO", "ML", "AL", "W"],
             "forbidden_adjacencies": [["N", "M"], ["A", "N"]],
             "weekly_rest_minimum": 1
         }
@@ -455,7 +455,7 @@ def show_config_page():
     st.subheader("Rest Codes")
     st.session_state.config["rest_codes"] = st.multiselect(
         "Codes that count as rest days",
-        options=["DO", "O", "ML", "W", "UL", "APP", "STL", "L"],
+        options=["DO", "O", "ML", "AL", "W", "UL", "APP", "STL", "L"],
         default=st.session_state.config["rest_codes"],
         help="Select which codes count as rest days for weekly rest constraints"
     )
@@ -922,8 +922,8 @@ def show_roster_requests_page():
                 from_date = st.date_input("From Date", value=date.today())
                 leave_type = st.selectbox(
                     "Leave Type",
-                    ["DO", "CL", "ML", "W", "UL", "STL"],
-                    help="DO: Day Off, ML: Maternity Leave, W: Workshop, UL: Unpaid Leave, STL: Study Leave"
+                    ["DO", "CL", "ML", "AL", "W", "UL", "STL"],
+                    help="DO: Day Off, ML: Maternity Leave, AL: Annual Leave, W: Workshop, UL: Unpaid Leave, STL: Study Leave"
                 )
             
             with col2:
@@ -934,7 +934,7 @@ def show_roster_requests_page():
             
             if submitted:
                 if from_date > to_date:
-                    st.error("From date cannot be after to date.")
+                    st.error("The start date must be on or before the end date.")
                 else:
                     request = {
                         'employee': st.session_state.current_user['employee_name'],

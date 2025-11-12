@@ -21,6 +21,7 @@ class ScheduleDisplay:
             'A': '#FFA500',      # Orange - Afternoon (2:30pm - 9:30pm)
             'N': '#FFFF00',      # Yellow - Night (9:30pm - 7am)
             'DO': '#90EE90',     # Light green - Day Off
+            'AL': '#FFD27F',     # Light orange - Annual Leave
             'CL': '#FFB6C1',     # Light pink - Clinic
             'ML': '#DDA0DD',     # Plum - Maternity Leave
             'W': '#D8BFD8',      # Thistle - Workshop
@@ -33,7 +34,7 @@ class ScheduleDisplay:
             'EV': '#DDA0DD',     # Plum - Event
             'P': '#FFA07A',      # Light salmon - Pharmacy
             'M+P': '#FFB6C1',    # Light pink - Main + Pharmacy
-            'IP+P': '#FFB6C1',   # Light pink - IP + Pharmacy
+            'IP+P': '#FFB6C1',   # Light pink - Inpatient + Pharmacy
             'M3': '#FFFFFF',     # White - M3 (7am-2pm)
             'M4': '#FFFFFF',     # White - M4 (12pm-7pm)
             'M3+P': '#FFB6C1',   # Light pink - M3 + Pharmacy
@@ -51,6 +52,7 @@ class ScheduleDisplay:
             'A': 'Afternoon (2:30pm-9:30pm)',
             'N': 'Night (9:30pm-7am)',
             'DO': 'Day Off',
+            'AL': 'Annual Leave',
             'CL': 'Clinic',
             'ML': 'Maternity Leave',
             'W': 'Workshop',
@@ -63,7 +65,7 @@ class ScheduleDisplay:
             'EV': 'Event',
             'P': 'Pharmacy',
             'M+P': 'Main + Pharmacy',
-            'IP+P': 'IP + Pharmacy',
+            'IP+P': 'Inpatient + Pharmacy',
             'M3': 'M3 (7am-2pm)',
             'M4': 'M4 (12pm-7pm)',
             'M3+P': 'M3 + Pharmacy',
@@ -495,6 +497,7 @@ class ScheduleDisplay:
         with col3:
             st.markdown("**Leave Types:**")
             self._legend_item_with_picker("DO", "Day Off", "#90EE90")
+            self._legend_item_with_picker("AL", "Annual Leave", "#FFD27F")
             self._legend_item_with_picker("ML", "Maternity Leave", "#DDA0DD")
             self._legend_item_with_picker("W", "Workshop", "#D8BFD8")
             self._legend_item_with_picker("UL", "Unpaid Leave", "#F5F5F5")
@@ -687,7 +690,7 @@ class ScheduleDisplay:
         # Group shifts by category
         main_shifts = ['M', 'O', 'IP', 'M3', 'M4']
         time_shifts = ['A', 'N']
-        leave_shifts = ['DO', 'CL', 'ML', 'UL', 'H', 'STL']
+        leave_shifts = ['DO', 'AL', 'CL', 'ML', 'UL', 'H', 'STL']
         special_shifts = ['W', 'ATT', 'APP', 'RT', 'EV', 'P', 'M+P', 'IP+P', 'M3+P', 'DR+M', 'V+P', 'C', 'L']
         
         categories = [

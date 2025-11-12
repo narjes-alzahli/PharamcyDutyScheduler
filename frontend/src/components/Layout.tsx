@@ -101,7 +101,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full px-4 sm:px-6 lg:px-10">
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center gap-3">
               <button
@@ -111,7 +111,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               >
                 <span className="text-lg">☰</span>
               </button>
-              <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">📅 Staff Rostering System</h1>
+              <h1 className="text-3xl font-extrabold text-gray-900 sm:text-4xl tracking-tight">📅 Staff Rostering System</h1>
             </div>
             <div className="flex items-center gap-3 sm:gap-4">
               <span className="hidden text-sm text-gray-600 sm:inline">
@@ -151,7 +151,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 )}
               </Link>
             ))}
-            {user?.employee_type === 'Manager' && (
+            {user && (
               <div className="mt-4 border-t border-gray-200 pt-4">
                 <button
                   onClick={() => setShowPasswordForm(!showPasswordForm)}
@@ -163,7 +163,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </nav>
 
-          {user?.employee_type === 'Manager' && showPasswordForm && (
+          {user && showPasswordForm && (
             <div className="border-t border-gray-200 p-4">
               <form onSubmit={handlePasswordChange} className="space-y-3">
                 <input
@@ -245,7 +245,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                   </Link>
                 ))}
               </nav>
-              {user?.employee_type === 'Manager' && (
+              {user && (
                 <div className="border-t border-gray-200 p-4">
                   <button
                     onClick={() => setShowPasswordForm((prev) => !prev)}

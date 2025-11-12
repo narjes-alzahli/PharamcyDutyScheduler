@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -229,6 +229,12 @@ export const requestsAPI = {
   createLeaveRequest: async (request: LeaveRequest): Promise<void> => {
     await api.post('/api/requests/leave', request);
   },
+  updateLeaveRequest: async (requestId: string, request: LeaveRequest): Promise<void> => {
+    await api.put(`/api/requests/leave/${requestId}`, request);
+  },
+  deleteLeaveRequest: async (requestId: string): Promise<void> => {
+    await api.delete(`/api/requests/leave/${requestId}`);
+  },
   approveLeaveRequest: async (requestId: string): Promise<any> => {
     const response = await api.put(`/api/requests/leave/${requestId}/approve`);
     return response.data;
@@ -247,6 +253,12 @@ export const requestsAPI = {
   },
   createShiftRequest: async (request: ShiftRequest): Promise<void> => {
     await api.post('/api/requests/shift', request);
+  },
+  updateShiftRequest: async (requestId: string, request: ShiftRequest): Promise<void> => {
+    await api.put(`/api/requests/shift/${requestId}`, request);
+  },
+  deleteShiftRequest: async (requestId: string): Promise<void> => {
+    await api.delete(`/api/requests/shift/${requestId}`);
   },
   approveShiftRequest: async (requestId: string): Promise<any> => {
     const response = await api.put(`/api/requests/shift/${requestId}/approve`);

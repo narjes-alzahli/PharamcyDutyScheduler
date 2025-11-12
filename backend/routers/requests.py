@@ -34,6 +34,23 @@ class ShiftRequest(BaseModel):
     reason: Optional[str] = None
 
 
+def is_authorized_to_modify(request: dict, current_user: dict) -> bool:
+    """Check if the current user can modify/delete the given request."""
+    return (
+        current_user['employee_type'] == 'Manager'
+        or request.get('employee') == current_user['employee_name']
+    )
+
+
+def ensure_request_is_pending(request: dict):
+    """Ensure the request is still pending."""
+    if request.get('status') != 'Pending':
+        raise HTTPException(
+            status_code=400,
+            detail=f"Request is already {request.get('status')}"
+        )
+
+
 def get_staff_requests_file() -> Path:
     """Get path to staff requests file."""
     return Path("roster/app/data/staff_requests.json")
@@ -101,7 +118,7 @@ async def create_leave_request(
     to_date = date.fromisoformat(request.to_date)
     
     if from_date > to_date:
-        raise HTTPException(status_code=400, detail="From date cannot be after to date")
+        raise HTTPException(status_code=400, detail="The start date must be on or before the end date.")
     
     new_request = {
         'employee': current_user['employee_name'],
@@ -118,6 +135,75 @@ async def create_leave_request(
     save_staff_requests(requests)
     
     return {"message": "Leave request submitted successfully", "request": new_request}
+
+
+@router.put("/leave/{request_id}")
+async def update_leave_request(
+    request_id: str,
+    update: LeaveRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an existing leave request while it is pending."""
+    requests = load_staff_requests()
+    leave_requests = requests.get('leave_requests', [])
+
+    request = next(
+        (req for req in leave_requests if req.get('request_id') == request_id),
+        None
+    )
+    if not request:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+
+    if not is_authorized_to_modify(request, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to modify this request")
+
+    ensure_request_is_pending(request)
+
+    from_date = date.fromisoformat(update.from_date)
+    to_date = date.fromisoformat(update.to_date)
+
+    if from_date > to_date:
+        raise HTTPException(status_code=400, detail="The start date must be on or before the end date.")
+
+    request['from_date'] = update.from_date
+    request['to_date'] = update.to_date
+    request['leave_type'] = update.leave_type
+    request['reason'] = update.reason or ''
+    request['updated_at'] = datetime.now().isoformat()
+
+    save_staff_requests(requests)
+
+    return {"message": "Leave request updated successfully", "request": request}
+
+
+@router.delete("/leave/{request_id}")
+async def delete_leave_request(
+    request_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a pending leave request."""
+    requests = load_staff_requests()
+    leave_requests = requests.get('leave_requests', [])
+
+    index = next(
+        (idx for idx, req in enumerate(leave_requests) if req.get('request_id') == request_id),
+        None
+    )
+    if index is None:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+
+    request = leave_requests[index]
+
+    if not is_authorized_to_modify(request, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this request")
+
+    ensure_request_is_pending(request)
+
+    del leave_requests[index]
+    requests['leave_requests'] = leave_requests
+    save_staff_requests(requests)
+
+    return {"message": "Leave request deleted successfully"}
 
 
 @router.get("/shift")
@@ -144,7 +230,7 @@ async def create_shift_request(
     to_date = date.fromisoformat(request.to_date)
 
     if from_date > to_date:
-        raise HTTPException(status_code=400, detail="From date cannot be after to date")
+        raise HTTPException(status_code=400, detail="The start date must be on or before the end date.")
 
     force = request.request_type == "Force (Must)"
     
@@ -164,6 +250,78 @@ async def create_shift_request(
     save_staff_requests(requests)
     
     return {"message": "Shift request submitted successfully", "request": new_request}
+
+
+@router.put("/shift/{request_id}")
+async def update_shift_request(
+    request_id: str,
+    update: ShiftRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an existing shift request while it is pending."""
+    requests = load_staff_requests()
+    shift_requests = requests.get('shift_requests', [])
+
+    request = next(
+        (req for req in shift_requests if req.get('request_id') == request_id),
+        None
+    )
+    if not request:
+        raise HTTPException(status_code=404, detail="Shift request not found")
+
+    if not is_authorized_to_modify(request, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to modify this request")
+
+    ensure_request_is_pending(request)
+
+    from_date = date.fromisoformat(update.from_date)
+    to_date = date.fromisoformat(update.to_date)
+
+    if from_date > to_date:
+        raise HTTPException(status_code=400, detail="The start date must be on or before the end date.")
+
+    force = update.request_type == "Force (Must)"
+
+    request['from_date'] = update.from_date
+    request['to_date'] = update.to_date
+    request['shift'] = update.shift
+    request['force'] = force
+    request['reason'] = update.reason or ''
+    request['updated_at'] = datetime.now().isoformat()
+
+    save_staff_requests(requests)
+
+    return {"message": "Shift request updated successfully", "request": request}
+
+
+@router.delete("/shift/{request_id}")
+async def delete_shift_request(
+    request_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a pending shift request."""
+    requests = load_staff_requests()
+    shift_requests = requests.get('shift_requests', [])
+
+    index = next(
+        (idx for idx, req in enumerate(shift_requests) if req.get('request_id') == request_id),
+        None
+    )
+    if index is None:
+        raise HTTPException(status_code=404, detail="Shift request not found")
+
+    request = shift_requests[index]
+
+    if not is_authorized_to_modify(request, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this request")
+
+    ensure_request_is_pending(request)
+
+    del shift_requests[index]
+    requests['shift_requests'] = shift_requests
+    save_staff_requests(requests)
+
+    return {"message": "Shift request deleted successfully"}
 
 
 @router.get("/leave/all")

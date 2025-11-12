@@ -61,7 +61,7 @@ class Leave(BaseModel):
     employee: str
     from_date: date = Field(alias="from_date")
     to_date: date = Field(alias="to_date")
-    code: str = Field(pattern="^(DO|ML|W|UL|APP|STL|L|O)$")
+    code: str = Field(pattern="^(DO|ML|AL|W|UL|APP|STL|L|O)$")
     
     class Config:
         populate_by_name = True
@@ -220,7 +220,7 @@ class RosterData:
         
     def get_shifts(self) -> List[str]:
         """Get all possible shifts."""
-        return ["M", "IP", "A", "N", "M3", "M4", "H", "DO", "CL", "ML", "W", "UL", "APP", "STL", "O", "L"]
+        return ["M", "IP", "A", "N", "M3", "M4", "H", "DO", "CL", "ML", "AL", "W", "UL", "APP", "STL", "O", "L"]
 
 
 class RosterConfig:

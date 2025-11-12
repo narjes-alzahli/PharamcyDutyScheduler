@@ -1,4 +1,156 @@
 {
-  "leave_requests": [],
-  "shift_requests": []
+  "leave_requests": [
+    {
+      "employee": "Widad",
+      "from_date": "2025-12-01",
+      "to_date": "2025-12-18",
+      "leave_type": "DO",
+      "reason": "Annual leave ",
+      "status": "Pending",
+      "submitted_at": "2025-11-11T14:42:20.423734",
+      "request_id": "LR_1"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-01",
+      "to_date": "2025-12-13",
+      "leave_type": "DO",
+      "reason": "Accompanying my mother for medical treatment",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:19:23.574793",
+      "request_id": "LR_2"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-18",
+      "to_date": "2025-12-20",
+      "leave_type": "DO",
+      "reason": "Off after night and i have some thing personal so I don\u2019t want any duty on this days ",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:24:34.920589",
+      "request_id": "LR_3"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-25",
+      "to_date": "2025-12-25",
+      "leave_type": "DO",
+      "reason": "As i have 2 days in weekend morning shift ",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:29:41.526570",
+      "request_id": "LR_4"
+    }
+  ],
+  "shift_requests": [
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-14",
+      "to_date": "2025-12-14",
+      "shift": "M",
+      "force": true,
+      "reason": "Due to my return from vacation, I would like to review the work beforehand",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:21:19.526289",
+      "request_id": "SR_1"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-15",
+      "to_date": "2025-12-15",
+      "shift": "M4",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:21:55.712549",
+      "request_id": "SR_2"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-16",
+      "to_date": "2025-12-16",
+      "shift": "A",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:22:19.588208",
+      "request_id": "SR_3"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-17",
+      "to_date": "2025-12-17",
+      "shift": "N",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:22:57.176334",
+      "request_id": "SR_4"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-21",
+      "to_date": "2025-12-21",
+      "shift": "H",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:25:24.778987",
+      "request_id": "SR_5"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-21",
+      "to_date": "2025-12-21",
+      "shift": "M4",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:26:27.839180",
+      "request_id": "SR_6"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-22",
+      "to_date": "2025-12-22",
+      "shift": "H",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:26:56.224494",
+      "request_id": "SR_7"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-24",
+      "to_date": "2025-12-24",
+      "shift": "H",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:27:12.968340",
+      "request_id": "SR_8"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-26",
+      "to_date": "2025-12-27",
+      "shift": "M3",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:28:05.891195",
+      "request_id": "SR_9"
+    },
+    {
+      "employee": "Lamees",
+      "from_date": "2025-12-28",
+      "to_date": "2025-12-31",
+      "shift": "CL",
+      "force": true,
+      "reason": "",
+      "status": "Pending",
+      "submitted_at": "2025-11-12T07:28:47.566909",
+      "request_id": "SR_10"
+    }
+  ]
 }

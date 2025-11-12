@@ -17,7 +17,7 @@ def create_decision_variables(
     x = {}
     
     # Leave codes that should only be created when explicitly requested
-    leave_only_codes = {"L", "ML", "W", "UL", "APP", "STL"}
+    leave_only_codes = {"L", "ML", "AL", "W", "UL", "APP", "STL"}
     
     for employee in employees:
         for day in dates:

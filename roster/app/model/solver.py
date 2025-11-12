@@ -117,7 +117,7 @@ class RosterSolver:
         for emp in employees:
             for day in dates:
                 # Find which shift this employee works on this day
-                for shift in ["M", "O", "IP", "A", "N", "M3", "M4", "H", "DO", "CL", "ML", "W", "UL", "APP", "STL", "L"]:
+                for shift in ["M", "O", "IP", "A", "N", "M3", "M4", "H", "DO", "CL", "ML", "AL", "W", "UL", "APP", "STL", "L"]:
                     if assignments.get((emp, day, shift), 0) == 1:
                         rows.append({
                             "date": day,

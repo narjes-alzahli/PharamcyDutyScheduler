@@ -677,7 +677,7 @@ export const RosterGenerator: React.FC = () => {
                     { key: 'employee', label: 'Employee', type: 'select', options: rosterData.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
                     { key: 'to_date', label: 'To Date', type: 'text' },
-                    { key: 'code', label: 'Code', type: 'select', options: ['DO', 'ML', 'W', 'UL', 'APP', 'STL', 'L', 'O'] },
+                    { key: 'code', label: 'Code', type: 'select', options: ['DO', 'ML', 'AL', 'W', 'UL', 'APP', 'STL', 'L', 'O'] },
                   ]}
                   onDataChange={handleTimeOffChange}
                   onDeleteRow={(index) => {
@@ -861,7 +861,7 @@ const AddTimeOffForm: React.FC<{
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="px-3 py-2 border rounded" />
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="px-3 py-2 border rounded" />
         <select value={code} onChange={(e) => setCode(e.target.value)} className="px-3 py-2 border rounded">
-          {['DO', 'ML', 'W', 'UL', 'APP', 'STL', 'L', 'O'].map(c => <option key={c} value={c}>{c}</option>)}
+          {['DO', 'ML', 'AL', 'W', 'UL', 'APP', 'STL', 'L', 'O'].map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div className="mt-4 flex space-x-2">

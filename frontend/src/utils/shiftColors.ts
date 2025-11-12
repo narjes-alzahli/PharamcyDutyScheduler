@@ -6,6 +6,7 @@ export const shiftColors: Record<string, string> = {
   'A': '#FFA500',      // Orange - Afternoon (2:30pm - 9:30pm)
   'N': '#FFFF00',      // Yellow - Night (9:30pm - 7am)
   'DO': '#90EE90',     // Light green - Day Off
+  'AL': '#FFD27F',     // Light orange - Annual Leave
   'CL': '#FFB6C1',     // Light pink - Clinic
   'ML': '#DDA0DD',     // Plum - Maternity Leave
   'W': '#D8BFD8',      // Thistle - Workshop
@@ -18,7 +19,7 @@ export const shiftColors: Record<string, string> = {
   'EV': '#DDA0DD',     // Plum - Event
   'P': '#FFA07A',      // Light salmon - Pharmacy
   'M+P': '#FFB6C1',    // Light pink - Main + Pharmacy
-  'IP+P': '#FFB6C1',   // Light pink - IP + Pharmacy
+  'IP+P': '#FFB6C1',   // Light pink - Inpatient + Pharmacy
   'M3': '#FFFFFF',     // White - M3 (7am-2pm)
   'M4': '#FFFFFF',     // White - M4 (12pm-7pm)
   'M3+P': '#FFB6C1',   // Light pink - M3 + Pharmacy
@@ -37,6 +38,7 @@ export const shiftLabels: Record<string, string> = {
   'A': 'Afternoon (2:30pm-9:30pm)',
   'N': 'Night (9:30pm-7am)',
   'DO': 'Day Off',
+  'AL': 'Annual Leave',
   'CL': 'Clinic',
   'ML': 'Maternity Leave',
   'W': 'Workshop',
@@ -49,7 +51,7 @@ export const shiftLabels: Record<string, string> = {
   'EV': 'Event',
   'P': 'Pharmacy',
   'M+P': 'Main + Pharmacy',
-  'IP+P': 'IP + Pharmacy',
+  'IP+P': 'Inpatient + Pharmacy',
   'M3': 'M3 (7am-2pm)',
   'M4': 'M4 (12pm-7pm)',
   'M3+P': 'M3 + Pharmacy',

@@ -30,6 +30,7 @@ export const RosterRequests: React.FC = () => {
   const [shiftRequests, setShiftRequests] = useState<ShiftRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Form states for leave request
@@ -37,6 +38,7 @@ export const RosterRequests: React.FC = () => {
   const [leaveToDate, setLeaveToDate] = useState('');
   const [leaveType, setLeaveType] = useState('DO');
   const [leaveReason, setLeaveReason] = useState('');
+  const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
 
   // Form states for shift request
   const [shiftFromDate, setShiftFromDate] = useState('');
@@ -44,6 +46,7 @@ export const RosterRequests: React.FC = () => {
   const [shiftType, setShiftType] = useState('M');
   const [requestType, setRequestType] = useState('Force (Must)');
   const [shiftReason, setShiftReason] = useState('');
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
 
   useEffect(() => {
     loadRequests();
@@ -71,37 +74,63 @@ export const RosterRequests: React.FC = () => {
     }
   };
 
+  const resetLeaveForm = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setLeaveFromDate(today);
+    setLeaveToDate(today);
+    setLeaveType('DO');
+    setLeaveReason('');
+    setEditingLeaveId(null);
+  };
+
+  const resetShiftForm = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setShiftFromDate(today);
+    setShiftToDate(today);
+    setShiftType('M');
+    setRequestType('Force (Must)');
+    setShiftReason('');
+    setEditingShiftId(null);
+  };
+
   const handleSubmitLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (new Date(leaveFromDate) > new Date(leaveToDate)) {
-      alert('From date cannot be after to date');
+      alert('The start date must be on or before the end date.');
       return;
     }
 
     try {
       setSubmitting(true);
-      await requestsAPI.createLeaveRequest({
+      const payload = {
         from_date: leaveFromDate,
         to_date: leaveToDate,
         leave_type: leaveType,
         reason: leaveReason,
-      });
+      };
+
+      if (editingLeaveId) {
+        await requestsAPI.updateLeaveRequest(editingLeaveId, payload);
+      } else {
+        await requestsAPI.createLeaveRequest(payload);
+      }
       
       // Reset form
-      const today = new Date().toISOString().split('T')[0];
-      setLeaveFromDate(today);
-      setLeaveToDate(today);
-      setLeaveType('DO');
-      setLeaveReason('');
+      resetLeaveForm();
       
       // Reload requests
       await loadRequests();
-      setNotification({ message: '✅ Leave request submitted successfully!', type: 'success' });
+      setNotification({
+        message: editingLeaveId
+          ? '✅ Leave request updated successfully!'
+          : '✅ Leave request submitted successfully!',
+        type: 'success',
+      });
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
       setNotification({
-        message: error.response?.data?.detail || 'Failed to submit leave request',
+        message: error.response?.data?.detail || (editingLeaveId ? 'Failed to update leave request' : 'Failed to submit leave request'),
         type: 'error',
       });
       setTimeout(() => setNotification(null), 4000);
@@ -114,40 +143,111 @@ export const RosterRequests: React.FC = () => {
     e.preventDefault();
 
     if (new Date(shiftFromDate) > new Date(shiftToDate)) {
-      alert('From date cannot be after to date');
+      alert('The start date must be on or before the end date.');
       return;
     }
 
     try {
       setSubmitting(true);
-      await requestsAPI.createShiftRequest({
+      const payload = {
         from_date: shiftFromDate,
         to_date: shiftToDate,
         shift: shiftType,
         request_type: requestType,
         reason: shiftReason,
-      });
+      };
+
+      if (editingShiftId) {
+        await requestsAPI.updateShiftRequest(editingShiftId, payload);
+      } else {
+        await requestsAPI.createShiftRequest(payload);
+      }
       
       // Reset form
-      const today = new Date().toISOString().split('T')[0];
-      setShiftFromDate(today);
-      setShiftToDate(today);
-      setShiftType('M');
-      setRequestType('Force (Must)');
-      setShiftReason('');
+      resetShiftForm();
       
       // Reload requests
       await loadRequests();
-      setNotification({ message: '✅ Shift request submitted successfully!', type: 'success' });
+      setNotification({
+        message: editingShiftId
+          ? '✅ Shift request updated successfully!'
+          : '✅ Shift request submitted successfully!',
+        type: 'success',
+      });
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
       setNotification({
-        message: error.response?.data?.detail || 'Failed to submit shift request',
+        message: error.response?.data?.detail || (editingShiftId ? 'Failed to update shift request' : 'Failed to submit shift request'),
         type: 'error',
       });
       setTimeout(() => setNotification(null), 4000);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleEditLeave = (req: LeaveRequest) => {
+    setActiveTab('leave');
+    setEditingLeaveId(req.request_id);
+    setLeaveFromDate(req.from_date);
+    setLeaveToDate(req.to_date);
+    setLeaveType(req.leave_type);
+    setLeaveReason(req.reason || '');
+  };
+
+  const handleCancelLeaveEdit = () => {
+    resetLeaveForm();
+  };
+
+  const handleDeleteLeave = async (requestId: string) => {
+    if (!window.confirm('Are you sure you want to delete this leave request?')) {
+      return;
+    }
+    try {
+      setProcessingRequestId(requestId);
+      await requestsAPI.deleteLeaveRequest(requestId);
+      await loadRequests();
+      resetLeaveForm();
+      setNotification({ message: 'Leave request deleted.', type: 'success' });
+      setTimeout(() => setNotification(null), 2000);
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to delete leave request', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setProcessingRequestId(null);
+    }
+  };
+
+  const handleEditShiftRequest = (req: ShiftRequest) => {
+    setActiveTab('shift');
+    setEditingShiftId(req.request_id);
+    setShiftFromDate(req.from_date);
+    setShiftToDate(req.to_date || req.from_date);
+    setShiftType(req.shift);
+    setRequestType(req.force ? 'Force (Must)' : 'Forbid (Cannot)');
+    setShiftReason(req.reason || '');
+  };
+
+  const handleCancelShiftEdit = () => {
+    resetShiftForm();
+  };
+
+  const handleDeleteShift = async (requestId: string) => {
+    if (!window.confirm('Are you sure you want to delete this shift request?')) {
+      return;
+    }
+    try {
+      setProcessingRequestId(requestId);
+      await requestsAPI.deleteShiftRequest(requestId);
+      await loadRequests();
+      resetShiftForm();
+      setNotification({ message: 'Shift request deleted.', type: 'success' });
+      setTimeout(() => setNotification(null), 2000);
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to delete shift request', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setProcessingRequestId(null);
     }
   };
 
@@ -226,6 +326,11 @@ export const RosterRequests: React.FC = () => {
               <p className="text-gray-600 mb-6">Submit a request for time off or leave.</p>
 
               <form onSubmit={handleSubmitLeave} className="mb-8 space-y-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 sm:px-6">
+                {editingLeaveId && (
+                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+                    Editing existing leave request.
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
                   <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -263,6 +368,7 @@ export const RosterRequests: React.FC = () => {
                       className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
                       <option value="DO">DO - Day Off</option>
+                      <option value="AL">AL - Annual Leave</option>
                       <option value="ML">ML - Maternity Leave</option>
                       <option value="W">W - Workshop</option>
                       <option value="UL">UL - Unpaid Leave</option>
@@ -284,13 +390,24 @@ export const RosterRequests: React.FC = () => {
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
-                >
-                  {submitting ? 'Submitting...' : 'Submit Leave Request'}
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  >
+                    {submitting ? 'Submitting...' : editingLeaveId ? 'Update Leave Request' : 'Submit Leave Request'}
+                  </button>
+                  {editingLeaveId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelLeaveEdit}
+                      className="w-full rounded-lg border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 sm:w-auto"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
               </form>
 
               {/* Your Leave Requests */}
@@ -332,6 +449,23 @@ export const RosterRequests: React.FC = () => {
                             <span className="font-normal text-gray-600">{formatDateTime(req.submitted_at)}</span>
                           </span>
                         </div>
+                        {req.status === 'Pending' && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEditLeave(req)}
+                              className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLeave(req.request_id)}
+                              disabled={processingRequestId === req.request_id}
+                              className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -356,6 +490,9 @@ export const RosterRequests: React.FC = () => {
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
                             Submitted
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                            Actions
                           </th>
                         </tr>
                       </thead>
@@ -386,6 +523,27 @@ export const RosterRequests: React.FC = () => {
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
                               {formatDateTime(req.submitted_at)}
                             </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                              {req.status === 'Pending' ? (
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleEditLeave(req)}
+                                    className="rounded-lg bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteLeave(req.request_id)}
+                                    disabled={processingRequestId === req.request_id}
+                                    className="rounded-lg bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                                  >
+                                    {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-500">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -407,6 +565,11 @@ export const RosterRequests: React.FC = () => {
               <p className="text-gray-600 mb-6">Submit a request for a specific shift assignment.</p>
 
               <form onSubmit={handleSubmitShift} className="mb-8 space-y-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 sm:px-6">
+                {editingShiftId && (
+                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+                    Editing existing shift request.
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
                   <div className="flex flex-col gap-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -484,13 +647,24 @@ export const RosterRequests: React.FC = () => {
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
-                >
-                  {submitting ? 'Submitting...' : 'Submit Shift Request'}
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  >
+                    {submitting ? 'Submitting...' : editingShiftId ? 'Update Shift Request' : 'Submit Shift Request'}
+                  </button>
+                  {editingShiftId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelShiftEdit}
+                      className="w-full rounded-lg border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 sm:w-auto"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
               </form>
 
               {/* Your Shift Requests */}
@@ -539,6 +713,23 @@ export const RosterRequests: React.FC = () => {
                             <span className="font-normal text-gray-600">{formatDateTime(req.submitted_at)}</span>
                           </span>
                         </div>
+                        {req.status === 'Pending' && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEditShiftRequest(req)}
+                              className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteShift(req.request_id)}
+                              disabled={processingRequestId === req.request_id}
+                              className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -566,6 +757,9 @@ export const RosterRequests: React.FC = () => {
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
                             Submitted
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                            Actions
                           </th>
                         </tr>
                       </thead>
@@ -598,6 +792,27 @@ export const RosterRequests: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
                               {formatDateTime(req.submitted_at)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                              {req.status === 'Pending' ? (
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleEditShiftRequest(req)}
+                                    className="rounded-lg bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteShift(req.request_id)}
+                                    disabled={processingRequestId === req.request_id}
+                                    className="rounded-lg bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                                  >
+                                    {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-500">—</span>
+                              )}
                             </td>
                           </tr>
                         ))}

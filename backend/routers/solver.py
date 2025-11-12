@@ -102,7 +102,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     "area_switching": request.switching_penalty,
                     "do_after_n": 1.0
                 },
-                "rest_codes": ["DO", "ML", "W", "UL", "APP", "STL", "L", "O"],
+                "rest_codes": ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"],
                 "forbidden_adjacencies": [["N", "M"], ["A", "N"]],
                 "weekly_rest_minimum": 1
             }

@@ -885,7 +885,7 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
                 to_date = st.date_input("To Date", value=date(year, month, 1))
             
             with col4:
-                code = st.selectbox("Code", ["DO", "ML", "W", "UL", "APP", "STL", "L", "O"])
+                code = st.selectbox("Code", ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"])
             
             if st.form_submit_button("Add"):
                 new_time_off = pd.DataFrame([{
@@ -928,7 +928,7 @@ def show_time_off_tab(time_off_df: pd.DataFrame, year: int, month: int):
                     "employee": st.column_config.SelectboxColumn("Employee", options=st.session_state.roster_data['employees']['employee'].tolist()),
                     "from_date": st.column_config.TextColumn("From Date", width="medium"),
                     "to_date": st.column_config.TextColumn("To Date", width="medium"),
-                    "code": st.column_config.SelectboxColumn("Code", options=["DO", "ML", "W", "UL", "APP", "STL", "L", "O"])
+                    "code": st.column_config.SelectboxColumn("Code", options=["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"])
                 },
                 use_container_width=True
             )
@@ -1345,7 +1345,7 @@ def generate_schedule(roster_data: Dict[str, pd.DataFrame], year: int, month: in
                         "area_switching": switching_penalty,
                         "do_after_n": 1.0
                     },
-                    "rest_codes": ["DO", "ML", "W", "UL", "APP", "STL", "L", "O"],
+                    "rest_codes": ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"],
                     "forbidden_adjacencies": [["N", "M"], ["A", "N"]],
                     "weekly_rest_minimum": 1
                 }

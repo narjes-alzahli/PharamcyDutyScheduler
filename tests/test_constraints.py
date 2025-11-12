@@ -132,7 +132,7 @@ class TestConstraints:
         model = cp_model.CpModel()
         x = create_decision_variables(model, self.employees, self.dates, self.shifts)
         
-        rest_codes = {"DO", "ML", "W"}
+        rest_codes = {"DO", "ML", "AL", "W"}
         
         add_weekly_rest_constraints(model, x, self.employees, self.dates, rest_codes, 1)
         
