@@ -75,3 +75,12 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
     except jwt.JWTError:
         return None  # Invalid token
 
+
+def decode_token_without_verification(token: str) -> Optional[Dict[str, Any]]:
+    """Decode JWT token without verification (to get expiration time for blacklist)."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_signature": False})
+        return payload
+    except jwt.JWTError:
+        return None
+

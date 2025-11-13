@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from backend.database import get_db
 from backend.models import User, EmployeeType
-from backend.utils import verify_password, hash_password, needs_rehash, create_access_token, verify_token
+from backend.utils import verify_password, hash_password, needs_rehash, create_access_token, verify_token, decode_token_without_verification
 
 router = APIRouter()
 security = HTTPBearer()
@@ -19,6 +19,11 @@ security = HTTPBearer()
 # Rate limiting for login (in-memory store)
 # Format: {ip_address: [list of attempt timestamps]}
 login_attempts = defaultdict(list)
+
+# Token blacklist for revoked tokens (in-memory store)
+# Format: {token: expiration_timestamp}
+# Tokens are stored until they expire naturally
+token_blacklist = {}
 
 def check_login_rate_limit(request: Request) -> None:
     """Check if failed login attempts exceed rate limit (5 per minute per IP)."""
@@ -75,12 +80,50 @@ def save_login_state(username: str):
         json.dump(login_data, f, indent=2)
 
 
+def cleanup_expired_tokens():
+    """Remove expired tokens from blacklist."""
+    now = datetime.utcnow()
+    expired_tokens = [
+        token for token, exp in token_blacklist.items()
+        if exp < now
+    ]
+    for token in expired_tokens:
+        token_blacklist.pop(token, None)
+
+
+def revoke_token(token: str, expiration_time: datetime):
+    """Add token to blacklist until it expires."""
+    cleanup_expired_tokens()  # Clean up old tokens first
+    token_blacklist[token] = expiration_time
+
+
+def is_token_revoked(token: str) -> bool:
+    """Check if token is in blacklist."""
+    cleanup_expired_tokens()
+    if token in token_blacklist:
+        # Check if token hasn't expired yet
+        exp = token_blacklist[token]
+        if exp > datetime.utcnow():
+            return True  # Token is revoked and still valid
+        else:
+            # Token expired, remove from blacklist
+            token_blacklist.pop(token, None)
+    return False
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> dict:
     """Get current authenticated user from JWT token."""
     token = credentials.credentials
+    
+    # Check if token is revoked
+    if is_token_revoked(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked"
+        )
     
     # Try to verify as JWT token first
     payload = verify_token(token)
@@ -187,12 +230,31 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
 
 
 @router.post("/logout")
-async def logout():
-    """Logout endpoint."""
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: dict = Depends(get_current_user)
+):
+    """Logout endpoint - revokes the current token."""
+    token = credentials.credentials
+    
+    # Get token expiration from payload (decode without verification to get exp even if expired)
+    payload = decode_token_without_verification(token)
+    if payload:
+        # Get expiration time from token
+        exp_timestamp = payload.get("exp")
+        if exp_timestamp:
+            # Convert Unix timestamp to datetime
+            exp_time = datetime.utcfromtimestamp(exp_timestamp)
+            # Only revoke if token hasn't expired yet
+            if exp_time > datetime.utcnow():
+                revoke_token(token, exp_time)
+    
+    # Clean up legacy login state file
     login_file = Path("roster/app/data/login_state.json")
     if login_file.exists():
         login_file.unlink()
-    return {"message": "Logged out successfully"}
+    
+    return {"message": "Logged out successfully. Token has been revoked."}
 
 
 @router.get("/me", response_model=UserResponse)
