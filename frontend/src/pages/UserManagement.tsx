@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { dataAPI, usersAPI, requestsAPI } from '../services/api';
 import api from '../services/api';
+import { Pagination } from '../components/Pagination';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
 
 interface User {
   username: string;
@@ -541,6 +543,12 @@ export const UserManagement: React.FC = () => {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [selectedCalendarEntryId, setSelectedCalendarEntryId] = useState<string | null>(null);
+  
+  // Pagination state
+  const [usersPage, setUsersPage] = useState(1);
+  const [leavePage, setLeavePage] = useState(1);
+  const [shiftPage, setShiftPage] = useState(1);
+  const itemsPerPage = 10;
 
   const pendingLeaveCount = leaveRequests.filter((req) => req.status === 'Pending').length;
   const pendingShiftCount = shiftRequests.filter((req) => req.status === 'Pending').length;
@@ -835,10 +843,34 @@ export const UserManagement: React.FC = () => {
     setSelectedCalendarEntryId(null);
   }, [activeTab]);
 
+  // Paginated data
+  const paginatedUsers = useMemo(() => {
+    const start = (usersPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return users.slice(start, end);
+  }, [users, usersPage]);
+
+  const paginatedLeaveRequests = useMemo(() => {
+    const start = (leavePage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return leaveRequests.slice(start, end);
+  }, [leaveRequests, leavePage]);
+
+  const paginatedShiftRequests = useMemo(() => {
+    const start = (shiftPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return shiftRequests.slice(start, end);
+  }, [shiftRequests, shiftPage]);
+
+  const usersTotalPages = Math.ceil(users.length / itemsPerPage);
+  const leaveTotalPages = Math.ceil(leaveRequests.length / itemsPerPage);
+  const shiftTotalPages = Math.ceil(shiftRequests.length / itemsPerPage);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div>
+        <h2 className="text-3xl font-bold text-gray-900 mb-6">User Management</h2>
+        <LoadingSkeleton type="list" rows={5} />
       </div>
     );
   }
@@ -932,75 +964,86 @@ export const UserManagement: React.FC = () => {
             )}
           </div>
           {leaveRequests.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Reason</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Submitted</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {leaveRequests.map((req) => (
-                    <tr key={req.request_id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.leave_type}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
-                      <td className="px-4 py-3 text-sm border border-gray-300">
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          req.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                          req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {req.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
-                      <td className="px-4 py-3 text-sm border border-gray-300">
-                        {req.status === 'Pending' ? (
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleApproveLeave(req.request_id)}
-                              disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50"
-                            >
-                              {processingRequest === req.request_id ? 'Processing...' : 'Approve'}
-                            </button>
-                            <button
-                              onClick={() => handleRejectLeave(req.request_id)}
-                              disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
-                            >
-                              Reject
-                            </button>
-                            <button
-                              onClick={() => handleDeleteLeave(req.request_id)}
-                              disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-500">
-                            {req.approved_by && `By ${req.approved_by}`}
-                            {req.approved_at && ` on ${formatDate(req.approved_at)}`}
-                          </span>
-                        )}
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Employee</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Type</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Reason</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Submitted</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {paginatedLeaveRequests.map((req) => (
+                      <tr key={req.request_id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.leave_type}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
+                        <td className="px-4 py-3 text-sm border border-gray-300">
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            req.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                            req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
+                        <td className="px-4 py-3 text-sm border border-gray-300">
+                          {req.status === 'Pending' ? (
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleApproveLeave(req.request_id)}
+                                disabled={processingRequest === req.request_id}
+                                className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50"
+                              >
+                                {processingRequest === req.request_id ? 'Processing...' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => handleRejectLeave(req.request_id)}
+                                disabled={processingRequest === req.request_id}
+                                className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => handleDeleteLeave(req.request_id)}
+                                disabled={processingRequest === req.request_id}
+                                className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-50"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-500">
+                              {req.approved_by && `By ${req.approved_by}`}
+                              {req.approved_at && ` on ${formatDate(req.approved_at)}`}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {leaveTotalPages > 1 && (
+                <Pagination
+                  currentPage={leavePage}
+                  totalPages={leaveTotalPages}
+                  onPageChange={setLeavePage}
+                  itemsPerPage={itemsPerPage}
+                  totalItems={leaveRequests.length}
+                />
+              )}
+            </>
           ) : (
             <p className="text-gray-600">No leave requests found.</p>
           )}
@@ -1050,7 +1093,8 @@ export const UserManagement: React.FC = () => {
             )}
           </div>
           {shiftRequests.length > 0 ? (
-            <div className="overflow-x-auto">
+            <>
+              <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
                 <thead className="bg-gray-50">
                   <tr>
@@ -1066,7 +1110,7 @@ export const UserManagement: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {shiftRequests.map((req) => (
+                  {paginatedShiftRequests.map((req) => (
                     <tr key={req.request_id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
                       <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
@@ -1120,9 +1164,19 @@ export const UserManagement: React.FC = () => {
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                  </tbody>
+                </table>
+              </div>
+              {shiftTotalPages > 1 && (
+                <Pagination
+                  currentPage={shiftPage}
+                  totalPages={shiftTotalPages}
+                  onPageChange={setShiftPage}
+                  itemsPerPage={itemsPerPage}
+                  totalItems={shiftRequests.length}
+                />
+              )}
+            </>
           ) : (
             <p className="text-gray-600">No shift requests found.</p>
           )}
@@ -1160,57 +1214,68 @@ export const UserManagement: React.FC = () => {
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <h3 className="text-xl font-bold text-gray-900 mb-4">Employee User Accounts</h3>
         {users.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Username
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Employee Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Employee Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Password
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {users.map((user, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-300">
-                      {user.username}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                      {user.employee_name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                      {user.employee_type}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                      {user.password_hidden}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm border border-gray-300">
-                      <button
-                        onClick={() => handleDeleteUser(user.username, user.employee_name)}
-                        disabled={deleting === user.username || user.username === currentUser?.username}
-                        className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={user.username === currentUser?.username ? "Cannot delete your own account" : "Delete user account"}
-                      >
-                        {deleting === user.username ? 'Deleting...' : 'Delete'}
-                      </button>
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                      Username
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                      Employee Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                      Employee Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                      Password
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                      Actions
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedUsers.map((user, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-300">
+                        {user.username}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                        {user.employee_name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                        {user.employee_type}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                        {user.password_hidden}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm border border-gray-300">
+                        <button
+                          onClick={() => handleDeleteUser(user.username, user.employee_name)}
+                          disabled={deleting === user.username || user.username === currentUser?.username}
+                          className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={user.username === currentUser?.username ? "Cannot delete your own account" : "Delete user account"}
+                        >
+                          {deleting === user.username ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {usersTotalPages > 1 && (
+              <Pagination
+                currentPage={usersPage}
+                totalPages={usersTotalPages}
+                onPageChange={setUsersPage}
+                itemsPerPage={itemsPerPage}
+                totalItems={users.length}
+              />
+            )}
+          </>
         ) : (
           <p className="text-gray-600">No users found.</p>
         )}

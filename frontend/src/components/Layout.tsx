@@ -104,17 +104,17 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <header className="bg-white shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
               <button
-                className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 md:hidden"
+                className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 md:hidden flex-shrink-0"
                 onClick={() => setIsMobileNavOpen(true)}
                 aria-label="Open navigation menu"
               >
                 <span className="text-lg">☰</span>
               </button>
-              <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">📅 Staff Rostering System</h1>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 whitespace-nowrap">📅 Staff Rostering System</h1>
             </div>
-            <div className="flex items-center gap-3 sm:gap-4">
+            <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
               <span className="hidden text-sm text-gray-600 sm:inline">
                 Welcome, {user?.employee_name}
               </span>

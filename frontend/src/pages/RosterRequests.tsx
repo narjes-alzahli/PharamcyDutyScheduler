@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { requestsAPI, leaveTypesAPI, LeaveType } from '../services/api';
+import { Pagination } from '../components/Pagination';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
 
 interface LeaveRequest {
   from_date: string;
@@ -33,6 +35,11 @@ export const RosterRequests: React.FC = () => {
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  
+  // Pagination state
+  const [leavePage, setLeavePage] = useState(1);
+  const [shiftPage, setShiftPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Form states for leave request
   const [leaveFromDate, setLeaveFromDate] = useState('');
@@ -274,10 +281,34 @@ export const RosterRequests: React.FC = () => {
     return new Date(dateStr).toLocaleString();
   };
 
+  // Paginated data
+  const paginatedLeaveRequests = useMemo(() => {
+    const start = (leavePage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return leaveRequests.slice(start, end);
+  }, [leaveRequests, leavePage]);
+
+  const paginatedShiftRequests = useMemo(() => {
+    const start = (shiftPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return shiftRequests.slice(start, end);
+  }, [shiftRequests, shiftPage]);
+
+  const leaveTotalPages = Math.ceil(leaveRequests.length / itemsPerPage);
+  const shiftTotalPages = Math.ceil(shiftRequests.length / itemsPerPage);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="pb-16">
+        <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
+          <header className="flex flex-col gap-2">
+            <h2 className="text-2xl font-bold text-gray-900 sm:text-3xl">Roster Requests</h2>
+            <p className="text-sm text-gray-600 sm:text-base">
+              Submit new leave or shift preferences and track existing requests in one place.
+            </p>
+          </header>
+          <LoadingSkeleton type="list" rows={5} />
+        </div>
       </div>
     );
   }
@@ -433,7 +464,7 @@ export const RosterRequests: React.FC = () => {
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-4">Your Leave Requests</h3>
                   <div className="space-y-4 md:hidden">
-                    {leaveRequests.map((req, index) => (
+                    {paginatedLeaveRequests.map((req, index) => (
                       <div
                         key={index}
                         className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
@@ -515,7 +546,7 @@ export const RosterRequests: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {leaveRequests.map((req, index) => (
+                        {paginatedLeaveRequests.map((req, index) => (
                           <tr key={index} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-300">
                               {formatDate(req.from_date)}
@@ -567,6 +598,15 @@ export const RosterRequests: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                  {leaveTotalPages > 1 && (
+                    <Pagination
+                      currentPage={leavePage}
+                      totalPages={leaveTotalPages}
+                      onPageChange={setLeavePage}
+                      itemsPerPage={itemsPerPage}
+                      totalItems={leaveRequests.length}
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
@@ -690,7 +730,7 @@ export const RosterRequests: React.FC = () => {
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-4">Your Shift Requests</h3>
                   <div className="space-y-4 md:hidden">
-                    {shiftRequests.map((req, index) => (
+                    {paginatedShiftRequests.map((req, index) => (
                       <div
                         key={index}
                         className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
@@ -782,7 +822,7 @@ export const RosterRequests: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {shiftRequests.map((req, index) => (
+                        {paginatedShiftRequests.map((req, index) => (
                           <tr key={index} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-300">
                               {formatDate(req.from_date)}
@@ -837,6 +877,15 @@ export const RosterRequests: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                  {shiftTotalPages > 1 && (
+                    <Pagination
+                      currentPage={shiftPage}
+                      totalPages={shiftTotalPages}
+                      onPageChange={setShiftPage}
+                      itemsPerPage={itemsPerPage}
+                      totalItems={shiftRequests.length}
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
