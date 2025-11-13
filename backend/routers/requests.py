@@ -83,7 +83,7 @@ def parse_request_id(request_id: str) -> Optional[int]:
             return int(request_id.split('_')[1])
         elif request_id.startswith('SR_'):
             return int(request_id.split('_')[1])
-        except (IndexError, ValueError):
+    except (IndexError, ValueError):
         pass
     return None
 
@@ -284,17 +284,17 @@ async def update_shift_request(
         if req:
             # Check authorization
             if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
-        raise HTTPException(status_code=403, detail="Not authorized to modify this request")
+                raise HTTPException(status_code=403, detail="Not authorized to modify this request")
 
             if req.status != RequestStatus.PENDING:
                 raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
 
-    from_date = date.fromisoformat(update.from_date)
-    to_date = date.fromisoformat(update.to_date)
-    if from_date > to_date:
-        raise HTTPException(status_code=400, detail="From date cannot be after to date")
+            from_date = date.fromisoformat(update.from_date)
+            to_date = date.fromisoformat(update.to_date)
+            if from_date > to_date:
+                raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
-    force = update.request_type == "Force (Must)"
+            force = update.request_type == "Force (Must)"
 
             req.from_date = from_date
             req.to_date = to_date
@@ -322,7 +322,7 @@ async def delete_shift_request(
         if req:
             # Check authorization
             if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this request")
+                raise HTTPException(status_code=403, detail="Not authorized to delete this request")
 
             if req.status != RequestStatus.PENDING:
                 raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
@@ -344,9 +344,7 @@ async def get_all_leave_requests(
     
     # Try database first
     requests = db.query(LeaveRequestModel).order_by(LeaveRequestModel.submitted_at.desc()).all()
-    if requests:
-        return [leave_request_to_dict(req) for req in requests]
-    return requests_data.get('leave_requests', [])
+    return [leave_request_to_dict(req) for req in requests]
 
 
 @router.get("/shift/all")
@@ -360,9 +358,7 @@ async def get_all_shift_requests(
     
     # Try database first
     requests = db.query(ShiftRequestModel).order_by(ShiftRequestModel.submitted_at.desc()).all()
-    if requests:
-        return [shift_request_to_dict(req) for req in requests]
-    return requests_data.get('shift_requests', [])
+    return [shift_request_to_dict(req) for req in requests]
 
 
 @router.put("/leave/{request_id}/approve")
@@ -389,34 +385,34 @@ async def approve_leave_request(
             db.commit()
     
             # Add to time_off CSV (legacy integration)
-    try:
-        import pandas as pd
-        time_off_file = Path("roster/app/data/time_off.csv")
-        if time_off_file.exists():
-            time_off_df = pd.read_csv(time_off_file)
-        else:
-            time_off_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'code'])
-        
-        existing = time_off_df[
+            try:
+                import pandas as pd
+                time_off_file = Path("roster/app/data/time_off.csv")
+                if time_off_file.exists():
+                    time_off_df = pd.read_csv(time_off_file)
+                else:
+                    time_off_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'code'])
+                
+                existing = time_off_df[
                     (time_off_df['employee'] == req.user.employee_name) &
                     (time_off_df['from_date'] == req.from_date.isoformat()) &
                     (time_off_df['to_date'] == req.to_date.isoformat()) &
                     (time_off_df['code'] == req.leave_type.code)
-        ]
-        
-        if existing.empty:
-            new_entry = pd.DataFrame([{
+                ]
+                
+                if existing.empty:
+                    new_entry = pd.DataFrame([{
                         'employee': req.user.employee_name,
                         'from_date': req.from_date.isoformat(),
                         'to_date': req.to_date.isoformat(),
                         'code': req.leave_type.code
-            }])
-            time_off_df = pd.concat([time_off_df, new_entry], ignore_index=True)
-            time_off_file.parent.mkdir(parents=True, exist_ok=True)
-            time_off_df.to_csv(time_off_file, index=False)
-    except Exception as e:
-        print(f"Warning: Failed to add approved leave to roster: {e}")
-    
+                    }])
+                    time_off_df = pd.concat([time_off_df, new_entry], ignore_index=True)
+                    time_off_file.parent.mkdir(parents=True, exist_ok=True)
+                    time_off_df.to_csv(time_off_file, index=False)
+            except Exception as e:
+                print(f"Warning: Failed to add approved leave to roster: {e}")
+            
             db.refresh(req)
             return {"message": "Leave request approved successfully", "request": leave_request_to_dict(req)}
     return {"message": "Leave request approved successfully", "request": request}
@@ -474,36 +470,36 @@ async def approve_shift_request(
             db.commit()
     
             # Add to locks CSV (legacy integration)
-    try:
-        import pandas as pd
-        locks_file = Path("roster/app/data/locks.csv")
-        if locks_file.exists():
-            locks_df = pd.read_csv(locks_file)
-        else:
-            locks_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'shift', 'force'])
-        
-        existing = locks_df[
+            try:
+                import pandas as pd
+                locks_file = Path("roster/app/data/locks.csv")
+                if locks_file.exists():
+                    locks_df = pd.read_csv(locks_file)
+                else:
+                    locks_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'shift', 'force'])
+                
+                existing = locks_df[
                     (locks_df['employee'] == req.user.employee_name) &
                     (locks_df['from_date'] == req.from_date.isoformat()) &
                     (locks_df['to_date'] == req.to_date.isoformat()) &
                     (locks_df['shift'] == req.shift) &
                     (locks_df['force'] == req.force)
-        ]
-        
-        if existing.empty:
-            new_entry = pd.DataFrame([{
+                ]
+                
+                if existing.empty:
+                    new_entry = pd.DataFrame([{
                         'employee': req.user.employee_name,
                         'from_date': req.from_date.isoformat(),
                         'to_date': req.to_date.isoformat(),
                         'shift': req.shift,
                         'force': req.force
-            }])
-            locks_df = pd.concat([locks_df, new_entry], ignore_index=True)
-            locks_file.parent.mkdir(parents=True, exist_ok=True)
-            locks_df.to_csv(locks_file, index=False)
-    except Exception as e:
-        print(f"Warning: Failed to add approved shift to roster: {e}")
-    
+                    }])
+                    locks_df = pd.concat([locks_df, new_entry], ignore_index=True)
+                    locks_file.parent.mkdir(parents=True, exist_ok=True)
+                    locks_df.to_csv(locks_file, index=False)
+            except Exception as e:
+                print(f"Warning: Failed to add approved shift to roster: {e}")
+            
             db.refresh(req)
             return {"message": "Shift request approved successfully", "request": shift_request_to_dict(req)}
     return {"message": "Shift request approved successfully", "request": request}
