@@ -2,6 +2,7 @@
 
 from backend.database import Base, engine, SessionLocal
 from backend.models import User, LeaveType, EmployeeType, RequestStatus
+from backend.utils import hash_password
 from sqlalchemy.orm import Session
 
 
@@ -17,10 +18,11 @@ def init_db():
             print("Database already initialized. Skipping...")
             return
 
-        # Create default admin user
+        # Create default admin user (password is hashed)
+        admin_password = "admin123"
         admin_user = User(
             username="admin",
-            password="admin123",  # In production, hash this!
+            password=hash_password(admin_password),
             employee_name="Admin",
             employee_type=EmployeeType.MANAGER
         )

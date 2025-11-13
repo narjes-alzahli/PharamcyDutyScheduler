@@ -7,6 +7,7 @@ from backend.database import SessionLocal
 from backend.models import User, LeaveType, LeaveRequest, ShiftRequest, EmployeeType, RequestStatus
 from backend.routers.auth import load_user_data
 from backend.routers.requests import load_staff_requests
+from backend.utils import hash_password
 
 
 def migrate_users(db):
@@ -20,9 +21,13 @@ def migrate_users(db):
             print(f"  User {username} already exists, skipping...")
             continue
         
+        # Hash password during migration
+        plain_password = user_info.get('password', '')
+        hashed_password = hash_password(plain_password) if plain_password else hash_password('password123')
+        
         user = User(
             username=username,
-            password=user_info.get('password', ''),
+            password=hashed_password,
             employee_name=user_info.get('employee_name', username),
             employee_type=EmployeeType.MANAGER if user_info.get('employee_type') == 'Manager' else EmployeeType.STAFF
         )

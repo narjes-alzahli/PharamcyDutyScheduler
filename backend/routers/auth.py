@@ -6,9 +6,11 @@ from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime
 from sqlalchemy.orm import Session
+import json
 
 from backend.database import get_db
 from backend.models import User, EmployeeType
+from backend.utils import verify_password, hash_password, needs_rehash
 
 router = APIRouter()
 security = HTTPBearer()
@@ -76,12 +78,17 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
             detail="Invalid username or password"
         )
     
-    # Check password
-    if user.password != request.password:
+    # Check password (supports both plain text for migration and hashed)
+    if not verify_password(request.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
+    
+    # Auto-upgrade plain text passwords to hashed on login
+    if needs_rehash(user.password):
+        user.password = hash_password(request.password)
+        db.commit()
     
     # Save login state if remember_me is checked
     if request.remember_me:
@@ -139,12 +146,14 @@ async def change_password(
             detail="User not found"
         )
     
-    if user.password != request.current_password:
+    # Verify current password (supports both plain text and hashed)
+    if not verify_password(request.current_password, user.password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect"
         )
     
-    user.password = request.new_password
+    # Hash the new password before storing
+    user.password = hash_password(request.new_password)
     db.commit()
     return {"message": "Password updated successfully"}

@@ -16,6 +16,7 @@ sys.path.insert(0, str(project_root))
 from roster.app.legacy_streamlit.data_manager import DataManager
 from backend.routers.auth import get_current_user
 from backend.database import get_db
+from backend.utils import hash_password
 from sqlalchemy.orm import Session
 
 router = APIRouter()
@@ -189,9 +190,11 @@ async def update_employees(
             if not existing_user:
                 # Create default password: first letter lowercase + rest + "123"
                 employee_password = f"{employee_name[0].lower()}{employee_name[1:]}123"
+                # Hash the password before storing
+                hashed_password = hash_password(employee_password)
                 new_user = User(
                     username=username,
-                    password=employee_password,
+                    password=hashed_password,
                     employee_type=EmployeeType.STAFF,
                     employee_name=employee_name
                 )

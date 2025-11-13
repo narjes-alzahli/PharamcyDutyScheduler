@@ -16,6 +16,7 @@ sys.path.insert(0, str(project_root))
 from backend.routers.auth import get_current_user
 from backend.database import get_db
 from backend.models import User, EmployeeType
+from backend.utils import hash_password
 
 router = APIRouter()
 security = HTTPBearer()
@@ -67,7 +68,8 @@ async def update_user(
     user.employee_name = update.employee_name
     user.employee_type = EmployeeType.MANAGER if update.employee_type == 'Manager' else EmployeeType.STAFF
     if update.password:
-        user.password = update.password
+        # Hash the password before storing
+        user.password = hash_password(update.password)
     db.commit()
     return {"message": "User account updated successfully"}
 
