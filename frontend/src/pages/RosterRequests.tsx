@@ -389,7 +389,7 @@ export const RosterRequests: React.FC = () => {
                           </option>
                         ))
                       ) : (
-                        <option value="DO">DO - Day Off</option>
+                      <option value="DO">DO - Day Off</option>
                       )}
                     </select>
                   </div>
@@ -409,13 +409,13 @@ export const RosterRequests: React.FC = () => {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <button
-                    type="submit"
-                    disabled={submitting}
+                <button
+                  type="submit"
+                  disabled={submitting}
                     className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-                  >
-                    {submitting ? 'Submitting...' : editingLeaveId ? 'Update Leave Request' : 'Submit Leave Request'}
-                  </button>
+                >
+                  {submitting ? 'Submitting...' : editingLeaveId ? 'Update Leave Request' : 'Submit Leave Request'}
+                </button>
                   {editingLeaveId && (
                     <button
                       type="button"
@@ -666,13 +666,13 @@ export const RosterRequests: React.FC = () => {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <button
-                    type="submit"
-                    disabled={submitting}
+                <button
+                  type="submit"
+                  disabled={submitting}
                     className="w-full rounded-lg bg-primary-600 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-                  >
-                    {submitting ? 'Submitting...' : editingShiftId ? 'Update Shift Request' : 'Submit Shift Request'}
-                  </button>
+                >
+                  {submitting ? 'Submitting...' : editingShiftId ? 'Update Shift Request' : 'Submit Shift Request'}
+                </button>
                   {editingShiftId && (
                     <button
                       type="button"

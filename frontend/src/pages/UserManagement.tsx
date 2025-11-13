@@ -216,24 +216,24 @@ const CalendarView: React.FC<{
           }
         } else {
           // Leave requests: create continuous segments
-          let rowIndex = 0;
-          while (
-            rowIndex < occupancy.length &&
-            occupancy[rowIndex] !== undefined &&
-            occupancy[rowIndex] >= startCol
-          ) {
-            rowIndex += 1;
-          }
-          occupancy[rowIndex] = endCol;
+        let rowIndex = 0;
+        while (
+          rowIndex < occupancy.length &&
+          occupancy[rowIndex] !== undefined &&
+          occupancy[rowIndex] >= startCol
+        ) {
+          rowIndex += 1;
+        }
+        occupancy[rowIndex] = endCol;
 
-          segments.push({
-            entry,
-            colStart: startCol,
-            colSpan: endCol - startCol + 1,
-            row: rowIndex,
-            isSegmentStart: segmentStart.getTime() === entryStart.getTime(),
-            isSegmentEnd: segmentEnd.getTime() === entryEnd.getTime(),
-          });
+        segments.push({
+          entry,
+          colStart: startCol,
+          colSpan: endCol - startCol + 1,
+          row: rowIndex,
+          isSegmentStart: segmentStart.getTime() === entryStart.getTime(),
+          isSegmentEnd: segmentEnd.getTime() === entryEnd.getTime(),
+        });
         }
       });
 

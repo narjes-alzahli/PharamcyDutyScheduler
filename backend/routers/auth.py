@@ -38,10 +38,12 @@ def check_login_rate_limit(request: Request) -> None:
             detail="Too many login attempts. Please wait a minute and try again."
         )
 
-def record_failed_login(request: Request) -> None:
+
+def record_failed_login_attempt(request: Request) -> None:
     """Record a failed login attempt for rate limiting."""
     client_ip = request.client.host if request.client else "unknown"
-    login_attempts[client_ip].append(datetime.utcnow())
+    now = datetime.utcnow()
+    login_attempts[client_ip].append(now)
 
 
 class LoginRequest(BaseModel):
@@ -112,11 +114,11 @@ def get_current_user(
         username = token
         user = db.query(User).filter(User.username == username).first()
         if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials"
-            )
-        
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+    
         return {
             'username': user.username,
             'employee_name': user.employee_name,
@@ -128,23 +130,21 @@ def get_current_user(
 @router.post("/login", response_model=LoginResponse)
 async def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """Login endpoint with rate limiting (max 5 failed attempts per minute)."""
-    # Check rate limit first (only counts failed attempts)
+    # Check rate limit before processing (checks for failed attempts)
     check_login_rate_limit(request)
     
     user = db.query(User).filter(User.username == login_data.username).first()
     
+    # Check if user exists and password is correct
+    login_failed = False
     if not user:
-        # Invalid username - record failed attempt
-        record_failed_login(request)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
-        )
+        login_failed = True
+    elif not verify_password(login_data.password, user.password):
+        login_failed = True
     
-    # Check password (supports both plain text for migration and hashed)
-    if not verify_password(login_data.password, user.password):
-        # Wrong password - record failed attempt
-        record_failed_login(request)
+    # If login failed, record the attempt
+    if login_failed:
+        record_failed_login_attempt(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
