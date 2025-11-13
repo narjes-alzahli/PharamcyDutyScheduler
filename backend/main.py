@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 import sys
+import os
 from pathlib import Path
 
 # Add project root to path
@@ -18,22 +19,34 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# CORS configuration
+dev_origins = [
+    "http://localhost:3333",
+    "http://127.0.0.1:3333",
+]
+
+# Production nginx website
+production_nginx = "http://185.226.124.30:8502"
+
+# Additional production origins from environment variable (optional)
+# Set FRONTEND_ORIGIN=http://your-ip-or-hostname if you need more origins
+additional_origins = os.getenv("FRONTEND_ORIGIN", "")
+
+# Combine origins
+allowed_origins = dev_origins.copy()
+allowed_origins.append(production_nginx)  # Add your nginx website
+if additional_origins:
+    # Support multiple origins (comma-separated) or single origin
+    extra_origins = [origin.strip() for origin in additional_origins.split(",") if origin.strip()]
+    allowed_origins.extend(extra_origins)
+
 # CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3333",
-        "http://localhost:4000",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3333",
-        "http://127.0.0.1:4000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],  # React dev servers
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Only methods we actually use
+    allow_headers=["Content-Type", "Authorization"],  # Only headers we actually use
 )
 
 # Security
