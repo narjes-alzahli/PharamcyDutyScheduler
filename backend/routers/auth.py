@@ -10,7 +10,8 @@ import json
 
 from backend.database import get_db
 from backend.models import User, EmployeeType
-from backend.utils import verify_password, hash_password, needs_rehash
+from backend.utils import verify_password, hash_password, needs_rehash, create_access_token, verify_token
+from datetime import timedelta
 
 router = APIRouter()
 security = HTTPBearer()
@@ -49,22 +50,52 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> dict:
-    """Get current authenticated user from token."""
-    username = credentials.credentials
+    """Get current authenticated user from JWT token."""
+    token = credentials.credentials
     
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
-        )
+    # Try to verify as JWT token first
+    payload = verify_token(token)
     
-    return {
-        'username': user.username,
-        'employee_name': user.employee_name,
-        'employee_type': user.employee_type.value,
-        'id': user.id
-    }
+    if payload:
+        # Valid JWT token
+        username = payload.get("sub")  # subject (username)
+        if not username:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token format"
+            )
+        
+        # Get user from database to ensure they still exist
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found"
+            )
+        
+        return {
+            'username': user.username,
+            'employee_name': user.employee_name,
+            'employee_type': user.employee_type.value,
+            'id': user.id
+        }
+    else:
+        # Fallback: check if it's a legacy username token (for backwards compatibility)
+        # This allows old tokens to still work during migration
+        username = token
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials"
+            )
+        
+        return {
+            'username': user.username,
+            'employee_name': user.employee_name,
+            'employee_type': user.employee_type.value,
+            'id': user.id
+        }
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -90,11 +121,21 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         user.password = hash_password(request.password)
         db.commit()
     
-    # Save login state if remember_me is checked
+    # Create JWT access token
+    # Use longer expiration if remember_me is checked
+    expires_delta = timedelta(days=30) if request.remember_me else timedelta(days=7)
+    
+    token_data = {
+        "sub": user.username,  # subject (username)
+        "employee_name": user.employee_name,
+        "employee_type": user.employee_type.value,
+        "id": user.id
+    }
+    access_token = create_access_token(data=token_data, expires_delta=expires_delta)
+    
+    # Save login state if remember_me is checked (legacy support)
     if request.remember_me:
         save_login_state(request.username)
-    
-    access_token = request.username
     
     return LoginResponse(
         access_token=access_token,

@@ -1,6 +1,18 @@
 """Utility functions for the application."""
 
 import bcrypt
+import jwt
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# JWT Configuration
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production-please-use-strong-random-key")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 
 def hash_password(password: str) -> str:
@@ -37,4 +49,29 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def needs_rehash(hashed_password: str) -> bool:
     """Check if a password hash needs to be rehashed (for migration from plain text)."""
     return not hashed_password.startswith("$2b$")
+
+
+def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token."""
+    to_encode = data.copy()
+    
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def verify_token(token: str) -> Optional[Dict[str, Any]]:
+    """Verify and decode a JWT token."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None  # Token expired
+    except jwt.JWTError:
+        return None  # Invalid token
 
