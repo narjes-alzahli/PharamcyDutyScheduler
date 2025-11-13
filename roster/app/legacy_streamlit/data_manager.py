@@ -26,7 +26,7 @@ def reset_session_state_if_corrupted():
                 del st.session_state.roster_data
                 st.rerun()
 from roster.app.model.solver import RosterSolver
-from roster.app.ui.schedule_display import ScheduleDisplay
+from roster.app.legacy_streamlit.schedule_display import ScheduleDisplay
 
 
 def safe_strftime(date_obj, format_str='%Y-%m-%d %H:%M'):

@@ -18,8 +18,8 @@ sys.path.insert(0, str(project_root))
 
 from roster.app.model.schema import RosterData, RosterConfig
 from roster.app.model.solver import RosterSolver
-from roster.app.ui.schedule_display import ScheduleDisplay
-from roster.app.ui.data_manager import show_data_manager_page
+from roster.app.legacy_streamlit.schedule_display import ScheduleDisplay
+from roster.app.legacy_streamlit.data_manager import show_data_manager_page
 
 
 def save_user_data():
@@ -209,7 +209,7 @@ def show_login_form():
             
             if submitted:
                 # Load user data
-                from roster.app.ui.data_manager import DataManager
+                from roster.app.legacy_streamlit.data_manager import DataManager
                 if 'data_manager' not in st.session_state:
                     st.session_state.data_manager = DataManager()
                 
@@ -514,7 +514,7 @@ def show_schedule_page():
     """Show schedule visualization page."""
     st.header("Monthly Roster")
     
-    from roster.app.ui.data_manager import load_committed_schedules
+    from roster.app.legacy_streamlit.data_manager import load_committed_schedules
     committed_schedules = load_committed_schedules()
 
     # Check if there are any committed schedules
@@ -633,7 +633,7 @@ def show_reports_page():
     """Show reports and visualization page."""
     st.header("Reports & Visualization")
     
-    from roster.app.ui.data_manager import load_committed_schedules
+    from roster.app.legacy_streamlit.data_manager import load_committed_schedules
     committed_schedules = load_committed_schedules()
 
     # Check if there are any committed schedules
@@ -745,7 +745,7 @@ def show_reports_page():
     
     with tab2:
         st.subheader("📈 Fairness Analysis")
-        from roster.app.ui.data_manager import DataManager
+        from roster.app.legacy_streamlit.data_manager import DataManager
         if 'data_manager' not in st.session_state:
             st.session_state.data_manager = DataManager()
         
@@ -805,7 +805,8 @@ def show_user_management_page():
     st.header("User Management")
     
     # Load employee data
-    from roster.app.ui.data_manager import DataManager
+    from roster.app.legacy_streamlit.data_manager import DataManager
+    from roster.app.legacy_streamlit.data_manager import DataManager
     if 'data_manager' not in st.session_state:
         st.session_state.data_manager = DataManager()
     

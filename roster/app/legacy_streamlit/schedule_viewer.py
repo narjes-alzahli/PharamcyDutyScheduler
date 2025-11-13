@@ -10,7 +10,7 @@ import sys
 # Add the parent directory to the path to import our modules
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from roster.app.ui.schedule_display import ScheduleDisplay
+from roster.app.legacy_streamlit.schedule_display import ScheduleDisplay
 
 
 def main():

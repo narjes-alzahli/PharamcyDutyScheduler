@@ -62,7 +62,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             roster_data['employees'].to_csv(temp_path / "employees.csv", index=False)
             
             # Save demands - use DataManager to load month-specific demands
-            from roster.app.ui.data_manager import DataManager
+            from roster.app.legacy_streamlit.data_manager import DataManager
             data_manager = DataManager()
             month_demands = data_manager.load_month_demands(request.year, request.month)
             
@@ -180,7 +180,7 @@ async def solve_schedule(
         raise HTTPException(status_code=403, detail="Only managers can generate schedules")
     
     # Load roster data
-    from roster.app.ui.data_manager import DataManager
+    from roster.app.legacy_streamlit.data_manager import DataManager
     data_manager = DataManager()
     roster_data = data_manager.load_initial_data()
     

@@ -9,6 +9,7 @@ interface EditableTableProps {
     options?: string[];
     min?: number;
     max?: number;
+    readOnly?: boolean;
   }>;
   onDataChange: (newData: any[]) => void;
   onAddRow?: () => void;
@@ -68,8 +69,13 @@ export const EditableTable: React.FC<EditableTableProps> = ({
   };
 
   const renderCell = (row: any, rowIndex: number, col: typeof columns[0]) => {
-    const isEditing = editingCell?.row === rowIndex && editingCell?.col === col.key;
     const value = row[col.key] ?? '';
+
+    if (col.readOnly) {
+      return <span className="text-sm">{String(value || '')}</span>;
+    }
+
+    const isEditing = editingCell?.row === rowIndex && editingCell?.col === col.key;
 
     if (isEditing || !editingCell) {
       if (col.type === 'checkbox') {

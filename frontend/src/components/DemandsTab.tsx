@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { EditableTable } from './EditableTable';
+import { useToast } from '../contexts/ToastContext';
 import api from '../services/api';
 
 interface DemandsTabProps {
@@ -29,6 +30,27 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     { Shift: 'H', Count: 3 },
   ]);
   const [regenerating, setRegenerating] = useState(false);
+  const { showToast } = useToast();
+
+  const formatDayName = (dateString?: string) => {
+    if (!dateString) {
+      return '';
+    }
+    const parsed = new Date(dateString);
+    if (Number.isNaN(parsed.getTime())) {
+      return '';
+    }
+    return new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(parsed);
+  };
+
+  const addDayNames = (demands: any[]) =>
+    demands.map((entry) => ({
+      ...entry,
+      day_name: formatDayName(entry.date),
+    }));
+
+  const stripDayNames = (demands: any[]) =>
+    demands.map(({ day_name, ...rest }) => rest);
 
   const generateDefaults = useCallback(async (year: number, month: number) => {
     const base_demand = {
@@ -45,7 +67,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         base_demand,
         weekend_demand,
       });
-      setMonthDemands(response.data.demands);
+      setMonthDemands(addDayNames(response.data.demands));
     } catch (error) {
       console.error('Failed to generate defaults:', error);
     }
@@ -67,7 +89,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
           // Auto-generate if empty
           await generateDefaults(selectedYear, selectedMonth);
         } else {
-          setMonthDemands(demands);
+          setMonthDemands(addDayNames(demands));
         }
       } catch (error) {
         console.error('Failed to load demands:', error);
@@ -102,11 +124,12 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     if (!selectedYear || !selectedMonth) return;
     
     try {
-      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, newData);
-      setMonthDemands(newData);
+      const payload = stripDayNames(newData);
+      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, payload);
+      setMonthDemands(addDayNames(payload));
     } catch (error) {
       console.error('Failed to save demands:', error);
-      alert('Failed to save demands');
+      showToast({ type: 'error', message: 'Failed to save demands' });
     }
   };
 
@@ -141,11 +164,14 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         weekend_demand,
       });
       
-      setMonthDemands(response.data.demands);
-      alert('✅ Month regenerated with custom settings!');
+      setMonthDemands(addDayNames(response.data.demands));
+      showToast({
+        type: 'success',
+        message: '✅ Month regenerated with custom settings!',
+      });
     } catch (error) {
       console.error('Failed to regenerate:', error);
-      alert('Failed to regenerate month');
+      showToast({ type: 'error', message: 'Failed to regenerate month' });
     } finally {
       setRegenerating(false);
     }
@@ -187,7 +213,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
           <EditableTable
             data={monthDemands}
             columns={[
-              { key: 'date', label: 'Date', type: 'text' },
+              { key: 'date', label: 'Date', readOnly: true },
+              { key: 'day_name', label: 'Day', readOnly: true },
               { key: 'holiday', label: 'Holiday', type: 'text' },
               { key: 'need_M', label: 'Main', type: 'number', min: 0, max: 20 },
               { key: 'need_IP', label: 'Inpatient', type: 'number', min: 0, max: 20 },

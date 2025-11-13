@@ -13,8 +13,10 @@ import sys
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from roster.app.ui.data_manager import DataManager
+from roster.app.legacy_streamlit.data_manager import DataManager
 from backend.routers.auth import get_current_user
+from backend.database import get_db
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 security = HTTPBearer()
@@ -100,13 +102,14 @@ async def create_employee(
 @router.put("/employees")
 async def update_employees(
     employees: List[dict],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Update all employees (save changes permanently)."""
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can update employees")
     
-    from backend.routers.auth import load_user_data, save_user_data
+    from backend.models import User, EmployeeType
     import re
     
     data_manager = DataManager()
@@ -172,33 +175,36 @@ async def update_employees(
     employees_path = Path("roster/app/data/employees.csv")
     employees_df.to_csv(employees_path, index=False)
     
-    # Sync user accounts: auto-create accounts for new employees
-    user_data = load_user_data()
+    # Sync user accounts: auto-create accounts for new employees (using database)
     new_employee_names = set(employees_df['employee'].values)
     
     # Create user accounts for new employees
     for employee_name in new_employee_names:
         if employee_name not in existing_employee_names:
             # Generate username: lowercase, replace all spaces (single or multiple) with underscore
-            # Handles: "John Doe" -> "john_doe", "John  Michael  Doe" -> "john_michael_doe"
             username = re.sub(r'\s+', '_', employee_name.strip().lower())
-            if username not in user_data:
+            
+            # Check if user already exists in database
+            existing_user = db.query(User).filter(User.username == username).first()
+            if not existing_user:
                 # Create default password: first letter lowercase + rest + "123"
                 employee_password = f"{employee_name[0].lower()}{employee_name[1:]}123"
-                user_data[username] = {
-                    'username': username,
-                    'password': employee_password,
-                    'employee_type': 'Staff',
-                    'employee_name': employee_name
-                }
+                new_user = User(
+                    username=username,
+                    password=employee_password,
+                    employee_type=EmployeeType.STAFF,
+                    employee_name=employee_name
+                )
+                db.add(new_user)
     
     # Update employee_name in user accounts if employee name changed
     for employee_name in new_employee_names:
         username = re.sub(r'\s+', '_', employee_name.strip().lower())
-        if username in user_data:
-            user_data[username]['employee_name'] = employee_name
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.employee_name != employee_name:
+            user.employee_name = employee_name
     
-    save_user_data(user_data)
+    db.commit()
     
     return {"message": "Employees updated successfully"}
 
@@ -211,8 +217,6 @@ async def delete_employee(
     """Delete an employee."""
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can delete employees")
-    
-    from backend.routers.auth import load_user_data, save_user_data
     
     data_manager = DataManager()
     roster_data = data_manager.load_initial_data()

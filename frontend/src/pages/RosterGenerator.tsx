@@ -670,28 +670,24 @@ export const RosterGenerator: React.FC = () => {
                   onCancel={() => setShowAddTimeOff(false)}
                 />
               )}
-              {rosterData?.time_off && rosterData.time_off.length > 0 ? (
-                <EditableTable
-                  data={getMonthData(rosterData.time_off, 'from_date')}
-                  columns={[
-                    { key: 'employee', label: 'Employee', type: 'select', options: rosterData.employees?.map((e: any) => e.employee) || [] },
-                    { key: 'from_date', label: 'From Date', type: 'text' },
-                    { key: 'to_date', label: 'To Date', type: 'text' },
-                    { key: 'code', label: 'Code', type: 'select', options: ['DO', 'ML', 'AL', 'W', 'UL', 'APP', 'STL', 'L', 'O'] },
-                  ]}
-                  onDataChange={handleTimeOffChange}
-                  onDeleteRow={(index) => {
-                    const monthData = getMonthData(rosterData.time_off, 'from_date');
-                    const newData = rosterData.time_off.filter((item: any) => {
-                      const date = new Date(item.from_date);
-                      return !(date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth && monthData.indexOf(item) === index);
-                    });
-                    handleTimeOffChange(newData);
-                  }}
-                />
-              ) : (
-                <p className="text-gray-600">No time off data available for the selected month.</p>
-              )}
+              <EditableTable
+                data={getMonthData(rosterData?.time_off || [], 'from_date')}
+                columns={[
+                  { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
+                  { key: 'from_date', label: 'From Date', type: 'text' },
+                  { key: 'to_date', label: 'To Date', type: 'text' },
+                  { key: 'code', label: 'Code', type: 'select', options: ['DO', 'ML', 'AL', 'W', 'UL', 'APP', 'STL', 'L', 'O'] },
+                ]}
+                onDataChange={handleTimeOffChange}
+                onDeleteRow={(index) => {
+                  const monthData = getMonthData(rosterData?.time_off || [], 'from_date');
+                  const newData = (rosterData?.time_off || []).filter((item: any) => {
+                    const date = new Date(item.from_date);
+                    return !(date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth && monthData.indexOf(item) === index);
+                  });
+                  handleTimeOffChange(newData);
+                }}
+              />
             </div>
           )}
 
@@ -719,38 +715,34 @@ export const RosterGenerator: React.FC = () => {
                   onCancel={() => setShowAddLock(false)}
                 />
               )}
-              {rosterData?.locks && rosterData.locks.length > 0 ? (
-                <EditableTable
-                  data={getMonthData(rosterData.locks, 'from_date').map((lock: any) => ({
-                    ...lock,
-                    force: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
-                  }))}
-                  columns={[
-                    { key: 'employee', label: 'Employee', type: 'select', options: rosterData.employees?.map((e: any) => e.employee) || [] },
-                    { key: 'from_date', label: 'From Date', type: 'text' },
-                    { key: 'to_date', label: 'To Date', type: 'text' },
-                    { key: 'shift', label: 'Shift', type: 'select', options: Array.from(SHIFT_OPTIONS) },
-                    { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
-                  ]}
-                  onDataChange={(newData) => {
-                    const converted = newData.map((item: any) => ({
-                      ...item,
-                      force: item.force === 'Force (Must)',
-                    }));
-                    handleLocksChange(converted);
-                  }}
-                  onDeleteRow={(index) => {
-                    const monthData = getMonthData(rosterData.locks, 'from_date');
-                    const newData = rosterData.locks.filter((item: any) => {
-                      const date = new Date(item.from_date);
-                      return !(date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth && monthData.indexOf(item) === index);
-                    });
-                    handleLocksChange(newData);
-                  }}
-                />
-              ) : (
-                <p className="text-gray-600">No locks data available for the selected month.</p>
-              )}
+              <EditableTable
+                data={getMonthData(rosterData?.locks || [], 'from_date').map((lock: any) => ({
+                  ...lock,
+                  force: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
+                }))}
+                columns={[
+                  { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
+                  { key: 'from_date', label: 'From Date', type: 'text' },
+                  { key: 'to_date', label: 'To Date', type: 'text' },
+                  { key: 'shift', label: 'Shift', type: 'select', options: Array.from(SHIFT_OPTIONS) },
+                  { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
+                ]}
+                onDataChange={(newData) => {
+                  const converted = newData.map((item: any) => ({
+                    ...item,
+                    force: item.force === 'Force (Must)',
+                  }));
+                  handleLocksChange(converted);
+                }}
+                onDeleteRow={(index) => {
+                  const monthData = getMonthData(rosterData?.locks || [], 'from_date');
+                  const newData = (rosterData?.locks || []).filter((item: any) => {
+                    const date = new Date(item.from_date);
+                    return !(date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth && monthData.indexOf(item) === index);
+                  });
+                  handleLocksChange(newData);
+                }}
+              />
             </div>
           )}
 

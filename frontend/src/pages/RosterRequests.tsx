@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { requestsAPI } from '../services/api';
+import { requestsAPI, leaveTypesAPI, LeaveType } from '../services/api';
 
 interface LeaveRequest {
   from_date: string;
@@ -32,6 +32,7 @@ export const RosterRequests: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
 
   // Form states for leave request
   const [leaveFromDate, setLeaveFromDate] = useState('');
@@ -50,6 +51,7 @@ export const RosterRequests: React.FC = () => {
 
   useEffect(() => {
     loadRequests();
+    loadLeaveTypes();
     // Set default dates to today
     const today = new Date().toISOString().split('T')[0];
     setLeaveFromDate(today);
@@ -57,6 +59,19 @@ export const RosterRequests: React.FC = () => {
     setShiftFromDate(today);
     setShiftToDate(today);
   }, []);
+
+  const loadLeaveTypes = async () => {
+    try {
+      const types = await leaveTypesAPI.getLeaveTypes(true); // Only active types
+      setLeaveTypes(types);
+      // Set default to first active leave type if available
+      if (types.length > 0 && !leaveType) {
+        setLeaveType(types[0].code);
+      }
+    } catch (error) {
+      console.error('Failed to load leave types:', error);
+    }
+  };
 
   const loadRequests = async () => {
     try {
@@ -97,7 +112,7 @@ export const RosterRequests: React.FC = () => {
     e.preventDefault();
     
     if (new Date(leaveFromDate) > new Date(leaveToDate)) {
-      alert('The start date must be on or before the end date.');
+      alert('From date cannot be after to date');
       return;
     }
 
@@ -143,7 +158,7 @@ export const RosterRequests: React.FC = () => {
     e.preventDefault();
 
     if (new Date(shiftFromDate) > new Date(shiftToDate)) {
-      alert('The start date must be on or before the end date.');
+      alert('From date cannot be after to date');
       return;
     }
 
@@ -367,12 +382,15 @@ export const RosterRequests: React.FC = () => {
                       onChange={(e) => setLeaveType(e.target.value)}
                       className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
-                      <option value="DO">DO - Day Off</option>
-                      <option value="AL">AL - Annual Leave</option>
-                      <option value="ML">ML - Maternity Leave</option>
-                      <option value="W">W - Workshop</option>
-                      <option value="UL">UL - Unpaid Leave</option>
-                      <option value="STL">STL - Study Leave</option>
+                      {leaveTypes.length > 0 ? (
+                        leaveTypes.map((type) => (
+                          <option key={type.id} value={type.code}>
+                            {type.code} - {type.display_name}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="DO">DO - Day Off</option>
+                      )}
                     </select>
                   </div>
 

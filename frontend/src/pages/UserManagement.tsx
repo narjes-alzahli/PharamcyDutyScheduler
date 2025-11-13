@@ -171,6 +171,8 @@ const CalendarView: React.FC<{
         colStart: number;
         colSpan: number;
         row: number;
+        isSegmentStart: boolean;
+        isSegmentEnd: boolean;
       }> = [];
       const occupancy: number[] = [];
 
@@ -188,22 +190,51 @@ const CalendarView: React.FC<{
         const startCol = Math.max(0, differenceInDays(weekStart, segmentStart));
         const endCol = Math.min(6, differenceInDays(weekStart, segmentEnd));
 
-        let rowIndex = 0;
-        while (
-          rowIndex < occupancy.length &&
-          occupancy[rowIndex] !== undefined &&
-          occupancy[rowIndex] >= startCol
-        ) {
-          rowIndex += 1;
-        }
-        occupancy[rowIndex] = endCol;
+        // Shift requests: treat each day as a separate, independent pill
+        // Leave requests: create continuous segments
+        if (entry.requestType === 'Shift') {
+          // Create separate segments for each day
+          for (let dayCol = startCol; dayCol <= endCol; dayCol += 1) {
+            let rowIndex = 0;
+            while (
+              rowIndex < occupancy.length &&
+              occupancy[rowIndex] !== undefined &&
+              occupancy[rowIndex] >= dayCol
+            ) {
+              rowIndex += 1;
+            }
+            occupancy[rowIndex] = dayCol;
 
-        segments.push({
-          entry,
-          colStart: startCol,
-          colSpan: endCol - startCol + 1,
-          row: rowIndex,
-        });
+            segments.push({
+              entry,
+              colStart: dayCol,
+              colSpan: 1, // Each day is its own segment
+              row: rowIndex,
+              isSegmentStart: true, // Each day has rounded left end
+              isSegmentEnd: true, // Each day has rounded right end
+            });
+          }
+        } else {
+          // Leave requests: create continuous segments
+          let rowIndex = 0;
+          while (
+            rowIndex < occupancy.length &&
+            occupancy[rowIndex] !== undefined &&
+            occupancy[rowIndex] >= startCol
+          ) {
+            rowIndex += 1;
+          }
+          occupancy[rowIndex] = endCol;
+
+          segments.push({
+            entry,
+            colStart: startCol,
+            colSpan: endCol - startCol + 1,
+            row: rowIndex,
+            isSegmentStart: segmentStart.getTime() === entryStart.getTime(),
+            isSegmentEnd: segmentEnd.getTime() === entryEnd.getTime(),
+          });
+        }
       });
 
       const rowsUsed = occupancy.length;
@@ -246,7 +277,7 @@ const CalendarView: React.FC<{
         {calendarMatrix.map((week, idx) => {
           const { segments } = weekSegments[idx];
           return (
-            <div key={week[0].date.toISOString()} className="border-b border-gray-200">
+            <div key={week[0].date.toISOString()} className="border-b border-gray-200 overflow-hidden">
               <div className="grid grid-cols-7 border-t border-gray-200">
                 {week.map((day, colIdx) => {
                   const dateKey = formatDateKey(day.date);
@@ -254,7 +285,7 @@ const CalendarView: React.FC<{
                   return (
                     <div
                       key={dateKey}
-                      className={`flex min-h-[84px] flex-col px-2 py-2 ${
+                      className={`flex min-h-[84px] flex-col px-2 py-2 overflow-hidden ${
                         day.inCurrentMonth ? 'bg-white text-gray-900' : 'bg-gray-50 text-gray-400'
                       } border-r border-gray-200 ${colIdx === 6 ? 'border-r-0' : ''}`}
                     >
@@ -269,7 +300,7 @@ const CalendarView: React.FC<{
                 })}
               </div>
               {segments.length > 0 && (
-                <div className="relative">
+                <div className="relative overflow-hidden">
                   <div className="pointer-events-none absolute inset-0 z-30 grid grid-cols-7">
                     {week.map((_, colIdx) => (
                       <div
@@ -279,117 +310,197 @@ const CalendarView: React.FC<{
                     ))}
                   </div>
                   <div
-                    className="relative z-20 grid gap-2 px-2 py-3"
+                    className="relative z-20 grid gap-y-2 gap-x-0 px-2 py-3"
                     style={{
                       gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-                      gridAutoRows: 'minmax(26px, auto)',
+                      gridAutoRows: 'minmax(24px, auto)',
                       gridAutoFlow: 'row dense',
+                      overflow: 'hidden', // Prevent segments from bleeding into adjacent columns
                     }}
                   >
-                    {segments.map(({ entry, colStart, colSpan, row }) => (
-                      <button
-                        key={`${entry.requestType}-${entry.requestId}-${colStart}-${row}`}
-                        type="button"
-                        onClick={() => {
-                          if (!onSelectEntry) return;
-                          const key = `${entry.requestType}-${entry.requestId}`;
-                          if (selectedEntryId === key) {
-                            onSelectEntry(null);
-                          } else {
-                            onSelectEntry(entry);
-                          }
-                        }}
-                        className={`flex flex-col gap-1 rounded-md px-3 py-1.5 text-left text-xs font-semibold text-gray-900 shadow-sm transition ${
-                          getStatusBadgeClass(entry.status)
-                        } ${selectedEntryId === `${entry.requestType}-${entry.requestId}` ? 'outline outline-2 outline-gray-400' : ''}`}
-                        style={{
-                          gridColumn: `${colStart + 1} / span ${colSpan}`,
-                          gridRow: row + 1,
-                        }}
-                        title={`${entry.employee} • ${entry.primaryLabel}${
-                          entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''
-                        } (${entry.requestType})`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-amber-800">
-                            {entry.employee}
-                          </span>
-                          <span className="text-[11px] font-medium text-gray-600">
-                            {entry.requestType === 'Leave'
-                              ? `${entry.startDate.toLocaleDateString()} → ${entry.endDate.toLocaleDateString()}`
-                              : entry.startDate.toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-medium text-gray-600 capitalize">
-                            {entry.requestType === 'Leave'
-                              ? entry.primaryLabel
-                              : `${entry.primaryLabel}${entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''}`}
-                          </span>
-                          {selectedEntryId === `${entry.requestType}-${entry.requestId}` && entry.status === 'Pending' && (
+                    {segments.map(({ entry, colStart, colSpan, row, isSegmentStart, isSegmentEnd }) => {
+                      const key = `${entry.requestType}-${entry.requestId}`;
+                      const isSelected = selectedEntryId === key;
+                      const radiusClass =
+                        colSpan === 1
+                          ? 'rounded-full'
+                          : [
+                              'rounded-none',
+                              isSegmentStart ? 'rounded-l-full' : '',
+                              isSegmentEnd ? 'rounded-r-full' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ') || 'rounded-none';
+
+                      // Apply margins to ALL rounded ends (circle tails) regardless of position in row
+                      // Only square tails (connecting segments) get 0px margin
+                      // isSegmentStart = true means it's a rounded left end (circle tail)
+                      // isSegmentEnd = true means it's a rounded right end (circle tail)
+                      const segmentStyle: React.CSSProperties = {
+                        gridColumn: `${colStart + 1} / span ${colSpan}`,
+                        gridRow: row + 1,
+                        overflow: 'hidden',
+                        position: 'relative',
+                        marginLeft: isSegmentStart ? 4 : 0, // All circle tails (rounded left ends) get margin
+                        marginRight: isSegmentEnd ? 4 : 0, // All circle tails (rounded right ends) get margin
+                        boxSizing: 'border-box',
+                        maxWidth: '100%',
+                      };
+
+                      // Track if this segment needs fade effects (continues across week rows)
+                      const needsLeftFade = !isSegmentStart;
+                      const needsRightFade = !isSegmentEnd;
+
+                      // Highlight uses same color as unhighlighted outline (amber-200) but thicker
+                      // amber-200 in RGB is rgb(253, 230, 138)
+                      if (isSelected) {
+                        segmentStyle.zIndex = 50;
+                        if (isSegmentStart) {
+                          segmentStyle.borderLeft = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
+                        } else {
+                          segmentStyle.borderLeft = 'none';
+                        }
+                        if (isSegmentEnd) {
+                          segmentStyle.borderRight = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
+                        } else {
+                          segmentStyle.borderRight = 'none';
+                        }
+                        segmentStyle.borderTop = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
+                        segmentStyle.borderBottom = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
+                      } else {
+                        if (!isSegmentStart) {
+                          segmentStyle.borderLeft = 'none';
+                        }
+                        if (!isSegmentEnd) {
+                          segmentStyle.borderRight = 'none';
+                        }
+                      }
+
+                      return (
+                        <button
+                          key={`${key}-${colStart}-${row}`}
+                          type="button"
+                          onClick={() => {
+                            if (!onSelectEntry) return;
+                            if (isSelected) {
+                              onSelectEntry(null);
+                            } else {
+                              onSelectEntry(entry);
+                            }
+                          }}
+                          className={`flex flex-col gap-0.5 px-2 py-1 text-left text-[11px] font-semibold text-gray-900 shadow-sm transition ${
+                            getStatusBadgeClass(entry.status)
+                          } ${radiusClass} ${
+                            !isSegmentStart ? 'border-l-0' : ''
+                          } ${
+                            !isSegmentEnd ? 'border-r-0' : ''
+                          } ${
+                            isSelected
+                              ? ''
+                              : selectedEntryId
+                                ? 'opacity-40'
+                                : ''
+                          }`}
+                          style={segmentStyle}
+                          title={`${entry.employee} • ${entry.primaryLabel}${
+                            entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''
+                          } (${entry.requestType})`}
+                        >
+                          {/* Fade overlays for segments that continue across week rows */}
+                          {needsLeftFade && (
                             <div
-                              className="flex gap-2"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {actions?.approve && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    actions.approve?.(entry);
-                                  }}
-                                  disabled={processingRequestId === entry.requestId}
-                                  className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60"
-                                  title="Approve request"
-                                  aria-label="Approve request"
-                                >
-                                  <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
-                                    <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                </button>
-                              )}
-                              {actions?.reject && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    actions.reject?.(entry);
-                                  }}
-                                  disabled={processingRequestId === entry.requestId}
-                                  className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60"
-                                  title="Reject request"
-                                  aria-label="Reject request"
-                                >
-                                  <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
-                                    <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                </button>
-                              )}
-                              {actions?.remove && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    actions.remove?.(entry);
-                                  }}
-                                  disabled={processingRequestId === entry.requestId}
-                                  className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60"
-                                  title="Remove request"
-                                  aria-label="Remove request"
-                                >
-                                  <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
-                                    <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M8.3335 6V4.33333C8.3335 3.8731 8.52663 3.43172 8.8692 3.11915C9.21178 2.80659 9.67607 2.65039 10.1566 2.6927L11.8233 2.83444C12.2818 2.8749 12.709 3.0683 13.0216 3.38087C13.3342 3.69344 13.5276 4.12063 13.5681 4.57911L13.6668 5.66666M12.5 8.33333V14.1667" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M9.1665 8.33333V14.1667" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M4.99984 5.66666H5.6665L6.33317 16.6667C6.33317 17.1087 6.50877 17.5326 6.82133 17.8452C7.1339 18.1577 7.55781 18.3333 7.99984 18.3333H12.3332C12.7752 18.3333 13.1991 18.1577 13.5117 17.8452C13.8242 17.5326 13.9998 17.1087 13.9998 16.6667L14.6665 5.66666" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
+                              className="absolute inset-y-0 left-0 w-6 pointer-events-none z-10"
+                              style={{
+                                background: 'linear-gradient(to right, rgb(255, 255, 255) 0%, rgba(255, 255, 255, 0.8) 30%, transparent 100%)',
+                                border: 'none',
+                              }}
+                            />
                           )}
-                        </div>
-                      </button>
-                    ))}
+                          {needsRightFade && (
+                            <div
+                              className="absolute inset-y-0 right-0 w-6 pointer-events-none z-10"
+                              style={{
+                                background: 'linear-gradient(to left, rgb(255, 255, 255) 0%, rgba(255, 255, 255, 0.8) 30%, transparent 100%)',
+                                border: 'none',
+                              }}
+                            />
+                          )}
+                          <div className="flex items-center justify-between gap-1 relative z-0">
+                            <span className="text-xs font-semibold text-amber-900">
+                              {entry.employee}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-1 relative z-0">
+                            <span className="text-[10px] font-medium text-gray-600 capitalize truncate">
+                              {entry.requestType === 'Leave'
+                                ? entry.primaryLabel
+                                : `${entry.primaryLabel}${entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''}`}
+                            </span>
+                            {isSelected && entry.status === 'Pending' && (
+                              <div
+                                className="flex gap-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {actions?.approve && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      actions.approve?.(entry);
+                                    }}
+                                    disabled={processingRequestId === entry.requestId}
+                                    className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60"
+                                    title="Approve request"
+                                    aria-label="Approve request"
+                                  >
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                      <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  </button>
+                                )}
+                                {actions?.reject && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      actions.reject?.(entry);
+                                    }}
+                                    disabled={processingRequestId === entry.requestId}
+                                    className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60"
+                                    title="Reject request"
+                                    aria-label="Reject request"
+                                  >
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                      <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  </button>
+                                )}
+                                {actions?.remove && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      actions.remove?.(entry);
+                                    }}
+                                    disabled={processingRequestId === entry.requestId}
+                                    className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60"
+                                    title="Remove request"
+                                    aria-label="Remove request"
+                                  >
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                      <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      <path d="M8.3335 6V4.33333C8.3335 3.8731 8.52663 3.43172 8.8692 3.11915C9.21178 2.80659 9.67607 2.65039 10.1566 2.6927L11.8233 2.83444C12.2818 2.8749 12.709 3.0683 13.0216 3.38087C13.3342 3.69344 13.5276 4.12063 13.5681 4.57911L13.6668 5.66666M12.5 8.33333V14.1667" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      <path d="M9.1665 8.33333V14.1667" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      <path d="M4.99984 5.66666H5.6665L6.33317 16.6667C6.33317 17.1087 6.50877 17.5326 6.82133 17.8452C7.1339 18.1577 7.55781 18.3333 7.99984 18.3333H12.3332C12.7752 18.3333 13.1991 18.1577 13.5117 17.8452C13.8242 17.5326 13.9998 17.1087 13.9998 16.6667L14.6665 5.66666" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -434,7 +545,20 @@ export const UserManagement: React.FC = () => {
   const pendingLeaveCount = leaveRequests.filter((req) => req.status === 'Pending').length;
   const pendingShiftCount = shiftRequests.filter((req) => req.status === 'Pending').length;
 
-  const loadRequests = useCallback(async () => {
+  useEffect(() => {
+    loadData();
+    if (currentUser?.employee_type === 'Manager') {
+      loadRequests();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUser?.employee_type === 'Manager' && (activeTab === 'leave' || activeTab === 'shift')) {
+      loadRequests();
+    }
+  }, [activeTab, currentUser]);
+
+  const loadRequests = async () => {
     try {
       const [leaveRes, shiftRes] = await Promise.all([
         requestsAPI.getAllLeaveRequests(),
@@ -451,9 +575,10 @@ export const UserManagement: React.FC = () => {
     } catch (error) {
       console.error('Failed to load requests:', error);
     }
-  }, []);
+  };
 
-  const loadData = useCallback(async () => {
+
+  const loadData = async () => {
     try {
       setLoading(true);
       const [usersRes, employeesRes] = await Promise.all([
@@ -470,23 +595,7 @@ export const UserManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-    if (currentUser?.employee_type === 'Manager') {
-      loadRequests();
-    }
-  }, [loadData, loadRequests, currentUser?.employee_type]);
-
-  useEffect(() => {
-    if (
-      currentUser?.employee_type === 'Manager' &&
-      (activeTab === 'leave' || activeTab === 'shift')
-    ) {
-      loadRequests();
-    }
-  }, [activeTab, currentUser?.employee_type, loadRequests]);
+  };
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -681,7 +790,7 @@ export const UserManagement: React.FC = () => {
         }
       }
     },
-    [handleApproveLeave, handleRejectLeave, handleDeleteLeave, handleApproveShift, handleRejectShift, handleDeleteShift]
+    []
   );
 
   useEffect(() => {
@@ -847,9 +956,9 @@ export const UserManagement: React.FC = () => {
                       <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
                       <td className="px-4 py-3 text-sm border border-gray-300">
                         <span className={`px-2 py-1 text-xs rounded-full ${
-                          req.status === 'Approved' ? 'bg-green-50 text-green-700 border border-green-200' :
-                          req.status === 'Rejected' ? 'bg-red-50 text-red-700 border border-red-200' :
-                          'bg-amber-50 text-amber-700 border border-amber-200'
+                          req.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                          req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
                         }`}>
                           {req.status}
                         </span>
@@ -969,9 +1078,9 @@ export const UserManagement: React.FC = () => {
                       <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
                       <td className="px-4 py-3 text-sm border border-gray-300">
                         <span className={`px-2 py-1 text-xs rounded-full ${
-                          req.status === 'Approved' ? 'bg-green-50 text-green-700 border border-green-200' :
-                          req.status === 'Rejected' ? 'bg-red-50 text-red-700 border border-red-200' :
-                          'bg-amber-50 text-amber-700 border border-amber-200'
+                          req.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                          req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
                         }`}>
                           {req.status}
                         </span>
@@ -1196,6 +1305,7 @@ export const UserManagement: React.FC = () => {
       </div>
         </>
       )}
+
     </div>
   );
 };

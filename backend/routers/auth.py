@@ -4,9 +4,11 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pathlib import Path
-import json
 from datetime import datetime
-from typing import Optional
+from sqlalchemy.orm import Session
+
+from backend.database import get_db
+from backend.models import User, EmployeeType
 
 router = APIRouter()
 security = HTTPBearer()
@@ -29,33 +31,6 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 
-def get_user_data_file() -> Path:
-    """Get path to user data file."""
-    return Path("roster/app/data/user_data.json")
-
-
-def load_user_data() -> dict:
-    """Load user data from file."""
-    user_data_file = get_user_data_file()
-    if user_data_file.exists():
-        try:
-            with open(user_data_file, 'r') as f:
-                content = f.read().strip()
-                if content:
-                    return json.loads(content)
-        except (json.JSONDecodeError, ValueError):
-            pass
-    return {}
-
-
-def save_user_data(user_data: dict):
-    """Save user data to file."""
-    user_data_file = get_user_data_file()
-    user_data_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(user_data_file, 'w') as f:
-        json.dump(user_data, f, indent=2)
-
-
 def save_login_state(username: str):
     """Save login state to file."""
     login_file = Path("roster/app/data/login_state.json")
@@ -68,47 +43,41 @@ def save_login_state(username: str):
         json.dump(login_data, f, indent=2)
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> dict:
     """Get current authenticated user from token."""
-    # Simple token validation (in production, use JWT)
     username = credentials.credentials
-    user_data = load_user_data()
     
-    if username not in user_data:
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials"
         )
     
-    return user_data[username]
+    return {
+        'username': user.username,
+        'employee_name': user.employee_name,
+        'employee_type': user.employee_type.value,
+        'id': user.id
+    }
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Login endpoint."""
-    user_data = load_user_data()
+    user = db.query(User).filter(User.username == request.username).first()
     
-    # Initialize default admin if no users exist
-    if not user_data:
-        user_data = {
-            'admin': {
-                'username': 'admin',
-                'password': 'admin123',
-                'employee_type': 'Manager',
-                'employee_name': 'Admin'
-            }
-        }
-        save_user_data(user_data)
-    
-    # Check credentials
-    if request.username not in user_data:
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
     
-    user = user_data[request.username]
-    if user['password'] != request.password:
+    # Check password
+    if user.password != request.password:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
@@ -118,15 +87,14 @@ async def login(request: LoginRequest):
     if request.remember_me:
         save_login_state(request.username)
     
-    # Simple token (in production, use JWT)
     access_token = request.username
     
     return LoginResponse(
         access_token=access_token,
         user=UserResponse(
-            username=user['username'],
-            employee_name=user['employee_name'],
-            employee_type=user['employee_type']
+            username=user.username,
+            employee_name=user.employee_name,
+            employee_type=user.employee_type.value
         )
     )
 
@@ -158,20 +126,25 @@ class ChangePasswordRequest(BaseModel):
 @router.post("/change-password")
 async def change_password(
     request: ChangePasswordRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Change user password."""
-    user_data = load_user_data()
     username = current_user['username']
     
-    if user_data[username]['password'] != request.current_password:
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    if user.password != request.current_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect"
         )
     
-    user_data[username]['password'] = request.new_password
-    save_user_data(user_data)
-    
+    user.password = request.new_password
+    db.commit()
     return {"message": "Password updated successfully"}
-

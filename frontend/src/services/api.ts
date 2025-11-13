@@ -288,5 +288,54 @@ export const usersAPI = {
   },
 };
 
+export interface LeaveType {
+  id: number;
+  code: string;
+  display_name: string;
+  description?: string;
+  color_hex: string;
+  counts_as_rest: boolean;
+  is_active: boolean;
+}
+
+export interface LeaveTypeCreate {
+  code: string;
+  display_name: string;
+  description?: string;
+  color_hex?: string;
+  counts_as_rest?: boolean;
+  is_active?: boolean;
+}
+
+export interface LeaveTypeUpdate {
+  display_name?: string;
+  description?: string;
+  color_hex?: string;
+  counts_as_rest?: boolean;
+  is_active?: boolean;
+}
+
+export const leaveTypesAPI = {
+  getLeaveTypes: async (activeOnly: boolean = false): Promise<LeaveType[]> => {
+    const response = await api.get(`/api/leave-types/?active_only=${activeOnly}`);
+    return response.data;
+  },
+  getLeaveType: async (code: string): Promise<LeaveType> => {
+    const response = await api.get(`/api/leave-types/${code}`);
+    return response.data;
+  },
+  createLeaveType: async (leaveType: LeaveTypeCreate): Promise<LeaveType> => {
+    const response = await api.post('/api/leave-types/', leaveType);
+    return response.data;
+  },
+  updateLeaveType: async (code: string, update: LeaveTypeUpdate): Promise<LeaveType> => {
+    const response = await api.put(`/api/leave-types/${code}`, update);
+    return response.data;
+  },
+  deleteLeaveType: async (code: string): Promise<void> => {
+    await api.delete(`/api/leave-types/${code}`);
+  },
+};
+
 export default api;
 

@@ -59,3 +59,12 @@ htmlcov/
 # Data files (optional - uncomment if you want to ignore data)
 # roster/app/data/*.csv
 # roster/app/data/*.json
+
+# Environment files
+.env
+.env.local
+
+# Database files
+*.db
+roster.db
+

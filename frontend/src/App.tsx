@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
@@ -9,6 +10,7 @@ import { RosterGenerator } from './pages/RosterGenerator';
 import { ReportsPage } from './pages/Reports';
 import { RosterRequests } from './pages/RosterRequests';
 import { UserManagement } from './pages/UserManagement';
+import { RulesManagement } from './pages/RulesManagement';
 import { HomeRedirect } from './components/HomeRedirect';
 
 const AppRoutes: React.FC = () => {
@@ -83,6 +85,16 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/rules"
+        element={
+          <ProtectedRoute requireManager>
+            <Layout>
+              <RulesManagement />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 };
@@ -91,7 +103,9 @@ const App: React.FC = () => {
   return (
     <Router>
       <AuthProvider>
+        <ToastProvider>
         <AppRoutes />
+        </ToastProvider>
       </AuthProvider>
     </Router>
   );
