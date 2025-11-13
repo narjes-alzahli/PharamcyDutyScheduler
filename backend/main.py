@@ -1,8 +1,14 @@
 """FastAPI backend server for staff rostering system."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from datetime import datetime, timedelta
+from collections import defaultdict
 import sys
 import os
 from pathlib import Path
@@ -18,6 +24,40 @@ app = FastAPI(
     description="Backend API for staff rostering system",
     version="1.0.0"
 )
+
+# Rate limiting - protects all endpoints from DoS attacks
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Global rate limiting middleware for all /api/* routes
+api_request_counts = defaultdict(list)
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to all API routes (100 requests per minute per IP)."""
+    if request.url.path.startswith("/api/"):
+        client_ip = request.client.host if request.client else "unknown"
+        now = datetime.utcnow()
+        
+        # Remove requests older than 1 minute
+        api_request_counts[client_ip] = [
+            req_time for req_time in api_request_counts[client_ip]
+            if (now - req_time) < timedelta(minutes=1)
+        ]
+        
+        # Check if limit exceeded (100 requests per minute)
+        if len(api_request_counts[client_ip]) >= 100:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Maximum 100 requests per minute."}
+            )
+        
+        # Record this request
+        api_request_counts[client_ip].append(now)
+    
+    response = await call_next(request)
+    return response
 
 # CORS configuration
 dev_origins = [
@@ -63,13 +103,15 @@ app.include_router(leave_types.router, prefix="/api/leave-types", tags=["leave-t
 
 
 @app.get("/")
-async def root():
+@limiter.limit("100/minute")
+async def root(request: Request):
     """Root endpoint."""
     return {"message": "Staff Rostering API", "version": "1.0.0"}
 
 
 @app.get("/api/health")
-async def health_check():
+@limiter.limit("100/minute")
+async def health_check(request: Request):
     """Health check endpoint."""
     return {"status": "healthy"}
 

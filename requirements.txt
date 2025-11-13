@@ -30,3 +30,4 @@ python-dotenv==1.0.0       # environment variable management
 bcrypt==5.0.0              # password hashing
 pyjwt[crypto]==2.10.1      # JWT token generation/verification
 python-jose[cryptography]==3.5.0  # JWT utilities (alternative)
+slowapi==0.1.9             # API rate limiting
