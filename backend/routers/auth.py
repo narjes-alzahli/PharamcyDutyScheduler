@@ -1,20 +1,47 @@
 """Authentication endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 import json
+from collections import defaultdict
 
 from backend.database import get_db
 from backend.models import User, EmployeeType
 from backend.utils import verify_password, hash_password, needs_rehash, create_access_token, verify_token
-from datetime import timedelta
 
 router = APIRouter()
 security = HTTPBearer()
+
+# Rate limiting for login (in-memory store)
+# Format: {ip_address: [list of attempt timestamps]}
+login_attempts = defaultdict(list)
+
+def check_login_rate_limit(request: Request) -> None:
+    """Check if failed login attempts exceed rate limit (5 per minute per IP)."""
+    client_ip = request.client.host if request.client else "unknown"
+    now = datetime.utcnow()
+    
+    # Remove attempts older than 1 minute
+    login_attempts[client_ip] = [
+        attempt_time for attempt_time in login_attempts[client_ip]
+        if (now - attempt_time) < timedelta(minutes=1)
+    ]
+    
+    # Check if limit exceeded
+    if len(login_attempts[client_ip]) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please wait a minute and try again."
+        )
+
+def record_failed_login(request: Request) -> None:
+    """Record a failed login attempt for rate limiting."""
+    client_ip = request.client.host if request.client else "unknown"
+    login_attempts[client_ip].append(datetime.utcnow())
 
 
 class LoginRequest(BaseModel):
@@ -99,31 +126,43 @@ def get_current_user(
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """Login endpoint."""
-    user = db.query(User).filter(User.username == request.username).first()
+async def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
+    """Login endpoint with rate limiting (max 5 failed attempts per minute)."""
+    # Check rate limit first (only counts failed attempts)
+    check_login_rate_limit(request)
+    
+    user = db.query(User).filter(User.username == login_data.username).first()
     
     if not user:
+        # Invalid username - record failed attempt
+        record_failed_login(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
     
     # Check password (supports both plain text for migration and hashed)
-    if not verify_password(request.password, user.password):
+    if not verify_password(login_data.password, user.password):
+        # Wrong password - record failed attempt
+        record_failed_login(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
     
+    # Successful login - clear failed attempts for this IP
+    client_ip = request.client.host if request.client else "unknown"
+    if client_ip in login_attempts:
+        login_attempts[client_ip] = []
+    
     # Auto-upgrade plain text passwords to hashed on login
     if needs_rehash(user.password):
-        user.password = hash_password(request.password)
+        user.password = hash_password(login_data.password)
         db.commit()
     
     # Create JWT access token
     # Use longer expiration if remember_me is checked
-    expires_delta = timedelta(days=30) if request.remember_me else timedelta(days=7)
+    expires_delta = timedelta(days=30) if login_data.remember_me else timedelta(days=7)
     
     token_data = {
         "sub": user.username,  # subject (username)
@@ -134,8 +173,8 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(data=token_data, expires_delta=expires_delta)
     
     # Save login state if remember_me is checked (legacy support)
-    if request.remember_me:
-        save_login_state(request.username)
+    if login_data.remember_me:
+        save_login_state(login_data.username)
     
     return LoginResponse(
         access_token=access_token,
