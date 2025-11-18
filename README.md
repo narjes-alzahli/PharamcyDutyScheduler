@@ -1,133 +1,213 @@
 # 🏥 Pharmacy Staff Scheduler
 
-A full-stack rostering platform that generates fair pharmacy schedules, manages leave/shift requests, and visualises results.  
-The new architecture is:
+A full-stack rostering platform that generates fair pharmacy schedules, manages leave/shift requests, and visualises results.
 
+**Architecture:**
 - **Backend:** FastAPI + OR-Tools (solver, data APIs)
-- **Frontend:** React 19 + Vite + Tailwind CSS
+- **Frontend:** React 19 + Tailwind CSS
 - **Build Tools:** Node ≥ 18, Python ≥ 3.10
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Clone
+### 1. Clone Repository
 ```bash
 git clone git@github.com:narjes-alzahli/PharamcyDutyScheduler.git
 cd PharamcyDutyScheduler
 ```
 
-### 2. Backend (FastAPI)
+### 2. Backend Setup
 ```bash
+# Create virtual environment
 python -m venv scheduler_env
 source scheduler_env/bin/activate  # Windows: scheduler_env\Scripts\activate
+
+# Install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# Start backend
 uvicorn backend.main:app --reload
 ```
-The API will be available at `http://localhost:8000` (docs at `/docs`).
+Backend API available at `http://localhost:8000` (docs at `/docs`)
 
-### 3. Frontend (React)
+### 3. Frontend Setup
 ```bash
 cd frontend
 npm install
-cp .env.example .env        # set API_URL if backend is not on localhost:8000
+
+# Create .env file
+echo "REACT_APP_API_URL=http://localhost:8000" > .env
+
+# Start dev server
 npm start
 ```
-Visit `http://localhost:3000`.
+Frontend available at `http://localhost:3000`
 
 ---
 
-## 🧭 Primary Apps
+## 📦 Key Dependencies
 
-| Area | Tech | Command | Notes |
-| --- | --- | --- | --- |
-| Backend | FastAPI (Python) | `uvicorn backend.main:app --reload` | Provides REST API for employees, demands, solver, reports |
-| Frontend | React + Tailwind | `npm start` | SPA with Roster Generator, Requests, Reports, Schedule image download |
-| Solver | OR-Tools | triggered via API | Optimises schedules via asynchronous job queue |
+**Backend:**
+- `ortools` 9.8.x — optimisation solver
+- `fastapi` / `uvicorn` — REST API & ASGI server
+- `pandas` / `numpy` — data processing
+- `pydantic` — data validation
 
-The legacy Streamlit UI remains in `roster/app/ui/` for reference but is no longer required.
+**Frontend:**
+- React 19 + TypeScript
+- Tailwind CSS
+- Axios for API calls
 
 ---
 
-## 📄 Environment Variables
+## 🗄️ Database Setup
 
-Frontend `.env` (see `.env.example`):
-
+### Initial Setup
+```bash
+# Initialize database (creates tables and default admin user)
+python3 -m backend.init_db
 ```
-VITE_API_URL=http://localhost:8000
+
+This creates:
+- Database tables
+- Default admin user (username: `admin`, password: `admin123`)
+- Default leave types (DO, AL, ML, W, UL, APP, STL, L, O)
+
+### Database Options
+
+**SQLite (default, development):**
+- No setup needed, uses `roster.db` in project root
+
+**PostgreSQL (production):**
+```bash
+# Install PostgreSQL, then:
+createdb roster_db
+export DATABASE_URL=postgresql://user:password@localhost/roster_db
 ```
 
-Backend uses environment defaults. For production you can set:
-- `API_BASE_URL`, `FRONTEND_ORIGIN`
-- `UVICORN_PORT`, `UVICORN_HOST`
+### Migrations
+```bash
+# Run Alembic migrations
+alembic upgrade head
+```
+
+### Migrate Existing Data
+```bash
+# Migrate JSON data to database
+python3 -m backend.migrate_from_json
+```
 
 ---
 
-## 🗂️ Data Inputs
+## 🗂️ Data Files
 
-Source data lives in `roster/app/data/`. Key files:
+Source data in `roster/app/data/`:
 
 | File | Purpose |
 | --- | --- |
 | `employees.csv` | Employee skills & constraints |
 | `demands/*.csv` | Daily shift requirements |
-| `time_off.csv` | Approved leave (auto-updated by manager approvals) |
+| `time_off.csv` | Approved leave (auto-updated) |
 | `locks.csv` | Forced/forbidden shifts (auto-updated) |
-| `shift_types.json` | Configurable shift codes (incl. `MS`, `C`) |
-
-The frontend now validates demand vs available skills and hides stale schedules any time these datasets change.
+| `shift_types.json` | Configurable shift codes |
 
 ---
 
 ## ✨ Features
 
-- Employee management with username sync and duplicate validation
+- Employee management with username sync
 - Staffing needs editor with weekday/weekend presets
-- Leave & shift request approvals (move to solver inputs automatically)
-- Guided roster generator with step list (tabs hidden until month/year selected)
-- Combined “Generate & Review” flow, colour legend editing, P/O display
-- Download roster **as an image** with title + legend (no more CSV)
+- Leave & shift request approvals
+- Guided roster generator with step-by-step flow
+- Schedule visualization with color coding
+- Download roster as image (with title + legend)
 - Reports & analytics (fairness metrics, coverage summaries)
-- Persistent committed schedules surfaced in Monthly Roster & Reports pages
+- Persistent committed schedules
 
 ---
 
-## 🧪 Testing & Tooling
+## 🚀 Production Deployment
 
-- Backend linting/test hooks are not yet bundled; use `pytest` or equivalent if you add suites.
-- Frontend uses CRA scripts (`npm test`, `npm run build`).
-- ESLint is configured via CRA defaults; run `npm run lint` if you add a script.
+### Build Frontend
+```bash
+cd frontend
+npm run build
+```
+
+### Run Backend
+```bash
+source scheduler_env/bin/activate
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+### Nginx Setup
+- Serve `frontend/build/` as static files
+- Proxy `/api/` to `http://127.0.0.1:8000`
+
+See `DEPLOYMENT_SUMMARY.md` for server-specific deployment details.
 
 ---
 
-## 🚀 Deployment Notes
+## 🔧 Environment Variables
 
-For a production/Nginx setup:
+**Frontend `.env`:**
+```
+REACT_APP_API_URL=http://localhost:8000
+PORT=3000  # Optional, defaults to 3000
+```
 
-1. **Backend**
-   - Run with a process manager: `uvicorn backend.main:app --host 0.0.0.0 --port 8000`
-   - Reverse-proxy `/api/` through Nginx (include CORS/origin headers)
-2. **Frontend**
-   - `npm run build`
-   - Serve `frontend/build/` as static assets through Nginx
-3. **Background Solver**
-   - The solver runs in-process via FastAPI job polling; ensure the API service stays alive (systemd/pm2/supervisor).
+**Backend:**
+- `DATABASE_URL` - Database connection (default: SQLite)
+- `API_BASE_URL` - API base URL (optional)
+- `FRONTEND_ORIGIN` - CORS origin (optional)
 
 ---
 
-## 📁 Repository Layout
+## 🧪 Testing
+
+```bash
+# Backend tests
+pytest
+
+# Frontend tests
+cd frontend
+npm test
+```
+
+---
+
+## 🐛 Troubleshooting
+
+| Issue | Fix |
+| --- | --- |
+| `ModuleNotFoundError` | Activate virtual environment: `source scheduler_env/bin/activate` |
+| CORS errors | Check `REACT_APP_API_URL` matches backend URL |
+| Port already in use | Change port in `.env` or stop conflicting service |
+| Database errors | Run `python3 -m backend.init_db` to initialize |
+| Solver fails quickly | Check demands vs employee skills match |
+
+---
+
+## 📁 Project Structure
 
 ```
 PharamcyDutyScheduler/
-├── backend/                # FastAPI routers, models, solver endpoints
-├── frontend/               # React app (Tailwind, axios services)
-│   ├── public/
-│   └── src/
-├── roster/                 # Data manager utilities & legacy Streamlit app
-├── requirements.txt        # Backend Python deps
-├── README.md               # This guide
-└── ENVIRONMENT_SETUP.md    # Expanded setup walkthrough
+├── backend/              # FastAPI routers, models, solver
+│   ├── routers/          # API endpoints
+│   └── models.py         # Database models
+├── frontend/             # React app
+│   ├── src/              # Source code
+│   └── public/           # Static assets
+├── roster/               # Data utilities & solver logic
+│   ├── app/
+│   │   ├── data/         # CSV/JSON data files
+│   │   └── model/        # Solver constraints & logic
+│   └── data/             # Shift type definitions
+├── alembic/              # Database migrations
+├── requirements.txt      # Python dependencies
+└── README.md            # This file
 ```
 
 ---
