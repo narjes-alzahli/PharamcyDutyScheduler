@@ -61,7 +61,7 @@ class Leave(BaseModel):
     employee: str
     from_date: date = Field(alias="from_date")
     to_date: date = Field(alias="to_date")
-    code: str = Field(pattern="^(DO|ML|AL|W|UL|APP|STL|L|O)$")
+    code: str  # Leave codes are now managed dynamically in the database
     
     class Config:
         populate_by_name = True
@@ -82,8 +82,9 @@ class SpecialRequirement(BaseModel):
 class RosterData:
     """Main data container for roster inputs."""
     
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, config: Optional['RosterConfig'] = None):
         self.data_dir = Path(data_dir)
+        self.config = config  # Store config reference for accessing leave_codes
         self.employees: List[Employee] = []
         self.daily_requirements: List[DailyRequirement] = []
         self.leave: List[Leave] = []
@@ -220,7 +221,19 @@ class RosterData:
         
     def get_shifts(self) -> List[str]:
         """Get all possible shifts."""
-        return ["M", "IP", "A", "N", "M3", "M4", "H", "DO", "CL", "ML", "AL", "W", "UL", "APP", "STL", "O", "L"]
+        # Base working shifts (these are fixed and not managed via database)
+        working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"]
+        
+        # Get leave codes from config if available (loaded from database)
+        if hasattr(self, 'config') and hasattr(self.config, 'leave_codes') and self.config.leave_codes:
+            # Only include leave codes that aren't already in working_shifts
+            leave_codes = [code for code in self.config.leave_codes if code not in working_shifts]
+            return working_shifts + leave_codes
+        
+        # Fallback: if config not available, only return working shifts
+        # This should never happen in normal operation since we always pass config
+        # But if it does, at least the solver won't crash
+        return working_shifts
 
 
 class RosterConfig:
@@ -236,6 +249,7 @@ class RosterConfig:
             "a_to_n_penalty": 5.0
         }
         self.rest_codes = {"DO", "O"}
+        self.leave_codes = []  # Will be populated from config file
         self.forbidden_adjacencies = [("N", "M"), ("A", "N")]
         self.weekly_rest_minimum = 1
         
@@ -251,6 +265,8 @@ class RosterConfig:
             self.weights.update(config["weights"])
         if "rest_codes" in config:
             self.rest_codes = set(config["rest_codes"])
+        if "leave_codes" in config:
+            self.leave_codes = config["leave_codes"]
         if "forbidden_adjacencies" in config:
             self.forbidden_adjacencies = config["forbidden_adjacencies"]
         if "weekly_rest_minimum" in config:

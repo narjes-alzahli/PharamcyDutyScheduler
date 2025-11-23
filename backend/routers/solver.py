@@ -18,6 +18,9 @@ sys.path.insert(0, str(project_root))
 from roster.app.model.schema import RosterData, RosterConfig
 from roster.app.model.solver import RosterSolver
 from backend.routers.auth import get_current_user
+from backend.database import SessionLocal, get_db
+from backend.models import LeaveType
+from backend.roster_data_loader import load_roster_data_from_db, load_month_demands, save_month_demands, generate_month_demands
 
 router = APIRouter()
 security = HTTPBearer()
@@ -61,10 +64,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             # Save employees
             roster_data['employees'].to_csv(temp_path / "employees.csv", index=False)
             
-            # Save demands - use DataManager to load month-specific demands
-            from roster.app.legacy_streamlit.data_manager import DataManager
-            data_manager = DataManager()
-            month_demands = data_manager.load_month_demands(request.year, request.month)
+            # Load month-specific demands
+            month_demands = load_month_demands(request.year, request.month)
             
             # Auto-generate demands if empty (same as original Streamlit behavior)
             if month_demands.empty:
@@ -74,11 +75,11 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 weekend_demand = {
                     'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
                 }
-                month_demands = data_manager.generate_month_demands(
+                month_demands = generate_month_demands(
                     request.year, request.month, base_demand, weekend_demand
                 )
                 # Save the generated demands for future use
-                data_manager.save_month_demands(request.year, request.month, month_demands)
+                save_month_demands(request.year, request.month, month_demands)
             
             # Ensure holiday column exists if needed
             if 'holiday' not in month_demands.columns:
@@ -94,6 +95,24 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             roster_data['time_off'].to_csv(temp_path / "time_off.csv", index=False)
             roster_data['locks'].to_csv(temp_path / "locks.csv", index=False)
             
+            # Load leave types and rest codes from database
+            db = SessionLocal()
+            try:
+                all_leave_types = db.query(LeaveType).filter(
+                    LeaveType.is_active == True
+                ).all()
+                leave_codes = [lt.code for lt in all_leave_types]
+                
+                rest_leave_types = [lt for lt in all_leave_types if lt.counts_as_rest == True]
+                rest_codes = [lt.code for lt in rest_leave_types]
+            except Exception as e:
+                # Fallback to default codes if database query fails
+                leave_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O", "CS"]
+                rest_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
+                print(f"Warning: Failed to load leave types from database: {e}. Using defaults.")
+            finally:
+                db.close()
+            
             # Create config
             config_data = {
                 "weights": {
@@ -102,7 +121,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     "area_switching": request.switching_penalty,
                     "do_after_n": 1.0
                 },
-                "rest_codes": ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"],
+                "rest_codes": rest_codes,
+                "leave_codes": leave_codes,  # All active leave codes for the solver
                 "forbidden_adjacencies": [["N", "M"], ["A", "N"]],
                 "weekly_rest_minimum": 1
             }
@@ -111,11 +131,13 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             with open(config_path, 'w') as f:
                 yaml.dump(config_data, f)
             
-            # Load data and solve
-            data = RosterData(temp_path)
+            # Load config first to get leave codes
+            config = RosterConfig(config_path)
+            
+            # Load data with config reference
+            data = RosterData(temp_path, config)
             data.load_data()
             
-            config = RosterConfig(config_path)
             solver = RosterSolver(config)
             
             success, assignments, metrics = solver.solve(
@@ -124,11 +146,12 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             )
             
             if success:
-                # Create schedule dataframe
+                # Create schedule dataframe (pass data so dynamic leave types like CS are included)
                 schedule_df = solver.create_schedule_dataframe(
                     assignments,
                     data.get_employee_names(),
-                    data.get_all_dates()
+                    data.get_all_dates(),
+                    data  # Pass data so CS and other dynamic leave types are included
                 )
                 
                 # Create employee report with updated pending_off values
@@ -179,10 +202,12 @@ async def solve_schedule(
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can generate schedules")
     
-    # Load roster data
-    from roster.app.legacy_streamlit.data_manager import DataManager
-    data_manager = DataManager()
-    roster_data = data_manager.load_initial_data()
+    # Load roster data from database
+    db = next(get_db())
+    try:
+        roster_data = load_roster_data_from_db(db)
+    finally:
+        db.close()
     
     # Create job
     job_id = str(uuid.uuid4())

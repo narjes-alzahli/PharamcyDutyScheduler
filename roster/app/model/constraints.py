@@ -11,13 +11,24 @@ def create_decision_variables(
     employees: List[str],
     dates: List[date],
     shifts: List[str],
-    time_off: Dict[Tuple[str, date], str] = None
+    time_off: Dict[Tuple[str, date], str] = None,
+    leave_codes: Optional[Set[str]] = None
 ) -> Dict[Tuple[str, date, str], cp_model.IntVar]:
     """Create binary decision variables for the optimization model."""
     x = {}
     
+    # Base working shifts that are always available
+    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"}
+    
     # Leave codes that should only be created when explicitly requested
-    leave_only_codes = {"L", "ML", "AL", "W", "UL", "APP", "STL"}
+    # If leave_codes is provided, use it; otherwise infer from shifts list
+    if leave_codes:
+        leave_only_codes = leave_codes - working_shifts
+    else:
+        # Fallback: infer leave codes from shifts list (exclude working shifts)
+        # This ensures we're not hardcoding specific leave types
+        all_shifts_set = set(shifts)
+        leave_only_codes = all_shifts_set - working_shifts
     
     for employee in employees:
         for day in dates:

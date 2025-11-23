@@ -148,28 +148,42 @@ export const EditableTable: React.FC<EditableTableProps> = ({
       <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
         <thead className="bg-gray-50">
           <tr>
-            {columns.map(col => (
+            {columns.map(col => {
+              // Add min-width for number columns to ensure numbers are visible
+              const minWidthClass = col.type === 'number' ? 'min-w-[80px]' : 
+                                   col.readOnly && col.key === 'date' ? 'min-w-[120px]' :
+                                   col.readOnly && col.key === 'day_name' ? 'min-w-[70px]' :
+                                   '';
+              return (
               <th
                 key={col.key}
-                className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300"
+                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 ${minWidthClass}`}
               >
                 {col.label}
               </th>
-            ))}
+              );
+            })}
             {onDeleteRow && <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">Actions</th>}
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {localData.map((row, rowIndex) => (
             <tr key={rowIndex} className="hover:bg-gray-50">
-              {columns.map(col => (
+              {columns.map(col => {
+                // Add min-width for number columns to ensure numbers are visible
+                const minWidthClass = col.type === 'number' ? 'min-w-[80px]' : 
+                                     col.readOnly && col.key === 'date' ? 'min-w-[120px]' :
+                                     col.readOnly && col.key === 'day_name' ? 'min-w-[70px]' :
+                                     '';
+                return (
                 <td
                   key={col.key}
-                  className="px-4 py-2 whitespace-nowrap text-sm border border-gray-300"
+                    className={`px-4 py-2 whitespace-nowrap text-sm border border-gray-300 ${minWidthClass}`}
                 >
                   {renderCell(row, rowIndex, col)}
                 </td>
-              ))}
+                );
+              })}
               {onDeleteRow && (
                 <td className="px-4 py-2 whitespace-nowrap text-sm border border-gray-300">
                   <button

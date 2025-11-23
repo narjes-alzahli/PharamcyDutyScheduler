@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { dataAPI, solverAPI, schedulesAPI, SolveRequest, JobStatus } from '../services/api';
+import { dataAPI, solverAPI, schedulesAPI, SolveRequest, JobStatus, leaveTypesAPI, LeaveType } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
 import { EditableTable } from '../components/EditableTable';
 import { DemandsTab } from '../components/DemandsTab';
@@ -23,7 +23,9 @@ export const RosterGenerator: React.FC = () => {
   const [showAddTimeOff, setShowAddTimeOff] = useState(false);
   const [showAddLock, setShowAddLock] = useState(false);
   const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const contentRef = useRef<HTMLDivElement>(null);
+  const jobNotFoundCountRef = useRef<number>(0);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -32,7 +34,17 @@ export const RosterGenerator: React.FC = () => {
 
   useEffect(() => {
     loadRosterData();
+    loadLeaveTypes();
   }, []);
+
+  const loadLeaveTypes = async () => {
+    try {
+      const types = await leaveTypesAPI.getLeaveTypes(true); // Only active types
+      setLeaveTypes(types);
+    } catch (error) {
+      console.error('Failed to load leave types:', error);
+    }
+  };
 
   // Reload roster data when switching to time-off or shift request steps to show newly approved requests
   useEffect(() => {
@@ -77,6 +89,8 @@ export const RosterGenerator: React.FC = () => {
   const checkJobStatus = async (id: string) => {
     try {
       const status = await solverAPI.getJobStatus(id);
+      // Reset not found count on successful check
+      jobNotFoundCountRef.current = 0;
       setJobStatus(status);
 
       if (status.status === 'completed' && status.result) {
@@ -89,8 +103,27 @@ export const RosterGenerator: React.FC = () => {
         setSolving(false);
         alert(`Solver failed: ${status.error || 'Unknown error'}`);
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Handle 404 gracefully - job might not exist yet (race condition) or was lost
+      if (error.response?.status === 404) {
+        jobNotFoundCountRef.current += 1;
+        // Only stop polling after 3 consecutive 404s (6 seconds) to handle race conditions
+        if (jobNotFoundCountRef.current >= 3) {
+          setSolving(false);
+          setJobId(null);
+          jobNotFoundCountRef.current = 0;
+          alert('Job not found. The backend may have restarted. Please try generating the schedule again.');
+        }
+        // Don't log every 404 to avoid spam - only log the first one
+        if (jobNotFoundCountRef.current === 1) {
+          console.warn('Job not found (may be a race condition or backend restart). Retrying...');
+        }
+      } else {
+        // Other errors - log but don't spam console
+        if (error.response?.status !== 429) { // Don't log rate limit errors
       console.error('Failed to check job status:', error);
+        }
+      }
     }
   };
 
@@ -122,6 +155,7 @@ export const RosterGenerator: React.FC = () => {
       const response = await solverAPI.solve(request);
       setJobId(response.job_id);
       setJobStatus({ job_id: response.job_id, status: 'pending' });
+      jobNotFoundCountRef.current = 0; // Reset not found counter when starting new job
     } catch (error: any) {
       setSolving(false);
       alert(error.response?.data?.detail || 'Failed to start solver');
@@ -244,6 +278,8 @@ export const RosterGenerator: React.FC = () => {
         await dataAPI.updateTimeOff(newData);
         setSaveNotification({ message: '✅ Leave data saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
+        // Reload roster data to get the updated data from database
+        await loadRosterData();
       } catch (error: any) {
         console.error('Failed to save time off:', error);
         setSaveNotification({
@@ -273,6 +309,8 @@ export const RosterGenerator: React.FC = () => {
         await dataAPI.updateLocks(normalizedLocks);
         setSaveNotification({ message: '✅ Shift requests saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
+        // Reload roster data to get the updated data from database
+        await loadRosterData();
       } catch (error: any) {
         console.error('Failed to save shift requests:', error);
         setSaveNotification({
@@ -664,30 +702,39 @@ export const RosterGenerator: React.FC = () => {
               {showAddTimeOff && (
                 <AddTimeOffForm
                   employees={rosterData?.employees?.map((e: any) => e.employee) || []}
+                  leaveTypes={leaveTypes}
                   year={selectedYear || 2025}
                   month={selectedMonth || 1}
                   onSubmit={addTimeOff}
                   onCancel={() => setShowAddTimeOff(false)}
                 />
               )}
-              <EditableTable
+                <EditableTable
                 data={getMonthData(rosterData?.time_off || [], 'from_date')}
-                columns={[
+                  columns={[
                   { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
-                  { key: 'from_date', label: 'From Date', type: 'text' },
-                  { key: 'to_date', label: 'To Date', type: 'text' },
-                  { key: 'code', label: 'Code', type: 'select', options: ['DO', 'ML', 'AL', 'W', 'UL', 'APP', 'STL', 'L', 'O'] },
-                ]}
-                onDataChange={handleTimeOffChange}
-                onDeleteRow={(index) => {
-                  const monthData = getMonthData(rosterData?.time_off || [], 'from_date');
-                  const newData = (rosterData?.time_off || []).filter((item: any) => {
-                    const date = new Date(item.from_date);
-                    return !(date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth && monthData.indexOf(item) === index);
-                  });
-                  handleTimeOffChange(newData);
-                }}
-              />
+                    { key: 'from_date', label: 'From Date', type: 'text' },
+                    { key: 'to_date', label: 'To Date', type: 'text' },
+                  { key: 'code', label: 'Code', type: 'select', options: leaveTypes.map(lt => lt.code) },
+                  ]}
+                  onDataChange={handleTimeOffChange}
+                  onDeleteRow={(index) => {
+                    const monthData = getMonthData(rosterData?.time_off || [], 'from_date');
+                    if (index >= 0 && index < monthData.length) {
+                      const itemToDelete = monthData[index];
+                      // Remove the item by matching all its properties
+                      const newData = (rosterData?.time_off || []).filter((item: any) => {
+                        return !(
+                          item.employee === itemToDelete.employee &&
+                          item.from_date === itemToDelete.from_date &&
+                          item.to_date === itemToDelete.to_date &&
+                          item.code === itemToDelete.code
+                        );
+                    });
+                    handleTimeOffChange(newData);
+                    }
+                  }}
+                />
             </div>
           )}
 
@@ -715,34 +762,46 @@ export const RosterGenerator: React.FC = () => {
                   onCancel={() => setShowAddLock(false)}
                 />
               )}
-              <EditableTable
+                <EditableTable
                 data={getMonthData(rosterData?.locks || [], 'from_date').map((lock: any) => ({
-                  ...lock,
-                  force: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
-                }))}
-                columns={[
+                    ...lock,
+                    force: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
+                  }))}
+                  columns={[
                   { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
-                  { key: 'from_date', label: 'From Date', type: 'text' },
-                  { key: 'to_date', label: 'To Date', type: 'text' },
-                  { key: 'shift', label: 'Shift', type: 'select', options: Array.from(SHIFT_OPTIONS) },
-                  { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
-                ]}
-                onDataChange={(newData) => {
-                  const converted = newData.map((item: any) => ({
-                    ...item,
-                    force: item.force === 'Force (Must)',
-                  }));
-                  handleLocksChange(converted);
-                }}
-                onDeleteRow={(index) => {
-                  const monthData = getMonthData(rosterData?.locks || [], 'from_date');
-                  const newData = (rosterData?.locks || []).filter((item: any) => {
-                    const date = new Date(item.from_date);
-                    return !(date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth && monthData.indexOf(item) === index);
-                  });
-                  handleLocksChange(newData);
-                }}
-              />
+                    { key: 'from_date', label: 'From Date', type: 'text' },
+                    { key: 'to_date', label: 'To Date', type: 'text' },
+                    { key: 'shift', label: 'Shift', type: 'select', options: Array.from(SHIFT_OPTIONS) },
+                    { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
+                  ]}
+                  onDataChange={(newData) => {
+                    const converted = newData.map((item: any) => ({
+                      ...item,
+                      force: item.force === 'Force (Must)',
+                    }));
+                    handleLocksChange(converted);
+                  }}
+                  onDeleteRow={(index) => {
+                    const monthData = getMonthData(rosterData?.locks || [], 'from_date');
+                    if (index >= 0 && index < monthData.length) {
+                      const itemToDelete = monthData[index];
+                      // Remove the item by matching all its properties
+                      const newData = (rosterData?.locks || []).filter((item: any) => {
+                        // Convert force back to boolean for comparison
+                        const itemForce = typeof item.force === 'string' ? item.force === 'Force (Must)' : !!item.force;
+                        const deleteForce = typeof itemToDelete.force === 'string' ? itemToDelete.force === 'Force (Must)' : !!itemToDelete.force;
+                        return !(
+                          item.employee === itemToDelete.employee &&
+                          item.from_date === itemToDelete.from_date &&
+                          item.to_date === itemToDelete.to_date &&
+                          item.shift === itemToDelete.shift &&
+                          itemForce === deleteForce
+                        );
+                    });
+                    handleLocksChange(newData);
+                    }
+                  }}
+                />
             </div>
           )}
 
@@ -833,15 +892,23 @@ export const RosterGenerator: React.FC = () => {
 // Helper components
 const AddTimeOffForm: React.FC<{
   employees: string[];
+  leaveTypes: LeaveType[];
   year: number;
   month: number;
   onSubmit: (employee: string, fromDate: string, toDate: string, code: string) => void;
   onCancel: () => void;
-}> = ({ employees, year, month, onSubmit, onCancel }) => {
+}> = ({ employees, leaveTypes, year, month, onSubmit, onCancel }) => {
   const [employee, setEmployee] = useState(employees[0] || '');
   const [fromDate, setFromDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
   const [toDate, setToDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
-  const [code, setCode] = useState('DO');
+  const [code, setCode] = useState(leaveTypes.length > 0 ? leaveTypes[0].code : '');
+
+  // Update code when leaveTypes loads
+  useEffect(() => {
+    if (leaveTypes.length > 0 && !code) {
+      setCode(leaveTypes[0].code);
+    }
+  }, [leaveTypes, code]);
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
@@ -853,7 +920,11 @@ const AddTimeOffForm: React.FC<{
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="px-3 py-2 border rounded" />
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="px-3 py-2 border rounded" />
         <select value={code} onChange={(e) => setCode(e.target.value)} className="px-3 py-2 border rounded">
-          {['DO', 'ML', 'AL', 'W', 'UL', 'APP', 'STL', 'L', 'O'].map(c => <option key={c} value={c}>{c}</option>)}
+          {leaveTypes.map(lt => (
+            <option key={lt.code} value={lt.code}>
+              {lt.code} - {lt.display_name}
+            </option>
+          ))}
         </select>
       </div>
       <div className="mt-4 flex space-x-2">

@@ -28,9 +28,25 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // Only clear storage and redirect if not already on login page
+      // and not during a login request (to avoid interfering with login flow)
+      const isLoginRequest = error.config?.url?.includes('/auth/login');
+      const isOnLoginPage = window.location.pathname === '/login';
+      
+      if (!isLoginRequest && !isOnLoginPage) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');
+        // Use a flag to prevent redirect loops
+        const shouldRedirect = sessionStorage.getItem('auth_redirect') !== 'blocked';
+        if (shouldRedirect) {
+          sessionStorage.setItem('auth_redirect', 'blocked');
       window.location.href = '/login';
+        }
+      }
+    }
+    // Reset redirect flag on successful requests
+    if (error.config?.url?.includes('/auth/login') && error.response?.status !== 401) {
+      sessionStorage.removeItem('auth_redirect');
     }
     return Promise.reject(error);
   }

@@ -572,8 +572,11 @@ export const UserManagement: React.FC = () => {
         requestsAPI.getAllLeaveRequests(),
         requestsAPI.getAllShiftRequests(),
       ]);
-      setLeaveRequests(leaveRes);
-      setShiftRequests(shiftRes);
+      // Filter out "Added via Roster Generator" requests - those are admin-managed, not employee requests
+      const filteredLeaveRequests = leaveRes.filter((req: any) => req.reason !== 'Added via Roster Generator');
+      const filteredShiftRequests = shiftRes.filter((req: any) => req.reason !== 'Added via Roster Generator');
+      setLeaveRequests(filteredLeaveRequests);
+      setShiftRequests(filteredShiftRequests);
       const pendingCount =
         leaveRes.filter((req: any) => req.status === 'Pending').length +
         shiftRes.filter((req: any) => req.status === 'Pending').length;
@@ -965,75 +968,75 @@ export const UserManagement: React.FC = () => {
           </div>
           {leaveRequests.length > 0 ? (
             <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Employee</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Reason</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Submitted</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Employee</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Reason</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Submitted</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedLeaveRequests.map((req) => (
-                      <tr key={req.request_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.leave_type}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
-                        <td className="px-4 py-3 text-sm border border-gray-300">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            req.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                            req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
-                            'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {req.status}
+                    <tr key={req.request_id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.leave_type}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
+                      <td className="px-4 py-3 text-sm border border-gray-300">
+                        <span className={`px-2 py-1 text-xs rounded-full ${
+                          req.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                          req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {req.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
+                      <td className="px-4 py-3 text-sm border border-gray-300">
+                        {req.status === 'Pending' ? (
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleApproveLeave(req.request_id)}
+                              disabled={processingRequest === req.request_id}
+                              className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50"
+                            >
+                              {processingRequest === req.request_id ? 'Processing...' : 'Approve'}
+                            </button>
+                            <button
+                              onClick={() => handleRejectLeave(req.request_id)}
+                              disabled={processingRequest === req.request_id}
+                              className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLeave(req.request_id)}
+                              disabled={processingRequest === req.request_id}
+                              className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-500">
+                            {req.approved_by && `By ${req.approved_by}`}
+                            {req.approved_at && ` on ${formatDate(req.approved_at)}`}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
-                        <td className="px-4 py-3 text-sm border border-gray-300">
-                          {req.status === 'Pending' ? (
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleApproveLeave(req.request_id)}
-                                disabled={processingRequest === req.request_id}
-                                className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50"
-                              >
-                                {processingRequest === req.request_id ? 'Processing...' : 'Approve'}
-                              </button>
-                              <button
-                                onClick={() => handleRejectLeave(req.request_id)}
-                                disabled={processingRequest === req.request_id}
-                                className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
-                              >
-                                Reject
-                              </button>
-                              <button
-                                onClick={() => handleDeleteLeave(req.request_id)}
-                                disabled={processingRequest === req.request_id}
-                                className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-50"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-500">
-                              {req.approved_by && `By ${req.approved_by}`}
-                              {req.approved_at && ` on ${formatDate(req.approved_at)}`}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
               {leaveTotalPages > 1 && (
                 <Pagination
                   currentPage={leavePage}
@@ -1094,7 +1097,7 @@ export const UserManagement: React.FC = () => {
           </div>
           {shiftRequests.length > 0 ? (
             <>
-              <div className="overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
                 <thead className="bg-gray-50">
                   <tr>
@@ -1164,9 +1167,9 @@ export const UserManagement: React.FC = () => {
                       </td>
                     </tr>
                   ))}
-                  </tbody>
-                </table>
-              </div>
+                </tbody>
+              </table>
+            </div>
               {shiftTotalPages > 1 && (
                 <Pagination
                   currentPage={shiftPage}
@@ -1215,57 +1218,57 @@ export const UserManagement: React.FC = () => {
         <h3 className="text-xl font-bold text-gray-900 mb-4">Employee User Accounts</h3>
         {users.length > 0 ? (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                      Username
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                      Employee Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                      Employee Type
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                      Password
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    Username
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    Employee Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    Employee Type
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    Password
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
                   {paginatedUsers.map((user, index) => (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-300">
-                        {user.username}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                        {user.employee_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                        {user.employee_type}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                        {user.password_hidden}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm border border-gray-300">
-                        <button
-                          onClick={() => handleDeleteUser(user.username, user.employee_name)}
-                          disabled={deleting === user.username || user.username === currentUser?.username}
-                          className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={user.username === currentUser?.username ? "Cannot delete your own account" : "Delete user account"}
-                        >
-                          {deleting === user.username ? 'Deleting...' : 'Delete'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-300">
+                      {user.username}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                      {user.employee_name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                      {user.employee_type}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                      {user.password_hidden}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm border border-gray-300">
+                      <button
+                        onClick={() => handleDeleteUser(user.username, user.employee_name)}
+                        disabled={deleting === user.username || user.username === currentUser?.username}
+                        className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={user.username === currentUser?.username ? "Cannot delete your own account" : "Delete user account"}
+                      >
+                        {deleting === user.username ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
             {usersTotalPages > 1 && (
               <Pagination
                 currentPage={usersPage}

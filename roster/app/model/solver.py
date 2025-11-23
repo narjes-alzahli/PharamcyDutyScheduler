@@ -51,7 +51,9 @@ class RosterSolver:
         }
         
         # Create decision variables with time_off data
-        x = create_decision_variables(model, employees, dates, shifts, time_off)
+        # Pass leave_codes from config so all active leave types are recognized
+        leave_codes_set = set(self.config.leave_codes) if hasattr(self.config, 'leave_codes') and self.config.leave_codes else None
+        x = create_decision_variables(model, employees, dates, shifts, time_off, leave_codes_set)
         locks = {
             (emp, day, shift): data.get_special_requirement_force(emp, day, shift)
             for emp in employees
@@ -109,15 +111,26 @@ class RosterSolver:
         self,
         assignments: Dict[Tuple[str, date, str], int],
         employees: List[str],
-        dates: List[date]
+        dates: List[date],
+        data: RosterData
     ) -> pd.DataFrame:
-        """Create schedule DataFrame from assignments."""
+        """Create schedule DataFrame from assignments.
+        
+        Args:
+            assignments: Dictionary mapping (employee, date, shift) to 1 if assigned
+            employees: List of employee names
+            dates: List of dates in the schedule
+            data: RosterData object to get dynamic shifts (including leave types like CS)
+        """
         rows = []
+        
+        # Get all possible shifts dynamically (includes leave codes like CS)
+        shifts = data.get_shifts()
         
         for emp in employees:
             for day in dates:
                 # Find which shift this employee works on this day
-                for shift in ["M", "O", "IP", "A", "N", "M3", "M4", "H", "DO", "CL", "ML", "AL", "W", "UL", "APP", "STL", "L"]:
+                for shift in shifts:
                     if assignments.get((emp, day, shift), 0) == 1:
                         rows.append({
                             "date": day,

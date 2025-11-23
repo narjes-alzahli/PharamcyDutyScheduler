@@ -3,11 +3,12 @@ import { schedulesAPI, Schedule } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
 import * as htmlToImage from 'html-to-image';
 import { useAuth } from '../contexts/AuthContext';
+import { useDate } from '../contexts/DateContext';
+import { DatePicker } from '../components/DatePicker';
 
 export const SchedulePage: React.FC = () => {
+  const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth } = useDate();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,22 +68,23 @@ export const SchedulePage: React.FC = () => {
     }
   };
 
-  // Get available years and months
-  const availableYears = Array.from(new Set(schedules.map(s => s.year))).sort();
-  const availableMonths = selectedYear
-    ? Array.from(
-        new Set(
-          schedules
-            .filter(s => s.year === selectedYear)
-            .map(s => s.month)
-        )
-      ).sort()
-    : [];
-
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
+
+  // Get available years and months
+  const availableYears = Array.from(new Set(schedules.map(s => s.year))).sort();
+  // Get all available year-month combinations for the combined picker
+  const availableYearMonthCombos = schedules.map(s => ({
+    year: s.year,
+    month: s.month,
+    value: `${s.year}-${s.month}`,
+    label: `${monthNames[s.month - 1]} ${s.year}`
+  })).sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year;
+    return a.month - b.month;
+  });
 
   const handleDownloadImage = async () => {
     if (!scheduleCardRef.current || !selectedYear || !selectedMonth) {
@@ -142,55 +144,11 @@ export const SchedulePage: React.FC = () => {
       ) : (
         <>
           {/* Year and Month Selection */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Year
-                </label>
-                <select
-                  value={selectedYear || ''}
-                  onChange={(e) => {
-                    setSelectedYear(e.target.value ? parseInt(e.target.value) : null);
-                    setSelectedMonth(null);
-                  }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="">Select Year...</option>
-                  {availableYears.map(year => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Month
-                </label>
-                <select
-                  value={selectedMonth || ''}
-                  onChange={(e) => setSelectedMonth(e.target.value ? parseInt(e.target.value) : null)}
-                  disabled={!selectedYear}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-                >
-                  <option value="">Select Month...</option>
-                  {availableMonths.map(month => (
-                    <option key={month} value={month}>
-                      {monthNames[month - 1]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {(!selectedYear || !selectedMonth) && (
-              <div className="mt-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
-                Please select both a year and month to view the schedule.
-              </div>
-            )}
-          </div>
+          <DatePicker 
+            className="mb-6"
+            combined={true}
+            availableYearMonthCombos={availableYearMonthCombos}
+          />
 
           {selectedYear && selectedMonth && currentSchedule && (
             <>

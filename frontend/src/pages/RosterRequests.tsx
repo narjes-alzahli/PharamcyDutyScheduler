@@ -26,7 +26,7 @@ interface ShiftRequest {
 }
 
 export const RosterRequests: React.FC = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('leave');
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [shiftRequests, setShiftRequests] = useState<ShiftRequest[]>([]);
@@ -57,15 +57,39 @@ export const RosterRequests: React.FC = () => {
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wait for auth to finish loading before loading requests
+    if (!authLoading) {
     loadRequests();
-    loadLeaveTypes();
+      loadLeaveTypes();
     // Set default dates to today
     const today = new Date().toISOString().split('T')[0];
     setLeaveFromDate(today);
     setLeaveToDate(today);
     setShiftFromDate(today);
     setShiftToDate(today);
-  }, []);
+    }
+  }, [user, authLoading]);
+
+  // Reload leave types when switching to leave tab to pick up new types
+  useEffect(() => {
+    if (activeTab === 'leave') {
+      loadLeaveTypes();
+    }
+  }, [activeTab]);
+
+  // Reload leave types when page becomes visible (user returns from other pages)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && activeTab === 'leave') {
+        loadLeaveTypes();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeTab]);
 
   const loadLeaveTypes = async () => {
     try {
@@ -83,14 +107,39 @@ export const RosterRequests: React.FC = () => {
   const loadRequests = async () => {
     try {
       setLoading(true);
+      // Check user from localStorage if context user is not loaded yet
+      const currentUser = user || (() => {
+        try {
+          const storedUser = localStorage.getItem('user');
+          return storedUser ? JSON.parse(storedUser) : null;
+        } catch {
+          return null;
+        }
+      })();
+      
+      console.log('Loading requests for user:', currentUser);
+      
+      // If user is a manager, get all requests; otherwise get only their requests
+      const isManager = currentUser?.employee_type === 'Manager';
+      console.log('Is manager?', isManager);
+      
       const [leaveReqs, shiftReqs] = await Promise.all([
-        requestsAPI.getLeaveRequests(),
-        requestsAPI.getShiftRequests(),
+        isManager 
+          ? requestsAPI.getAllLeaveRequests()
+          : requestsAPI.getLeaveRequests(),
+        isManager
+          ? requestsAPI.getAllShiftRequests()
+          : requestsAPI.getShiftRequests(),
       ]);
+      
+      console.log('Loaded leave requests:', leaveReqs.length, leaveReqs);
+      console.log('Loaded shift requests:', shiftReqs.length, shiftReqs);
+      
       setLeaveRequests(leaveReqs);
       setShiftRequests(shiftReqs);
     } catch (error) {
       console.error('Failed to load requests:', error);
+      console.error('Error details:', error);
     } finally {
       setLoading(false);
     }
@@ -151,6 +200,8 @@ export const RosterRequests: React.FC = () => {
       });
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
+      console.error('Error submitting leave request:', error);
+      console.error('Error details:', error.response?.data);
       setNotification({
         message: error.response?.data?.detail || (editingLeaveId ? 'Failed to update leave request' : 'Failed to submit leave request'),
         type: 'error',
@@ -208,7 +259,9 @@ export const RosterRequests: React.FC = () => {
     }
   };
 
-  const handleEditLeave = (req: LeaveRequest) => {
+  const handleEditLeave = async (req: LeaveRequest) => {
+    // Reload leave types to ensure we have the latest types when editing
+    await loadLeaveTypes();
     setActiveTab('leave');
     setEditingLeaveId(req.request_id);
     setLeaveFromDate(req.from_date);

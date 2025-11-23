@@ -3,11 +3,12 @@ import { schedulesAPI, Schedule } from '../services/api';
 import Plot from 'react-plotly.js';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
 import { useAuth } from '../contexts/AuthContext';
+import { useDate } from '../contexts/DateContext';
+import { DatePicker } from '../components/DatePicker';
 
 export const ReportsPage: React.FC = () => {
+  const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth } = useDate();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
@@ -65,15 +66,16 @@ export const ReportsPage: React.FC = () => {
 
   // Get available years and months
   const availableYears = Array.from(new Set(schedules.map(s => s.year))).sort();
-  const availableMonths = selectedYear
-    ? Array.from(
-        new Set(
-          schedules
-            .filter(s => s.year === selectedYear)
-            .map(s => s.month)
-        )
-      ).sort()
-    : [];
+  // Get all available year-month combinations for the combined picker
+  const availableYearMonthCombos = schedules.map(s => ({
+    year: s.year,
+    month: s.month,
+    value: `${s.year}-${s.month}`,
+    label: `${monthNames[s.month - 1]} ${s.year}`
+  })).sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year;
+    return a.month - b.month;
+  });
 
   // Filter schedule data for selected month
   const getMonthSchedule = () => {
@@ -135,47 +137,10 @@ export const ReportsPage: React.FC = () => {
       ) : (
         <>
           {/* Year and Month Selection */}
-          <div className="rounded-lg bg-white p-4 shadow sm:p-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Select Year</label>
-                <select
-                  value={selectedYear || ''}
-                  onChange={(e) => {
-                    setSelectedYear(e.target.value ? parseInt(e.target.value) : null);
-                    setSelectedMonth(null);
-                  }}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">Select Year...</option>
-                  {availableYears.map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Select Month</label>
-                <select
-                  value={selectedMonth || ''}
-                  onChange={(e) => setSelectedMonth(e.target.value ? parseInt(e.target.value) : null)}
-                  disabled={!selectedYear}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-gray-100"
-                >
-                  <option value="">Select Month...</option>
-                  {availableMonths.map(month => (
-                    <option key={month} value={month}>{monthNames[month - 1]}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {(!selectedYear || !selectedMonth) && (
-              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-blue-800">
-                Please select both a year and month to view reports.
-              </div>
-            )}
-          </div>
+          <DatePicker 
+            combined={true}
+            availableYearMonthCombos={availableYearMonthCombos}
+          />
 
           {selectedYear && selectedMonth && currentSchedule && monthSchedule.length > 0 ? (
             <div className="overflow-hidden rounded-lg bg-white shadow">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { shiftColors as defaultShiftColors, getShiftLabel } from '../utils/shiftColors';
+import { leaveTypesAPI, LeaveType } from '../services/api';
 
 interface ScheduleEntry {
   employee: string;
@@ -78,23 +79,66 @@ const adjustColorBrightness = (hexColor: string, factor: number): string => {
 };
 
 export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, month, employees: employeeData }) => {
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  
+  // Load leave types from API to get dynamic colors and labels
+  useEffect(() => {
+    const loadLeaveTypes = async () => {
+      try {
+        const types = await leaveTypesAPI.getLeaveTypes(true); // Only active types
+        setLeaveTypes(types);
+      } catch (error) {
+        console.error('Failed to load leave types:', error);
+      }
+    };
+    loadLeaveTypes();
+  }, []);
+  
+  // Get dynamic shift colors including leave types from database
+  const getDynamicShiftColors = (): Record<string, string> => {
+    const colors: Record<string, string> = { ...defaultShiftColors };
+    // Add leave types with their colors from database (even if not in defaultShiftColors)
+    leaveTypes.forEach(lt => {
+      // Always add leave type, use color from DB or a default
+      colors[lt.code] = lt.color_hex || '#F5F5F5';
+    });
+    return colors;
+  };
+  
+  // Get dynamic shift labels including leave types from database
+  const getDynamicShiftLabel = (shift: string): string => {
+    // Check if it's a leave type from database
+    const leaveType = leaveTypes.find(lt => lt.code === shift);
+    if (leaveType) {
+      return leaveType.display_name || shift;
+    }
+    // Fall back to hardcoded labels
+    return getShiftLabel(shift);
+  };
+  
   // Load custom colors from localStorage or use defaults
   const loadCustomColors = (): Record<string, string> => {
     try {
       const saved = localStorage.getItem('shiftColors');
+      const dynamicColors = getDynamicShiftColors();
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Merge with defaults to ensure all shifts have colors
-        return { ...defaultShiftColors, ...defaultSpecialColors, ...parsed };
+        // Merge: defaults -> dynamic (from DB) -> custom (from localStorage)
+        return { ...dynamicColors, ...defaultSpecialColors, ...parsed };
       }
     } catch (e) {
       console.error('Failed to load custom colors:', e);
     }
-    return { ...defaultShiftColors, ...defaultSpecialColors };
+    return { ...getDynamicShiftColors(), ...defaultSpecialColors };
   };
 
   const [customColors, setCustomColors] = useState<Record<string, string>>(loadCustomColors);
   const [editingColor, setEditingColor] = useState<string | null>(null);
+  
+  // Update colors when leave types load
+  useEffect(() => {
+    setCustomColors(loadCustomColors());
+  }, [leaveTypes]);
 
   // Save colors to localStorage when they change
   useEffect(() => {
@@ -120,7 +164,17 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
 
   // Get shift color (use custom if available, otherwise default)
   const getShiftColor = (shift: string): string => {
-    return customColors[shift] || defaultShiftColors[shift] || '#FFFFFF';
+    // Check custom colors first
+    if (customColors[shift]) {
+      return customColors[shift];
+    }
+    // Check dynamic colors from leave types
+    const dynamicColors = getDynamicShiftColors();
+    if (dynamicColors[shift]) {
+      return dynamicColors[shift];
+    }
+    // Fall back to default
+    return defaultShiftColors[shift] || '#FFFFFF';
   };
 
   // Get month name
@@ -264,6 +318,13 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                       ? weekendColor
                       : baseColor;
                   const isDark = shift === 'M' || shift === 'M3' || shift === 'M4';
+                  // Get display label for shift (for leave types, show display_name from DB)
+                  const displayText = shift ? (() => {
+                    const leaveType = leaveTypes.find(lt => lt.code === shift);
+                    // For leave types from DB, optionally show display name, otherwise just code
+                    // But usually we just show the code (CS, AL, etc.) for consistency
+                    return shift;
+                  })() : '';
 
                   return (
                     <td
@@ -273,9 +334,9 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                         backgroundColor,
                         color: isDark ? '#000000' : '#000000',
                       }}
-                      title={shift ? `${employee} - ${getShiftLabel(shift)}` : `${employee} - No shift`}
+                      title={shift ? `${employee} - ${getDynamicShiftLabel(shift)}` : `${employee} - No shift`}
                     >
-                      {shift || ''}
+                      {displayText}
                     </td>
                   );
                 })}
@@ -356,13 +417,31 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
           {[
-            ...Object.entries(defaultShiftColors)
-              .filter(([shift]) => shift && shift !== '0' && shift !== '')
+            // Get all shifts used in the schedule + default colors + leave types from database
+            ...(() => {
+              // Get all unique shifts from the schedule
+              const shiftsInSchedule = new Set(schedule.map(entry => entry.shift).filter(Boolean));
+              
+              // Start with dynamic colors (includes leave types from DB)
+              const allColors = getDynamicShiftColors();
+              
+              // Ensure all shifts from schedule have a color entry (even if not in defaults or DB yet)
+              shiftsInSchedule.forEach(shift => {
+                if (!allColors[shift] && shift && shift !== '0' && shift !== '') {
+                  // Try to find leave type in DB
+                  const leaveType = leaveTypes.find(lt => lt.code === shift);
+                  allColors[shift] = leaveType?.color_hex || '#F5F5F5'; // Default gray if not found
+                }
+              });
+              
+              return Object.entries(allColors)
+                .filter(([shift]) => shift && shift !== '0' && shift !== '' && !shift.startsWith('__'))
               .map(([shift, defaultColor]) => ({
                 key: shift,
                 defaultColor,
-                label: `${shift}: ${getShiftLabel(shift)}`,
-              })),
+                  label: `${shift}: ${getDynamicShiftLabel(shift)}`,
+                }));
+            })(),
             {
               key: SPECIAL_COLOR_KEYS.weekend,
               defaultColor: defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend],

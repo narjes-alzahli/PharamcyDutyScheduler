@@ -98,7 +98,7 @@ class TestSampleData:
             employees = data.get_employee_names()
             dates = data.get_all_dates()
             
-            schedule_df = solver.create_schedule_dataframe(assignments, employees, dates)
+            schedule_df = solver.create_schedule_dataframe(assignments, employees, dates, data)
             assert len(schedule_df) > 0
             assert "date" in schedule_df.columns
             assert "employee" in schedule_df.columns
