@@ -166,19 +166,63 @@ def save_month_demands(year: int, month: int, demands_df: pd.DataFrame):
 
 def generate_month_demands(year: int, month: int, base_demand: Dict[str, int], 
                            weekend_demand: Dict[str, int]) -> pd.DataFrame:
-    """Generate default demands for a month."""
+    """Generate default demands for a month.
+    
+    Special handling for H shifts: They are distributed randomly across weekdays only,
+    not applied to every weekday. The base_demand['H'] value represents the number
+    of H shifts per week to distribute randomly.
+    """
     import calendar
+    import random
     
     # Get all dates in the month
     num_days = calendar.monthrange(year, month)[1]
     dates = [date(year, month, day) for day in range(1, num_days + 1)]
+    
+    # Extract H shifts per week from base_demand (default to 3)
+    # IMPORTANT: H shifts are distributed randomly across weekdays, NOT applied to every weekday
+    h_shifts_per_week = base_demand.get('H', 3)
+    
+    # Create a copy of base_demand WITHOUT H (we'll handle H separately via random distribution)
+    base_demand_no_h = {k: v for k, v in base_demand.items() if k != 'H'}
+    # Explicitly ensure H is not in base_demand_no_h
+    if 'H' in base_demand_no_h:
+        del base_demand_no_h['H']
+    
+    # Get all weekdays (Monday=0 to Friday=4)
+    weekdays = [d for d in dates if d.weekday() < 5]
+    
+    # Group weekdays by week (using year-week as key to handle month boundaries)
+    weeks = {}
+    for d in weekdays:
+        iso_year, iso_week, _ = d.isocalendar()
+        week_key = (iso_year, iso_week)
+        if week_key not in weeks:
+            weeks[week_key] = []
+        weeks[week_key].append(d)
+    
+    # Randomly distribute H shifts across weekdays, h_shifts_per_week per week
+    # Each selected weekday gets exactly 1 H shift (not h_shifts_per_week)
+    h_assignments = {}  # date -> count (should be 0 or 1)
+    for week_key, week_days in weeks.items():
+        # Only assign if there are enough weekdays in the week
+        num_to_assign = min(h_shifts_per_week, len(week_days))
+        if num_to_assign > 0:
+            # Randomly select num_to_assign days from this week's weekdays
+            # Each selected day gets 1 H shift
+            selected_days = random.sample(week_days, num_to_assign)
+            for day in selected_days:
+                h_assignments[day] = 1  # Each day gets exactly 1 H shift
     
     records = []
     for d in dates:
         weekday = d.weekday()  # 0 = Monday, 6 = Sunday
         is_weekend = weekday >= 5  # Saturday (5) or Sunday (6)
         
-        demand = weekend_demand if is_weekend else base_demand
+        demand = weekend_demand if is_weekend else base_demand_no_h
+        
+        # For H shifts, use the random assignment if it's a weekday, otherwise 0
+        h_count = h_assignments.get(d, 0) if not is_weekend else 0
         
         record = {
             'date': d,
@@ -188,7 +232,7 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
             'need_N': demand.get('N', 0),
             'need_M3': demand.get('M3', 0),
             'need_M4': demand.get('M4', 0),
-            'need_H': demand.get('H', 0),
+            'need_H': h_count,
             'need_CL': demand.get('CL', 0),
             'holiday': ''
         }
