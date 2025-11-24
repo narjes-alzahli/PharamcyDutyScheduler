@@ -567,6 +567,13 @@ export const UserManagement: React.FC = () => {
   }, [activeTab, currentUser]);
 
   const loadRequests = async () => {
+    // Double-check user is manager before making API calls
+    if (!currentUser || currentUser.employee_type !== 'Manager') {
+      setLeaveRequests([]);
+      setShiftRequests([]);
+      return;
+    }
+
     try {
       const [leaveRes, shiftRes] = await Promise.all([
         requestsAPI.getAllLeaveRequests(),
@@ -583,8 +590,13 @@ export const UserManagement: React.FC = () => {
       window.dispatchEvent(
         new CustomEvent('pendingRequestsUpdated', { detail: { count: pendingCount } })
       );
-    } catch (error) {
-      console.error('Failed to load requests:', error);
+    } catch (error: any) {
+      // Silently handle 403 errors (non-managers) - already handled in API
+      if (error.response?.status !== 403) {
+        console.error('Failed to load requests:', error);
+      }
+      setLeaveRequests([]);
+      setShiftRequests([]);
     }
   };
 

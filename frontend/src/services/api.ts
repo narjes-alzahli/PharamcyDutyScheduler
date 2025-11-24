@@ -239,8 +239,16 @@ export const requestsAPI = {
     return response.data;
   },
   getAllLeaveRequests: async (): Promise<any[]> => {
-    const response = await api.get('/api/requests/leave/all');
-    return response.data;
+    try {
+      const response = await api.get('/api/requests/leave/all');
+      return response.data;
+    } catch (error: any) {
+      // Handle 403 Forbidden (non-managers) gracefully
+      if (error.response?.status === 403) {
+        return [];
+      }
+      throw error;
+    }
   },
   createLeaveRequest: async (request: LeaveRequest): Promise<void> => {
     await api.post('/api/requests/leave', request);
@@ -264,8 +272,16 @@ export const requestsAPI = {
     return response.data;
   },
   getAllShiftRequests: async (): Promise<any[]> => {
-    const response = await api.get('/api/requests/shift/all');
-    return response.data;
+    try {
+      const response = await api.get('/api/requests/shift/all');
+      return response.data;
+    } catch (error: any) {
+      // Handle 403 Forbidden (non-managers) gracefully
+      if (error.response?.status === 403) {
+        return [];
+      }
+      throw error;
+    }
   },
   createShiftRequest: async (request: ShiftRequest): Promise<void> => {
     await api.post('/api/requests/shift', request);

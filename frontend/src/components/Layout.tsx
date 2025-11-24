@@ -43,7 +43,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   useEffect(() => {
     const fetchPendingRequests = async () => {
-      if (user?.employee_type !== 'Manager') {
+      // Wait for user to be loaded and check if manager
+      if (!user || user?.employee_type !== 'Manager') {
         setPendingRequestCount(0);
         return;
       }
@@ -57,8 +58,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         const leavePending = leaveRes.filter((req: any) => req.status === 'Pending').length;
         const shiftPending = shiftRes.filter((req: any) => req.status === 'Pending').length;
         setPendingRequestCount(leavePending + shiftPending);
-      } catch (error) {
-        console.error('Failed to fetch pending requests:', error);
+      } catch (error: any) {
+        // Silently handle 403 errors (non-managers) - already handled in API
+        if (error.response?.status !== 403) {
+          console.error('Failed to fetch pending requests:', error);
+        }
+        setPendingRequestCount(0);
       }
     };
 
