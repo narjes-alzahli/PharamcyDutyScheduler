@@ -17,7 +17,7 @@ from backend.routers.auth import get_current_user
 from backend.database import get_db
 from backend.utils import hash_password
 from backend.roster_data_loader import load_roster_data_from_db, load_month_demands, save_month_demands, generate_month_demands
-from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest
+from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType
 from sqlalchemy.orm import Session
 from datetime import date
 
@@ -322,11 +322,26 @@ async def get_roster_data(
     else:
         demands_df = pd.DataFrame()
     
+    # Convert date objects to ISO strings for JSON serialization
+    time_off_records = roster_data['time_off'].to_dict('records')
+    for record in time_off_records:
+        if isinstance(record.get('from_date'), date):
+            record['from_date'] = record['from_date'].isoformat()
+        if isinstance(record.get('to_date'), date):
+            record['to_date'] = record['to_date'].isoformat()
+    
+    locks_records = roster_data['locks'].to_dict('records')
+    for record in locks_records:
+        if isinstance(record.get('from_date'), date):
+            record['from_date'] = record['from_date'].isoformat()
+        if isinstance(record.get('to_date'), date):
+            record['to_date'] = record['to_date'].isoformat()
+    
     return {
         "employees": roster_data['employees'].to_dict('records'),
         "demands": demands_df.to_dict('records') if not demands_df.empty else [],
-        "time_off": roster_data['time_off'].to_dict('records'),
-        "locks": roster_data['locks'].to_dict('records')
+        "time_off": time_off_records,
+        "locks": locks_records
     }
 
 
@@ -336,68 +351,128 @@ async def update_time_off(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Save time off entries as leave requests in the database."""
+    """Save time off entries as leave requests OR shift requests in the database.
+    
+    Note: Non-standard shifts (like MS, C) appear in time_off but are actually shift requests
+    with force=True. This endpoint handles both cases.
+    """
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can update time off data")
 
     import logging
     logger = logging.getLogger(__name__)
+    logger.info(f"Received {len(entries)} time-off entries to save")
     
-    # Delete ALL existing "Added via Roster Generator" requests
-    # This ensures deletions are handled correctly even if an employee has no entries in the new list
-    all_deleted = db.query(LeaveRequest).filter(
+    # Delete ALL existing "Added via Roster Generator" leave requests
+    leave_deleted = db.query(LeaveRequest).filter(
         LeaveRequest.reason == 'Added via Roster Generator'
     ).delete(synchronize_session=False)
-    logger.info(f"Deleted {all_deleted} existing roster generator leave requests")
     
-    # Group entries by employee, from_date, to_date, and code to create leave requests
-    # Each unique combination should be one leave request
-    processed = set()
-    created_count = 0
+    # Delete ALL existing "Added via Roster Generator" shift requests with force=True
+    # (These are non-standard shifts that appear in time_off)
+    shift_deleted = db.query(ShiftRequest).filter(
+        ShiftRequest.reason == 'Added via Roster Generator',
+        ShiftRequest.force == True
+    ).delete(synchronize_session=False)
+    
+    db.commit()  # Commit the deletions before creating new ones
+    logger.info(f"Deleted {leave_deleted} leave requests and {shift_deleted} shift requests")
+    
+    # Separate entries into leave types and shift types
+    STANDARD_WORKING_SHIFTS = {'M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'}
+    
+    leave_entries = []
+    shift_entries = []
     
     for entry in entries:
-        # Create a unique key for this entry
-        key = (entry.employee, entry.from_date, entry.to_date, entry.code)
-        if key in processed:
-            continue
-        processed.add(key)
+        # Check if code is a shift type or leave type
+        shift_type = db.query(ShiftType).filter(ShiftType.code == entry.code).first()
+        leave_type = db.query(LeaveType).filter(LeaveType.code == entry.code).first()
         
-        # Find user by employee_name
+        # If it's a shift type (especially non-standard), treat as shift request
+        # Non-standard shifts with force=True appear in time_off
+        if shift_type:
+            shift_entries.append(entry)
+        elif leave_type:
+            leave_entries.append(entry)
+        else:
+            logger.warning(f"Code '{entry.code}' not found as shift or leave type, skipping")
+    
+    # Process leave entries
+    processed_leave = set()
+    created_leave_count = 0
+    
+    for entry in leave_entries:
+        key = (entry.employee, entry.from_date, entry.to_date, entry.code)
+        if key in processed_leave:
+            continue
+        processed_leave.add(key)
+        
         user = db.query(User).filter(User.employee_name == entry.employee).first()
         if not user:
-            # Skip if employee doesn't have a user account
             continue
         
-        # Find leave type by code
         leave_type = db.query(LeaveType).filter(LeaveType.code == entry.code).first()
         if not leave_type:
-            # Skip if leave type doesn't exist
-            logger.warning(f"Leave type not found: {entry.code}")
             continue
         
-        # Parse dates
         from_date = date.fromisoformat(entry.from_date)
         to_date = date.fromisoformat(entry.to_date)
         
-        # Create new leave request (auto-approved for managers adding via Roster Generator)
         new_request = LeaveRequest(
             user_id=user.id,
             leave_type_id=leave_type.id,
             from_date=from_date,
             to_date=to_date,
             reason='Added via Roster Generator',
-            status=RequestStatus.APPROVED  # Auto-approve when manager adds via Roster Generator
+            status=RequestStatus.APPROVED
         )
         db.add(new_request)
-        created_count += 1
+        created_leave_count += 1
         logger.info(f"Created leave request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code}")
     
+    # Process shift entries (non-standard shifts with force=True)
+    processed_shift = set()
+    created_shift_count = 0
+    
+    for entry in shift_entries:
+        key = (entry.employee, entry.from_date, entry.to_date, entry.code)
+        if key in processed_shift:
+            continue
+        processed_shift.add(key)
+        
+        user = db.query(User).filter(User.employee_name == entry.employee).first()
+        if not user:
+            continue
+        
+        shift_type = db.query(ShiftType).filter(ShiftType.code == entry.code).first()
+        if not shift_type:
+            continue
+        
+        from_date = date.fromisoformat(entry.from_date)
+        to_date = date.fromisoformat(entry.to_date)
+        
+        # Create shift request with force=True (for non-standard shifts that appear in time_off)
+        new_request = ShiftRequest(
+            user_id=user.id,
+            shift_type_id=shift_type.id,
+            from_date=from_date,
+            to_date=to_date,
+            force=True,  # force=True means "must have this shift"
+            reason='Added via Roster Generator',
+            status=RequestStatus.APPROVED
+        )
+        db.add(new_request)
+        created_shift_count += 1
+        logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
+    
     db.commit()
-    logger.info(f"Committed {created_count} new leave requests")
+    total_created = created_leave_count + created_shift_count
+    logger.info(f"Committed {created_leave_count} leave requests and {created_shift_count} shift requests (total: {total_created})")
     
     return {
-        "message": f"Time off saved as leave requests ({created_count} created)",
-        "created": created_count
+        "message": f"Time off saved ({created_leave_count} leave, {created_shift_count} shift requests)",
+        "created": total_created
     }
 
 
@@ -414,11 +489,14 @@ async def update_locks(
     import logging
     logger = logging.getLogger(__name__)
     
+    logger.info(f"Received {len(entries)} shift lock entries to save")
+    
     # Delete ALL existing "Added via Roster Generator" shift requests
     # This ensures deletions are handled correctly even if an employee has no entries in the new list
     all_deleted = db.query(ShiftRequest).filter(
         ShiftRequest.reason == 'Added via Roster Generator'
     ).delete(synchronize_session=False)
+    db.commit()  # Commit the deletion before creating new ones
     logger.info(f"Deleted {all_deleted} existing roster generator shift requests")
     
     # Group entries by employee, from_date, to_date, shift, and force to create shift requests
@@ -443,10 +521,16 @@ async def update_locks(
         from_date = date.fromisoformat(entry.from_date)
         to_date = date.fromisoformat(entry.to_date)
         
+        # Find shift type by code
+        shift_type = db.query(ShiftType).filter(ShiftType.code == entry.shift).first()
+        if not shift_type:
+            logger.warning(f"Shift type not found: {entry.shift} for employee {entry.employee}")
+            continue
+        
         # Create new shift request (auto-approved for managers adding via Roster Generator)
         new_request = ShiftRequest(
             user_id=user.id,
-            shift=entry.shift,
+            shift_type_id=shift_type.id,
             from_date=from_date,
             to_date=to_date,
             force=entry.force,
@@ -496,15 +580,15 @@ async def generate_demands(
     # Save to month-specific file
     save_month_demands(request.year, request.month, new_demands)
     
-        # Convert dates to strings for response
-        new_demands = new_demands.copy()
-        if 'date' in new_demands.columns:
-            new_demands['date'] = pd.to_datetime(new_demands['date'], errors='coerce').dt.strftime('%Y-%m-%d')
-        
-        return {
-            "message": "Demands generated successfully",
-            "demands": new_demands.to_dict('records')
-        }
+    # Convert dates to strings for response
+    new_demands = new_demands.copy()
+    if 'date' in new_demands.columns:
+        new_demands['date'] = pd.to_datetime(new_demands['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+    
+    return {
+        "message": "Demands generated successfully",
+        "demands": new_demands.to_dict('records')
+    }
 
 
 @router.get("/demands/month/{year}/{month}")
@@ -544,5 +628,5 @@ async def save_month_demands(
     
     demands_df = pd.DataFrame(demands)
     save_month_demands(year, month, demands_df)
-        return {"message": "Demands saved successfully"}
+    return {"message": "Demands saved successfully"}
 

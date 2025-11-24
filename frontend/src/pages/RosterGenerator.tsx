@@ -266,6 +266,7 @@ export const RosterGenerator: React.FC = () => {
   };
 
   const handleTimeOffChange = (newData: any[]) => {
+    console.log('handleTimeOffChange called with', newData.length, 'items:', newData);
     clearGeneratedResults();
     setRosterData((prev: any) => (prev ? { ...prev, time_off: newData } : prev));
 
@@ -275,11 +276,14 @@ export const RosterGenerator: React.FC = () => {
 
     timeOffSaveTimeoutRef.current = setTimeout(async () => {
       try {
+        console.log('Saving time-off data to backend:', newData.length, 'items');
         await dataAPI.updateTimeOff(newData);
+        console.log('Successfully saved time-off data');
         setSaveNotification({ message: '✅ Leave data saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
         // Reload roster data to get the updated data from database
         await loadRosterData();
+        console.log('Reloaded roster data from database');
       } catch (error: any) {
         console.error('Failed to save time off:', error);
         setSaveNotification({
@@ -710,7 +714,10 @@ export const RosterGenerator: React.FC = () => {
                 />
               )}
                 <EditableTable
-                data={getMonthData(rosterData?.time_off || [], 'from_date')}
+                data={getMonthData((rosterData?.time_off || []).filter((item: any) => {
+                    // Only show actual leave types in Time Off tab (filter out shift codes like MS, C)
+                    return leaveTypes.some(lt => lt.code === item.code);
+                  }), 'from_date')}
                   columns={[
                   { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
@@ -719,18 +726,37 @@ export const RosterGenerator: React.FC = () => {
                   ]}
                   onDataChange={handleTimeOffChange}
                   onDeleteRow={(index) => {
-                    const monthData = getMonthData(rosterData?.time_off || [], 'from_date');
+                    // Filter to only leave types (not shift codes) for display
+                    const filteredTimeOff = (rosterData?.time_off || []).filter((item: any) => 
+                      leaveTypes.some(lt => lt.code === item.code)
+                    );
+                    const monthData = getMonthData(filteredTimeOff, 'from_date');
                     if (index >= 0 && index < monthData.length) {
                       const itemToDelete = monthData[index];
-                      // Remove the item by matching all its properties
-                      const newData = (rosterData?.time_off || []).filter((item: any) => {
-                        return !(
-                          item.employee === itemToDelete.employee &&
-                          item.from_date === itemToDelete.from_date &&
-                          item.to_date === itemToDelete.to_date &&
-                          item.code === itemToDelete.code
-                        );
+                      console.log('🗑️ Deleting time-off item:', itemToDelete);
+                      
+                      // Normalize dates to ISO strings (YYYY-MM-DD) for comparison
+                      const normalizeDate = (d: any): string => {
+                        if (!d) return '';
+                        if (typeof d === 'string') {
+                          return d.split('T')[0];
+                        }
+                        if (d instanceof Date) {
+                          return d.toISOString().split('T')[0];
+                        }
+                        return String(d);
+                      };
+                      
+                      const deleteKey = `${itemToDelete.employee}|${normalizeDate(itemToDelete.from_date)}|${normalizeDate(itemToDelete.to_date)}|${itemToDelete.code}`;
+                      
+                      // Remove from ALL time_off (including shift codes for solver, but we only show leave types in UI)
+                      const allTimeOff = rosterData?.time_off || [];
+                      const newData = allTimeOff.filter((item: any) => {
+                        const itemKey = `${item.employee}|${normalizeDate(item.from_date)}|${normalizeDate(item.to_date)}|${item.code}`;
+                        return itemKey !== deleteKey;
                     });
+                    
+                    console.log(`📊 Filtered ${allTimeOff.length} items to ${newData.length} items`);
                     handleTimeOffChange(newData);
                     }
                   }}
@@ -785,15 +811,27 @@ export const RosterGenerator: React.FC = () => {
                     const monthData = getMonthData(rosterData?.locks || [], 'from_date');
                     if (index >= 0 && index < monthData.length) {
                       const itemToDelete = monthData[index];
-                      // Remove the item by matching all its properties
+                      // Normalize dates to ISO strings for comparison
+                      const normalizeDate = (d: any) => {
+                        if (!d) return '';
+                        if (typeof d === 'string') return d.split('T')[0]; // Extract YYYY-MM-DD from ISO string
+                        if (d instanceof Date) return d.toISOString().split('T')[0];
+                        return String(d);
+                      };
+                      
+                      const deleteFromDate = normalizeDate(itemToDelete.from_date);
+                      const deleteToDate = normalizeDate(itemToDelete.to_date);
+                      const deleteForce = typeof itemToDelete.force === 'string' ? itemToDelete.force === 'Force (Must)' : !!itemToDelete.force;
+                      
+                      // Remove the item by matching all its properties (normalize dates for comparison)
                       const newData = (rosterData?.locks || []).filter((item: any) => {
-                        // Convert force back to boolean for comparison
+                        const itemFromDate = normalizeDate(item.from_date);
+                        const itemToDate = normalizeDate(item.to_date);
                         const itemForce = typeof item.force === 'string' ? item.force === 'Force (Must)' : !!item.force;
-                        const deleteForce = typeof itemToDelete.force === 'string' ? itemToDelete.force === 'Force (Must)' : !!itemToDelete.force;
                         return !(
                           item.employee === itemToDelete.employee &&
-                          item.from_date === itemToDelete.from_date &&
-                          item.to_date === itemToDelete.to_date &&
+                          itemFromDate === deleteFromDate &&
+                          itemToDate === deleteToDate &&
                           item.shift === itemToDelete.shift &&
                           itemForce === deleteForce
                         );
@@ -922,7 +960,7 @@ const AddTimeOffForm: React.FC<{
         <select value={code} onChange={(e) => setCode(e.target.value)} className="px-3 py-2 border rounded">
           {leaveTypes.map(lt => (
             <option key={lt.code} value={lt.code}>
-              {lt.code} - {lt.display_name}
+              {lt.code} - {lt.description}
             </option>
           ))}
         </select>

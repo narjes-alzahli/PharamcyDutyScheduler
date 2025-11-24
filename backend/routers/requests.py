@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime, date
 from typing import Optional, Dict, Any
 import sys
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
@@ -19,6 +19,7 @@ from backend.models import (
     LeaveRequest as LeaveRequestModel,
     ShiftRequest as ShiftRequestModel,
     LeaveType,
+    ShiftType,
     RequestStatus,
     User
 )
@@ -66,7 +67,7 @@ def shift_request_to_dict(req: ShiftRequestModel) -> Dict[str, Any]:
         'employee': req.user.employee_name,
         'from_date': req.from_date.isoformat(),
         'to_date': req.to_date.isoformat(),
-        'shift': req.shift,
+        'shift': req.shift_type.code if req.shift_type else 'UNKNOWN',  # Use shift_type.code
         'force': req.force,
         'reason': req.reason or '',
         'status': req.status.value,
@@ -83,7 +84,7 @@ def parse_request_id(request_id: str) -> Optional[int]:
             return int(request_id.split('_')[1])
         elif request_id.startswith('SR_'):
             return int(request_id.split('_')[1])
-        except (IndexError, ValueError):
+    except (IndexError, ValueError):
         pass
     return None
 
@@ -230,7 +231,10 @@ async def get_shift_requests(
         return []
     
     # Exclude "Added via Roster Generator" requests - those are admin-managed, not employee requests
-    requests = db.query(ShiftRequestModel).filter(
+    requests = db.query(ShiftRequestModel).options(
+        joinedload(ShiftRequestModel.shift_type),
+        joinedload(ShiftRequestModel.user)
+    ).filter(
         ShiftRequestModel.user_id == user.id,
         ShiftRequestModel.reason != 'Added via Roster Generator'
     ).order_by(ShiftRequestModel.submitted_at.desc()).all()
@@ -253,24 +257,34 @@ async def create_shift_request(
 
     force = request.request_type == "Force (Must)"
     
-    # Try database first
+    # Find shift type by code
+    shift_type = db.query(ShiftType).filter(ShiftType.code == request.shift).first()
+    if not shift_type:
+        raise HTTPException(status_code=400, detail=f"Shift type '{request.shift}' not found")
+    
     user = db.query(User).filter(User.employee_name == current_user['employee_name']).first()
-    if user:
-        new_request = ShiftRequestModel(
-            user_id=user.id,
-            shift=request.shift,
-            from_date=from_date,
-            to_date=to_date,
-            force=force,
-            reason=request.reason or '',
-            status=RequestStatus.PENDING
-        )
-        db.add(new_request)
-        db.commit()
-        db.refresh(new_request)
-        
-        return {"message": "Shift request submitted successfully", "request": shift_request_to_dict(new_request)}
-    return {"message": "Shift request submitted successfully", "request": new_request}
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    new_request = ShiftRequestModel(
+        user_id=user.id,
+        shift_type_id=shift_type.id,
+        from_date=from_date,
+        to_date=to_date,
+        force=force,
+        reason=request.reason or '',
+        status=RequestStatus.PENDING
+    )
+    db.add(new_request)
+    db.commit()
+    db.refresh(new_request)
+    # Reload with relationships for serialization
+    new_request = db.query(ShiftRequestModel).options(
+        joinedload(ShiftRequestModel.shift_type),
+        joinedload(ShiftRequestModel.user)
+    ).filter(ShiftRequestModel.id == new_request.id).first()
+    
+    return {"message": "Shift request submitted successfully", "request": shift_request_to_dict(new_request)}
 
 
 @router.put("/shift/{request_id}")
@@ -281,17 +295,23 @@ async def update_shift_request(
     db: Session = Depends(get_db)
 ):
     """Update an existing shift request while it is pending."""
-    # Try database first
     db_id = parse_request_id(request_id)
-    if db_id:
-        req = db.query(ShiftRequestModel).filter(ShiftRequestModel.id == db_id).first()
-        if req:
-            # Check authorization
-            if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
+    if not db_id:
+        raise HTTPException(status_code=404, detail="Shift request not found")
+    
+    req = db.query(ShiftRequestModel).options(
+        joinedload(ShiftRequestModel.shift_type),
+        joinedload(ShiftRequestModel.user)
+    ).filter(ShiftRequestModel.id == db_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Shift request not found")
+
+    # Check authorization
+    if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
         raise HTTPException(status_code=403, detail="Not authorized to modify this request")
 
-            if req.status != RequestStatus.PENDING:
-                raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
+    if req.status != RequestStatus.PENDING:
+        raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
 
     from_date = date.fromisoformat(update.from_date)
     to_date = date.fromisoformat(update.to_date)
@@ -300,17 +320,20 @@ async def update_shift_request(
 
     force = update.request_type == "Force (Must)"
 
-            req.from_date = from_date
-            req.to_date = to_date
-            req.shift = update.shift
-            req.force = force
-            req.reason = update.reason or ''
-            db.commit()
-            db.refresh(req)
+    # Find shift type by code
+    shift_type = db.query(ShiftType).filter(ShiftType.code == update.shift).first()
+    if not shift_type:
+        raise HTTPException(status_code=400, detail=f"Shift type '{update.shift}' not found")
 
-            return {"message": "Shift request updated successfully", "request": shift_request_to_dict(req)}
-    
-    raise HTTPException(status_code=404, detail="Shift request not found")
+    req.from_date = from_date
+    req.to_date = to_date
+    req.shift_type_id = shift_type.id
+    req.force = force
+    req.reason = update.reason or ''
+    db.commit()
+    db.refresh(req)
+
+    return {"message": "Shift request updated successfully", "request": shift_request_to_dict(req)}
 
 
 @router.delete("/shift/{request_id}")
@@ -323,18 +346,21 @@ async def delete_shift_request(
     # Try database first
     db_id = parse_request_id(request_id)
     if db_id:
-        req = db.query(ShiftRequestModel).filter(ShiftRequestModel.id == db_id).first()
+        req = db.query(ShiftRequestModel).options(
+            joinedload(ShiftRequestModel.shift_type),
+            joinedload(ShiftRequestModel.user)
+        ).filter(ShiftRequestModel.id == db_id).first()
         if req:
             # Check authorization
             if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this request")
+                raise HTTPException(status_code=403, detail="Not authorized to delete this request")
 
             if req.status != RequestStatus.PENDING:
                 raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
             
             db.delete(req)
             db.commit()
-    return {"message": "Shift request deleted successfully"}
+            return {"message": "Shift request deleted successfully"}
     
     raise HTTPException(status_code=404, detail="Shift request not found")
 
@@ -365,7 +391,10 @@ async def get_all_shift_requests(
         raise HTTPException(status_code=403, detail="Only managers can view all requests")
     
     # Get all requests except "Added via Roster Generator" (those are admin-managed, not employee requests)
-    requests = db.query(ShiftRequestModel).filter(
+    requests = db.query(ShiftRequestModel).options(
+        joinedload(ShiftRequestModel.shift_type),
+        joinedload(ShiftRequestModel.user)
+    ).filter(
         ShiftRequestModel.reason != 'Added via Roster Generator'
     ).order_by(ShiftRequestModel.submitted_at.desc()).all()
     return [shift_request_to_dict(req) for req in requests]
@@ -395,33 +424,33 @@ async def approve_leave_request(
             db.commit()
     
             # Add to time_off CSV (legacy integration)
-    try:
-        import pandas as pd
-        time_off_file = Path("roster/app/data/time_off.csv")
-        if time_off_file.exists():
-            time_off_df = pd.read_csv(time_off_file)
-        else:
-            time_off_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'code'])
-        
-        existing = time_off_df[
+            try:
+                import pandas as pd
+                time_off_file = Path("roster/app/data/time_off.csv")
+                if time_off_file.exists():
+                    time_off_df = pd.read_csv(time_off_file)
+                else:
+                    time_off_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'code'])
+                
+                existing = time_off_df[
                     (time_off_df['employee'] == req.user.employee_name) &
                     (time_off_df['from_date'] == req.from_date.isoformat()) &
                     (time_off_df['to_date'] == req.to_date.isoformat()) &
                     (time_off_df['code'] == req.leave_type.code)
-        ]
-        
-        if existing.empty:
-            new_entry = pd.DataFrame([{
+                ]
+                
+                if existing.empty:
+                    new_entry = pd.DataFrame([{
                         'employee': req.user.employee_name,
                         'from_date': req.from_date.isoformat(),
                         'to_date': req.to_date.isoformat(),
                         'code': req.leave_type.code
-            }])
-            time_off_df = pd.concat([time_off_df, new_entry], ignore_index=True)
-            time_off_file.parent.mkdir(parents=True, exist_ok=True)
-            time_off_df.to_csv(time_off_file, index=False)
-    except Exception as e:
-        print(f"Warning: Failed to add approved leave to roster: {e}")
+                    }])
+                    time_off_df = pd.concat([time_off_df, new_entry], ignore_index=True)
+                    time_off_file.parent.mkdir(parents=True, exist_ok=True)
+                    time_off_df.to_csv(time_off_file, index=False)
+            except Exception as e:
+                print(f"Warning: Failed to add approved leave to roster: {e}")
     
             db.refresh(req)
             return {"message": "Leave request approved successfully", "request": leave_request_to_dict(req)}
@@ -471,7 +500,10 @@ async def approve_shift_request(
     # Try database first
     db_id = parse_request_id(request_id)
     if db_id:
-        req = db.query(ShiftRequestModel).filter(ShiftRequestModel.id == db_id).first()
+        req = db.query(ShiftRequestModel).options(
+            joinedload(ShiftRequestModel.shift_type),
+            joinedload(ShiftRequestModel.user)
+        ).filter(ShiftRequestModel.id == db_id).first()
         if req:
             if req.status != RequestStatus.PENDING:
                 raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
@@ -482,35 +514,36 @@ async def approve_shift_request(
             db.commit()
     
             # Add to locks CSV (legacy integration)
-    try:
-        import pandas as pd
-        locks_file = Path("roster/app/data/locks.csv")
-        if locks_file.exists():
-            locks_df = pd.read_csv(locks_file)
-        else:
-            locks_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'shift', 'force'])
-        
-        existing = locks_df[
+            try:
+                import pandas as pd
+                locks_file = Path("roster/app/data/locks.csv")
+                if locks_file.exists():
+                    locks_df = pd.read_csv(locks_file)
+                else:
+                    locks_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'shift', 'force'])
+                
+                shift_code = req.shift_type.code if req.shift_type else 'UNKNOWN'
+                existing = locks_df[
                     (locks_df['employee'] == req.user.employee_name) &
                     (locks_df['from_date'] == req.from_date.isoformat()) &
                     (locks_df['to_date'] == req.to_date.isoformat()) &
-                    (locks_df['shift'] == req.shift) &
+                    (locks_df['shift'] == shift_code) &
                     (locks_df['force'] == req.force)
-        ]
-        
-        if existing.empty:
-            new_entry = pd.DataFrame([{
+                ]
+                
+                if existing.empty:
+                    new_entry = pd.DataFrame([{
                         'employee': req.user.employee_name,
                         'from_date': req.from_date.isoformat(),
                         'to_date': req.to_date.isoformat(),
-                        'shift': req.shift,
+                        'shift': shift_code,
                         'force': req.force
-            }])
-            locks_df = pd.concat([locks_df, new_entry], ignore_index=True)
-            locks_file.parent.mkdir(parents=True, exist_ok=True)
-            locks_df.to_csv(locks_file, index=False)
-    except Exception as e:
-        print(f"Warning: Failed to add approved shift to roster: {e}")
+                    }])
+                    locks_df = pd.concat([locks_df, new_entry], ignore_index=True)
+                    locks_file.parent.mkdir(parents=True, exist_ok=True)
+                    locks_df.to_csv(locks_file, index=False)
+            except Exception as e:
+                print(f"Warning: Failed to add approved shift to roster: {e}")
     
             db.refresh(req)
             return {"message": "Shift request approved successfully", "request": shift_request_to_dict(req)}
@@ -531,7 +564,10 @@ async def reject_shift_request(
     # Try database first
     db_id = parse_request_id(request_id)
     if db_id:
-        req = db.query(ShiftRequestModel).filter(ShiftRequestModel.id == db_id).first()
+        req = db.query(ShiftRequestModel).options(
+            joinedload(ShiftRequestModel.shift_type),
+            joinedload(ShiftRequestModel.user)
+        ).filter(ShiftRequestModel.id == db_id).first()
         if req:
             if req.status != RequestStatus.PENDING:
                 raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")

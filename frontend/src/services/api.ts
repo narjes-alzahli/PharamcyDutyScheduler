@@ -307,8 +307,7 @@ export const usersAPI = {
 export interface LeaveType {
   id: number;
   code: string;
-  display_name: string;
-  description?: string;
+  description: string;
   color_hex: string;
   counts_as_rest: boolean;
   is_active: boolean;
@@ -316,15 +315,13 @@ export interface LeaveType {
 
 export interface LeaveTypeCreate {
   code: string;
-  display_name: string;
-  description?: string;
+  description: string;
   color_hex?: string;
   counts_as_rest?: boolean;
   is_active?: boolean;
 }
 
 export interface LeaveTypeUpdate {
-  display_name?: string;
   description?: string;
   color_hex?: string;
   counts_as_rest?: boolean;
@@ -350,6 +347,55 @@ export const leaveTypesAPI = {
   },
   deleteLeaveType: async (code: string): Promise<void> => {
     await api.delete(`/api/leave-types/${code}`);
+  },
+};
+
+export interface ShiftType {
+  id: number;
+  code: string;
+  description: string;
+  color_hex: string;
+  is_working_shift: boolean;
+  is_active: boolean;
+}
+
+export interface ShiftTypeCreate {
+  code: string;
+  description: string;
+  color_hex: string;
+  is_working_shift: boolean;
+  is_active: boolean;
+}
+
+export interface ShiftTypeUpdate {
+  description?: string;
+  color_hex?: string;
+  is_working_shift?: boolean;
+  is_active?: boolean;
+}
+
+export const shiftTypesAPI = {
+  getShiftTypes: async (activeOnly: boolean = false, workingOnly: boolean = false): Promise<ShiftType[]> => {
+    const params = new URLSearchParams();
+    if (activeOnly) params.append('active_only', 'true');
+    if (workingOnly) params.append('working_only', 'true');
+    const response = await api.get<ShiftType[]>(`/api/shift-types/?${params.toString()}`);
+    return response.data;
+  },
+  getShiftType: async (code: string): Promise<ShiftType> => {
+    const response = await api.get<ShiftType>(`/api/shift-types/${code}`);
+    return response.data;
+  },
+  createShiftType: async (shiftType: ShiftTypeCreate): Promise<ShiftType> => {
+    const response = await api.post<ShiftType>('/api/shift-types/', shiftType);
+    return response.data;
+  },
+  updateShiftType: async (code: string, update: ShiftTypeUpdate): Promise<ShiftType> => {
+    const response = await api.put<ShiftType>(`/api/shift-types/${code}`, update);
+    return response.data;
+  },
+  deleteShiftType: async (code: string): Promise<void> => {
+    await api.delete(`/api/shift-types/${code}`);
   },
 };
 

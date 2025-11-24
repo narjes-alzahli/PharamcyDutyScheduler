@@ -53,20 +53,62 @@ def load_roster_data_from_db(db: Session) -> Dict[str, pd.DataFrame]:
         time_off_df['from_date'] = pd.to_datetime(time_off_df['from_date']).dt.date
         time_off_df['to_date'] = pd.to_datetime(time_off_df['to_date']).dt.date
     
-    # Load locks from database (approved shift requests)
+    # Standard working shifts that should be treated as locks (force/forbid)
+    # Non-standard shifts (like MS, C, etc.) will be treated as direct assignments (like leave)
+    STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    
+    # Load locks from database (approved shift requests for standard working shifts)
     locks_records = []
+    # Also collect non-standard shift requests to add as time_off (direct assignments)
+    non_standard_shift_records = []
+    
     approved_shifts = db.query(ShiftRequest).filter(
         ShiftRequest.status == RequestStatus.APPROVED
     ).all()
     
     for shift in approved_shifts:
-        locks_records.append({
-            'employee': shift.user.employee_name,
-            'from_date': shift.from_date,
-            'to_date': shift.to_date,
-            'shift': shift.shift,
-            'force': shift.force
-        })
+        shift_code = shift.shift_type.code if shift.shift_type else 'UNKNOWN'
+        
+        # Non-standard shifts with force=True need special handling:
+        # - Go to locks (for UI display in "Locks" tab)
+        # - Also go to time_off (for solver as direct assignments)
+        if shift_code not in STANDARD_WORKING_SHIFTS and shift.force:
+            # Add to locks for UI display (appears in "Locks" tab)
+            locks_records.append({
+                'employee': shift.user.employee_name,
+                'from_date': shift.from_date,
+                'to_date': shift.to_date,
+                'shift': shift_code,
+                'force': shift.force
+            })
+            
+            # Also add to time_off for solver (treated as direct assignment)
+            current_date = shift.from_date
+            while current_date <= shift.to_date:
+                non_standard_shift_records.append({
+                    'employee': shift.user.employee_name,
+                    'from_date': current_date,
+                    'to_date': current_date,
+                    'code': shift_code
+                })
+                current_date += timedelta(days=1)
+        else:
+            # Standard shifts go to locks only (force/forbid constraints)
+            locks_records.append({
+                'employee': shift.user.employee_name,
+                'from_date': shift.from_date,
+                'to_date': shift.to_date,
+                'shift': shift_code,
+                'force': shift.force
+            })
+    
+    # Add non-standard shift requests to time_off as direct assignments (for solver)
+    if non_standard_shift_records:
+        non_standard_df = pd.DataFrame(non_standard_shift_records)
+        non_standard_df['from_date'] = pd.to_datetime(non_standard_df['from_date']).dt.date
+        non_standard_df['to_date'] = pd.to_datetime(non_standard_df['to_date']).dt.date
+        # Merge with existing time_off
+        time_off_df = pd.concat([time_off_df, non_standard_df], ignore_index=True)
     
     locks_df = pd.DataFrame(locks_records)
     if locks_df.empty:

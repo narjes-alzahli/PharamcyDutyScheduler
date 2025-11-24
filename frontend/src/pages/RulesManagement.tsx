@@ -1,26 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { leaveTypesAPI, LeaveType, LeaveTypeCreate } from '../services/api';
+import { leaveTypesAPI, shiftTypesAPI, LeaveType, LeaveTypeCreate, ShiftType, ShiftTypeCreate } from '../services/api';
 
 export const RulesManagement: React.FC = () => {
   const { user: currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'leave-types' | 'scheduling-rules'>('leave-types');
+  const [activeTab, setActiveTab] = useState<'leave-types' | 'shift-types' | 'scheduling-rules'>('leave-types');
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   const [showAddLeaveType, setShowAddLeaveType] = useState(false);
+  const [showAddShiftType, setShowAddShiftType] = useState(false);
   const [editingLeaveType, setEditingLeaveType] = useState<LeaveType | null>(null);
+  const [editingShiftType, setEditingShiftType] = useState<ShiftType | null>(null);
   const [newLeaveType, setNewLeaveType] = useState<LeaveTypeCreate>({
     code: '',
-    display_name: '',
     description: '',
     color_hex: '#F5F5F5',
     counts_as_rest: true,
     is_active: true,
   });
+  const [newShiftType, setNewShiftType] = useState<ShiftTypeCreate>({
+    code: '',
+    description: '',
+    color_hex: '#E5E7EB',
+    is_working_shift: true,
+    is_active: true,
+  });
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
-    if (currentUser?.employee_type === 'Manager' && activeTab === 'leave-types') {
-      loadLeaveTypes();
+    if (currentUser?.employee_type === 'Manager') {
+      if (activeTab === 'leave-types') {
+        loadLeaveTypes();
+      } else if (activeTab === 'shift-types') {
+        loadShiftTypes();
+      }
     }
   }, [activeTab, currentUser]);
 
@@ -37,8 +50,8 @@ export const RulesManagement: React.FC = () => {
 
   const handleCreateLeaveType = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLeaveType.code || !newLeaveType.display_name) {
-      setNotification({ message: 'Code and display name are required', type: 'error' });
+    if (!newLeaveType.code || !newLeaveType.description) {
+      setNotification({ message: 'Code and description are required', type: 'error' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
@@ -50,7 +63,6 @@ export const RulesManagement: React.FC = () => {
       setShowAddLeaveType(false);
       setNewLeaveType({
         code: '',
-        display_name: '',
         description: '',
         color_hex: '#F5F5F5',
         counts_as_rest: true,
@@ -88,6 +100,76 @@ export const RulesManagement: React.FC = () => {
       await loadLeaveTypes();
     } catch (error: any) {
       setNotification({ message: error.response?.data?.detail || 'Failed to delete leave type', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
+
+  const loadShiftTypes = async () => {
+    try {
+      const types = await shiftTypesAPI.getShiftTypes();
+      // Filter out non-working shifts (DO, O) - only show working shifts in the UI
+      // Backend still has them, but they shouldn't be displayed here
+      const workingShifts = types.filter(type => type.is_working_shift === true);
+      setShiftTypes(workingShifts);
+    } catch (error) {
+      console.error('Failed to load shift types:', error);
+      setNotification({ message: 'Failed to load shift types', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const handleCreateShiftType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newShiftType.code || !newShiftType.description) {
+      setNotification({ message: 'Code and description are required', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    try {
+      await shiftTypesAPI.createShiftType(newShiftType);
+      setNotification({ message: '✅ Shift type created successfully!', type: 'success' });
+      setTimeout(() => setNotification(null), 2000);
+      setShowAddShiftType(false);
+      setNewShiftType({
+        code: '',
+        description: '',
+        color_hex: '#E5E7EB',
+        is_working_shift: true,
+        is_active: true,
+      });
+      await loadShiftTypes();
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to create shift type', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
+
+  const handleUpdateShiftType = async (code: string, update: Partial<ShiftType>) => {
+    try {
+      await shiftTypesAPI.updateShiftType(code, update);
+      setNotification({ message: '✅ Shift type updated successfully!', type: 'success' });
+      setTimeout(() => setNotification(null), 2000);
+      setEditingShiftType(null);
+      await loadShiftTypes();
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to update shift type', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
+
+  const handleDeleteShiftType = async (code: string) => {
+    if (!window.confirm(`Are you sure you want to delete shift type "${code}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await shiftTypesAPI.deleteShiftType(code);
+      setNotification({ message: '✅ Shift type deleted successfully!', type: 'success' });
+      setTimeout(() => setNotification(null), 2000);
+      await loadShiftTypes();
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to delete shift type', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
     }
   };
@@ -132,6 +214,16 @@ export const RulesManagement: React.FC = () => {
             📋 Leave Types
           </button>
           <button
+            onClick={() => setActiveTab('shift-types')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'shift-types'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            🔄 Shift Types
+          </button>
+          <button
             onClick={() => setActiveTab('scheduling-rules')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'scheduling-rules'
@@ -155,7 +247,6 @@ export const RulesManagement: React.FC = () => {
                 setEditingLeaveType(null);
                 setNewLeaveType({
                   code: '',
-                  display_name: '',
                   description: '',
                   color_hex: '#F5F5F5',
                   counts_as_rest: true,
@@ -192,28 +283,16 @@ export const RulesManagement: React.FC = () => {
                     />
                     <p className="mt-1 text-xs text-gray-500">Uppercase alphanumeric code (e.g., AL, ML, STL)</p>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Display Name <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={newLeaveType.display_name}
-                      onChange={(e) => setNewLeaveType({ ...newLeaveType, display_name: e.target.value })}
-                      placeholder="e.g., Annual Leave"
-                      required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                    />
-                  </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Description
+                      Description <span className="text-red-500">*</span>
                     </label>
                     <textarea
                       value={newLeaveType.description || ''}
                       onChange={(e) => setNewLeaveType({ ...newLeaveType, description: e.target.value })}
-                      placeholder="Optional description"
+                      placeholder="e.g., Annual Leave"
                       rows={2}
+                      required
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
@@ -272,7 +351,6 @@ export const RulesManagement: React.FC = () => {
                       setEditingLeaveType(null);
                       setNewLeaveType({
                         code: '',
-                        display_name: '',
                         description: '',
                         color_hex: '#F5F5F5',
                         counts_as_rest: true,
@@ -295,10 +373,8 @@ export const RulesManagement: React.FC = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Code</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Display Name</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Description</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Color</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Counts as Rest</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
                   </tr>
@@ -309,8 +385,7 @@ export const RulesManagement: React.FC = () => {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 border border-gray-300">
                         <span className="font-mono">{type.code}</span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{type.display_name}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{type.description || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{type.description || '-'}</td>
                       <td className="px-4 py-3 text-sm border border-gray-300">
                         <div className="flex items-center gap-2">
                           <div
@@ -319,13 +394,6 @@ export const RulesManagement: React.FC = () => {
                           />
                           <span className="text-xs text-gray-500 font-mono">{type.color_hex}</span>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm border border-gray-300">
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          type.counts_as_rest ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {type.counts_as_rest ? 'Yes' : 'No'}
-                        </span>
                       </td>
                       <td className="px-4 py-3 text-sm border border-gray-300">
                         <span className={`px-2 py-1 text-xs rounded-full ${
@@ -342,7 +410,6 @@ export const RulesManagement: React.FC = () => {
                               setShowAddLeaveType(false);
                               setNewLeaveType({
                                 code: type.code,
-                                display_name: type.display_name,
                                 description: type.description || '',
                                 color_hex: type.color_hex,
                                 counts_as_rest: type.counts_as_rest,
@@ -368,6 +435,209 @@ export const RulesManagement: React.FC = () => {
             </div>
           ) : (
             <p className="text-gray-600">No leave types found. Click "Add Leave Type" to create one.</p>
+          )}
+        </div>
+      )}
+
+      {/* Shift Types Tab */}
+      {activeTab === 'shift-types' && (
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900">🔄 Shift Types Management</h3>
+            <button
+              onClick={() => {
+                setShowAddShiftType(true);
+                setEditingShiftType(null);
+                setNewShiftType({
+                  code: '',
+                  description: '',
+                  color_hex: '#E5E7EB',
+                  is_working_shift: true,
+                  is_active: true,
+                });
+              }}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              ➕ Add Shift Type
+            </button>
+          </div>
+
+          {/* Add/Edit Form */}
+          {(showAddShiftType || editingShiftType) && (
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                {editingShiftType ? 'Edit Shift Type' : 'Add New Shift Type'}
+              </h4>
+              <form onSubmit={editingShiftType ? (e) => { e.preventDefault(); handleUpdateShiftType(editingShiftType.code, newShiftType); } : handleCreateShiftType} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Code <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newShiftType.code}
+                      onChange={(e) => setNewShiftType({ ...newShiftType, code: e.target.value.toUpperCase() })}
+                      placeholder="e.g., M, IP, A, N"
+                      required
+                      disabled={!!editingShiftType}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100"
+                      maxLength={10}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Uppercase alphanumeric code (e.g., M, IP, A, N)</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={newShiftType.description || ''}
+                      onChange={(e) => setNewShiftType({ ...newShiftType, description: e.target.value })}
+                      placeholder="e.g., Morning"
+                      rows={2}
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Color (Hex)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="color"
+                        value={newShiftType.color_hex}
+                        onChange={(e) => setNewShiftType({ ...newShiftType, color_hex: e.target.value })}
+                        className="h-10 w-20 border border-gray-300 rounded"
+                      />
+                      <input
+                        type="text"
+                        value={newShiftType.color_hex}
+                        onChange={(e) => setNewShiftType({ ...newShiftType, color_hex: e.target.value })}
+                        placeholder="#E5E7EB"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newShiftType.is_working_shift}
+                        onChange={(e) => setNewShiftType({ ...newShiftType, is_working_shift: e.target.checked })}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-gray-700">Working shift (not rest/leave)</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newShiftType.is_active}
+                        onChange={(e) => setNewShiftType({ ...newShiftType, is_active: e.target.checked })}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-gray-700">Active</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                  >
+                    {editingShiftType ? 'Update Shift Type' : 'Create Shift Type'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddShiftType(false);
+                      setEditingShiftType(null);
+                      setNewShiftType({
+                        code: '',
+                        description: '',
+                        color_hex: '#E5E7EB',
+                        is_working_shift: true,
+                        is_active: true,
+                      });
+                    }}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Shift Types Table */}
+          {shiftTypes.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Code</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Description</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Color</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {shiftTypes.map((type) => (
+                    <tr key={type.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 border border-gray-300">
+                        <span className="font-mono">{type.code}</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{type.description || '-'}</td>
+                      <td className="px-4 py-3 text-sm border border-gray-300">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-6 h-6 rounded border border-gray-300"
+                            style={{ backgroundColor: type.color_hex }}
+                          />
+                          <span className="text-xs text-gray-500 font-mono">{type.color_hex}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm border border-gray-300">
+                        <span className={`px-2 py-1 text-xs rounded-full ${
+                          type.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {type.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm border border-gray-300">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingShiftType(type);
+                              setShowAddShiftType(false);
+                              setNewShiftType({
+                                code: type.code,
+                                description: type.description || '',
+                                color_hex: type.color_hex,
+                                is_working_shift: type.is_working_shift,
+                                is_active: type.is_active,
+                              });
+                            }}
+                            className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteShiftType(type.code)}
+                            className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-600">No shift types found. Click "Add Shift Type" to create one.</p>
           )}
         </div>
       )}

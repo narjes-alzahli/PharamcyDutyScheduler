@@ -17,7 +17,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from backend.routers import auth, data, solver, schedules, requests, users, leave_types
+from backend.routers import auth, data, solver, schedules, requests, users, leave_types, shift_types
 
 app = FastAPI(
     title="Staff Rostering API",
@@ -100,6 +100,7 @@ app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"]
 app.include_router(requests.router, prefix="/api/requests", tags=["requests"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(leave_types.router, prefix="/api/leave-types", tags=["leave-types"])
+app.include_router(shift_types.router, prefix="/api/shift-types", tags=["shift-types"])
 
 
 @app.get("/")

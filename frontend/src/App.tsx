@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { DateProvider } from './contexts/DateContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
@@ -103,9 +104,11 @@ const App: React.FC = () => {
   return (
     <Router>
       <AuthProvider>
-        <ToastProvider>
-        <AppRoutes />
-        </ToastProvider>
+        <DateProvider>
+          <ToastProvider>
+            <AppRoutes />
+          </ToastProvider>
+        </DateProvider>
       </AuthProvider>
     </Router>
   );

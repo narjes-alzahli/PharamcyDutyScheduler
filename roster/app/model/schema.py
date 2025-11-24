@@ -220,20 +220,30 @@ class RosterData:
         return [emp.employee for emp in self.employees]
         
     def get_shifts(self) -> List[str]:
-        """Get all possible shifts."""
-        # Base working shifts (these are fixed and not managed via database)
-        working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"]
+        """Get all possible shifts (working shifts + leave types + requested non-standard shifts)."""
+        # Get all shifts from config if available (loaded from database)
+        if hasattr(self, 'config') and hasattr(self.config, 'all_shift_codes') and self.config.all_shift_codes:
+            all_shifts = set(self.config.all_shift_codes)  # Start with standard shifts + rest (DO, O)
+            
+            # Add leave codes from config (leave types from database)
+            if hasattr(self.config, 'leave_codes') and self.config.leave_codes:
+                # Only include leave codes that aren't already in shifts
+                leave_codes = [code for code in self.config.leave_codes if code not in all_shifts]
+                all_shifts.update(leave_codes)
+            
+            # Add any non-standard shifts that are requested in time_off (like MS, C)
+            # These need to be in the shifts list so they can be assigned when requested
+            if hasattr(self, 'leave_dict') and self.leave_dict:
+                for (emp, day), code in self.leave_dict.items():
+                    if code not in all_shifts:
+                        all_shifts.add(code)
+            
+            return sorted(list(all_shifts))
         
-        # Get leave codes from config if available (loaded from database)
-        if hasattr(self, 'config') and hasattr(self.config, 'leave_codes') and self.config.leave_codes:
-            # Only include leave codes that aren't already in working_shifts
-            leave_codes = [code for code in self.config.leave_codes if code not in working_shifts]
-            return working_shifts + leave_codes
-        
-        # Fallback: if config not available, only return working shifts
+        # Fallback: if config not available, use hardcoded list
         # This should never happen in normal operation since we always pass config
         # But if it does, at least the solver won't crash
-        return working_shifts
+        return ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"]
 
 
 class RosterConfig:
@@ -250,6 +260,8 @@ class RosterConfig:
         }
         self.rest_codes = {"DO", "O"}
         self.leave_codes = []  # Will be populated from config file
+        self.working_shift_codes = []  # Will be populated from config file (working shifts from database)
+        self.all_shift_codes = []  # All shifts (working + rest like DO, O)
         self.forbidden_adjacencies = [("N", "M"), ("A", "N")]
         self.weekly_rest_minimum = 1
         
@@ -267,6 +279,10 @@ class RosterConfig:
             self.rest_codes = set(config["rest_codes"])
         if "leave_codes" in config:
             self.leave_codes = config["leave_codes"]
+        if "working_shift_codes" in config:
+            self.working_shift_codes = config["working_shift_codes"]
+        if "all_shift_codes" in config:
+            self.all_shift_codes = config["all_shift_codes"]
         if "forbidden_adjacencies" in config:
             self.forbidden_adjacencies = config["forbidden_adjacencies"]
         if "weekly_rest_minimum" in config:

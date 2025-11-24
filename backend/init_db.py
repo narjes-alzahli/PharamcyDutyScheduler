@@ -32,72 +32,63 @@ def init_db():
         default_leave_types = [
             LeaveType(
                 code="DO",
-                display_name="Day Off",
-                description="Regular day off",
+                description="Day Off",
                 color_hex="#90EE90",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="AL",
-                display_name="Annual Leave",
-                description="Annual vacation leave",
+                description="Annual Leave",
                 color_hex="#FFD27F",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="ML",
-                display_name="Maternity Leave",
-                description="Maternity leave",
+                description="Maternity Leave",
                 color_hex="#DDA0DD",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="W",
-                display_name="Workshop",
-                description="Workshop or training",
+                description="Workshop",
                 color_hex="#D8BFD8",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="UL",
-                display_name="Unpaid Leave",
-                description="Unpaid leave",
+                description="Unpaid Leave",
                 color_hex="#F5F5F5",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="APP",
-                display_name="Appointment",
-                description="Medical or other appointment",
+                description="Appointment",
                 color_hex="#FF6B6B",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="STL",
-                display_name="Study Leave",
-                description="Educational leave",
+                description="Study Leave",
                 color_hex="#B0E0E6",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="L",
-                display_name="Leave",
-                description="General leave",
+                description="Leave",
                 color_hex="#F5F5F5",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="O",
-                display_name="Off",
-                description="Off duty",
+                description="Off Duty",
                 color_hex="#E6F3FF",
                 counts_as_rest=True,
                 is_active=True

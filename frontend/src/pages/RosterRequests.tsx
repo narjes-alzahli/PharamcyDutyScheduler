@@ -469,7 +469,7 @@ export const RosterRequests: React.FC = () => {
                       {leaveTypes.length > 0 ? (
                         leaveTypes.map((type) => (
                           <option key={type.id} value={type.code}>
-                            {type.code} - {type.display_name}
+                            {type.code} - {type.description}
                           </option>
                         ))
                       ) : (

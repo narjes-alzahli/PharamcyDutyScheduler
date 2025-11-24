@@ -43,8 +43,7 @@ class LeaveType(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String, unique=True, index=True, nullable=False)  # e.g., "AL", "ML", "DO"
-    display_name = Column(String, nullable=False)  # e.g., "Annual Leave", "Maternity Leave"
-    description = Column(Text, nullable=True)
+    description = Column(String, nullable=False)  # Combined display name and description (e.g., "Annual Leave")
     color_hex = Column(String, default="#F5F5F5")  # Color for UI display
     counts_as_rest = Column(Boolean, default=True)  # Whether this counts as a rest day
     is_active = Column(Boolean, default=True)  # Can be disabled without deleting
@@ -76,13 +75,30 @@ class LeaveRequest(Base):
     leave_type = relationship("LeaveType", back_populates="leave_requests")
 
 
+class ShiftType(Base):
+    """Shift type model - managed by admins (e.g., M, IP, A, N)."""
+    __tablename__ = "shift_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, index=True, nullable=False)  # e.g., "M", "IP", "A", "N"
+    description = Column(String, nullable=False)  # Combined display name and description (e.g., "Morning")
+    color_hex = Column(String, default="#E5E7EB")  # Color for UI display
+    is_working_shift = Column(Boolean, default=True)  # True = working shift, False = rest/leave
+    is_active = Column(Boolean, default=True)  # Can be disabled without deleting
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    shift_requests = relationship("ShiftRequest", back_populates="shift_type")
+
+
 class ShiftRequest(Base):
     """Shift request model."""
     __tablename__ = "shift_requests"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    shift = Column(String, nullable=False)  # e.g., "M", "N", "A"
+    shift_type_id = Column(Integer, ForeignKey("shift_types.id"), nullable=False)  # Changed from shift string
     from_date = Column(Date, nullable=False)
     to_date = Column(Date, nullable=False)
     force = Column(Boolean, nullable=False, default=True)  # True = Force (Must), False = Forbid (Cannot)
@@ -95,4 +111,5 @@ class ShiftRequest(Base):
 
     # Relationships
     user = relationship("User", back_populates="shift_requests")
+    shift_type = relationship("ShiftType", back_populates="shift_requests")
 

@@ -14,15 +14,13 @@ router = APIRouter()
 
 class LeaveTypeCreate(BaseModel):
     code: str
-    display_name: str
-    description: Optional[str] = None
+    description: str
     color_hex: str = "#F5F5F5"
     counts_as_rest: bool = True
     is_active: bool = True
 
 
 class LeaveTypeUpdate(BaseModel):
-    display_name: Optional[str] = None
     description: Optional[str] = None
     color_hex: Optional[str] = None
     counts_as_rest: Optional[bool] = None
@@ -32,8 +30,7 @@ class LeaveTypeUpdate(BaseModel):
 class LeaveTypeResponse(BaseModel):
     id: int
     code: str
-    display_name: str
-    description: Optional[str]
+    description: str
     color_hex: str
     counts_as_rest: bool
     is_active: bool
@@ -91,7 +88,6 @@ async def create_leave_type(
     
     new_leave_type = LeaveType(
         code=leave_type.code,
-        display_name=leave_type.display_name,
         description=leave_type.description,
         color_hex=leave_type.color_hex,
         counts_as_rest=leave_type.counts_as_rest,
@@ -120,8 +116,6 @@ async def update_leave_type(
     if not leave_type:
         raise HTTPException(status_code=404, detail="Leave type not found")
     
-    if update.display_name is not None:
-        leave_type.display_name = update.display_name
     if update.description is not None:
         leave_type.description = update.description
     if update.color_hex is not None:
