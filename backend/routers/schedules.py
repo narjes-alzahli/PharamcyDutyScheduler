@@ -134,7 +134,9 @@ async def commit_schedule(
         # Convert schedule to DataFrame
         schedule_df = pd.DataFrame(schedule)
         if 'date' in schedule_df.columns:
-            schedule_df['date'] = pd.to_datetime(schedule_df['date'])
+            # Handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS" formats
+            # Let pandas auto-detect the format - it handles both ISO8601 and simple date formats
+            schedule_df['date'] = pd.to_datetime(schedule_df['date'], errors='coerce')
         
         # Save schedule data
         schedule_df.to_csv(committed_dir / f"{filename_prefix}_schedule.csv", index=False)
@@ -176,4 +178,61 @@ async def commit_schedule(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to commit schedule: {str(e)}")
+
+
+@router.put("/committed/{year}/{month}")
+async def update_schedule(
+    year: int,
+    month: int,
+    schedule_data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a committed schedule. Only managers can update schedules."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can update schedules")
+    
+    try:
+        from datetime import datetime
+        import json
+        
+        schedule = schedule_data['schedule']  # List of {employee, date, shift}
+        employees = schedule_data.get('employees')  # Optional employee data update
+        
+        # Create committed schedules directory if it doesn't exist
+        committed_dir = Path("roster/app/data/committed_schedules")
+        committed_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create filename with year and month
+        filename_prefix = f"schedule_{year}_{month:02d}"
+        schedule_file = committed_dir / f"{filename_prefix}_schedule.csv"
+        
+        # Check if schedule exists
+        if not schedule_file.exists():
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        # Convert schedule to DataFrame
+        schedule_df = pd.DataFrame(schedule)
+        if 'date' in schedule_df.columns:
+            # Handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS" formats
+            # Let pandas auto-detect the format - it handles both ISO8601 and simple date formats
+            schedule_df['date'] = pd.to_datetime(schedule_df['date'], errors='coerce')
+        
+        # Save updated schedule data
+        schedule_df.to_csv(schedule_file, index=False)
+        
+        # Update employee data if provided
+        if employees is not None:
+            employee_file = committed_dir / f"{filename_prefix}_employee.csv"
+            employee_df = pd.DataFrame(employees)
+            employee_df.to_csv(employee_file, index=False)
+        
+        return {
+            "message": f"Schedule updated successfully for {year}-{month:02d}",
+            "year": year,
+            "month": month
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update schedule: {str(e)}")
 

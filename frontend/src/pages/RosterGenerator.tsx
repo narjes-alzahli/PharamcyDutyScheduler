@@ -252,10 +252,16 @@ export const RosterGenerator: React.FC = () => {
     }
 
     try {
+      // Normalize all dates to ISO format (YYYY-MM-DDTHH:MM:SS) before sending
+      const normalizedSchedule = generatedSchedule.map(entry => ({
+        ...entry,
+        date: entry.date.includes('T') ? entry.date : `${entry.date.split('T')[0]}T00:00:00`
+      }));
+      
       await schedulesAPI.commitSchedule(
         selectedYear,
         selectedMonth,
-        generatedSchedule,
+        normalizedSchedule,
         generatedEmployees || undefined,
         scheduleMetrics || undefined
       );
@@ -890,6 +896,10 @@ export const RosterGenerator: React.FC = () => {
                         year={selectedYear}
                         month={selectedMonth}
                         employees={generatedEmployees || rosterData?.employees}
+                        editable={true}
+                        onScheduleChange={(updatedSchedule) => {
+                          setGeneratedSchedule(updatedSchedule);
+                        }}
                       />
 
                       <ScheduleAnalysis

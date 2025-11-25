@@ -216,6 +216,12 @@ export const schedulesAPI = {
       metrics,
     });
   },
+  updateSchedule: async (year: number, month: number, schedule: any[], employees?: any[]): Promise<void> => {
+    await api.put(`/api/schedules/committed/${year}/${month}`, {
+      schedule,
+      employees,
+    });
+  },
 };
 
 export interface LeaveRequest {

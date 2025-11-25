@@ -14,6 +14,9 @@ export const SchedulePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const scheduleCardRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const isManager = user?.employee_type === 'Manager';
@@ -59,6 +62,8 @@ export const SchedulePage: React.FC = () => {
       setLoading(true);
       const schedule = await schedulesAPI.getSchedule(year, month);
       setCurrentSchedule(schedule);
+      setHasUnsavedChanges(false);
+      setSaveSuccess(false);
       setError(null);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load schedule');
@@ -118,6 +123,57 @@ export const SchedulePage: React.FC = () => {
     }
   };
 
+  const handleScheduleChange = (updatedSchedule: any[]) => {
+    if (currentSchedule) {
+      setCurrentSchedule({
+        ...currentSchedule,
+        schedule: updatedSchedule
+      });
+      setHasUnsavedChanges(true);
+      setSaveSuccess(false);
+    }
+  };
+
+  const handleSaveSchedule = async () => {
+    if (!currentSchedule || !selectedYear || !selectedMonth) {
+      alert('No schedule to save');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      setSaveSuccess(false);
+      
+      // Normalize all dates to ISO format (YYYY-MM-DDTHH:MM:SS) before sending
+      const normalizedSchedule = currentSchedule.schedule.map(entry => ({
+        ...entry,
+        date: entry.date.includes('T') ? entry.date : `${entry.date.split('T')[0]}T00:00:00`
+      }));
+      
+      await schedulesAPI.updateSchedule(
+        selectedYear,
+        selectedMonth,
+        normalizedSchedule,
+        currentSchedule.employees
+      );
+      
+      // Reload the schedule to get the updated version
+      await loadSchedule(selectedYear, selectedMonth);
+      
+      setHasUnsavedChanges(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 5000);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to save schedule changes';
+      setError(errorMessage);
+      alert(`Failed to save: ${errorMessage}`);
+      console.error('Save error:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading && !currentSchedule) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -152,34 +208,63 @@ export const SchedulePage: React.FC = () => {
 
           {selectedYear && selectedMonth && currentSchedule && (
             <>
+
               {/* Schedule Table */}
               <div
                 ref={scheduleCardRef}
                 className="bg-white rounded-lg shadow p-6 mb-6"
                 style={{ overflow: 'visible' }}
               >
-                <h3 className="text-xl font-bold text-gray-900 mb-4">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-xl font-bold text-gray-900">
                   {monthNames[selectedMonth - 1]} {selectedYear} Schedule
                 </h3>
+                  {isManager && !hasUnsavedChanges && (
+                    <span className="text-sm text-gray-500 italic">Click any cell to edit</span>
+                  )}
+                </div>
                 <ScheduleTable
                   schedule={currentSchedule.schedule}
                   year={selectedYear}
                   month={selectedMonth}
                   employees={currentSchedule.employees}
+                  editable={isManager}
+                  onScheduleChange={handleScheduleChange}
                 />
               </div>
 
-              {/* Download Button */}
+              {/* Action Buttons */}
               <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+                  {isManager && hasUnsavedChanges && (
+                    <div className="flex items-center space-x-3">
+                      <span className="text-sm text-amber-600 font-medium">Unsaved changes</span>
+                      <button
+                        onClick={handleSaveSchedule}
+                        disabled={saving}
+                        className={`px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors ${
+                          saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-blue-700'
+                        }`}
+                      >
+                        {saving ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </div>
+                  )}
+                  
+                  {isManager && saveSuccess && (
+                    <span className="text-sm text-green-600 font-medium">Changes saved successfully</span>
+                  )}
+                  
                 <button
                   onClick={handleDownloadImage}
                   disabled={downloading}
-                  className={`w-full md:w-auto px-6 py-3 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors ${
+                    className={`px-6 py-3 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors ${
                     downloading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
                   }`}
                 >
                   {downloading ? 'Preparing Image...' : 'Download Schedule'}
                 </button>
+                </div>
                 {downloadError && (
                   <p className="mt-3 text-sm text-red-600">{downloadError}</p>
                 )}

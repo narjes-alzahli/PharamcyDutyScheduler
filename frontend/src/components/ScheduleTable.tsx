@@ -18,6 +18,8 @@ interface ScheduleTableProps {
   year: number;
   month: number;
   employees?: Employee[];
+  editable?: boolean;
+  onScheduleChange?: (updatedSchedule: ScheduleEntry[]) => void;
 }
 
 interface MobileAssignment {
@@ -78,9 +80,17 @@ const adjustColorBrightness = (hexColor: string, factor: number): string => {
   return `#${[newR, newG, newB].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
 };
 
-export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, month, employees: employeeData }) => {
+export const ScheduleTable: React.FC<ScheduleTableProps> = ({ 
+  schedule, 
+  year, 
+  month, 
+  employees: employeeData,
+  editable = false,
+  onScheduleChange
+}) => {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
+  const [editingCell, setEditingCell] = useState<{ employee: string; date: string } | null>(null);
   
   // Load leave types and shift types from API to get dynamic colors and labels
   useEffect(() => {
@@ -174,6 +184,87 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [editingColor]);
+
+  // Close shift dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (editingCell && !(event.target as HTMLElement).closest('.shift-dropdown-container')) {
+        setEditingCell(null);
+      }
+    };
+    if (editingCell) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [editingCell]);
+
+  // Get all available shift options (shift types + leave types + empty)
+  const getAvailableShiftOptions = (): Array<{ code: string; label: string; type: 'shift' | 'leave' | 'empty' }> => {
+    const optionsMap = new Map<string, { code: string; label: string; type: 'shift' | 'leave' | 'empty' }>();
+    
+    // Add empty option
+    optionsMap.set('', { code: '', label: 'Empty', type: 'empty' });
+    
+    // Add shift types (use code as label, deduplicate by code)
+    shiftTypes.forEach(st => {
+      if (!optionsMap.has(st.code)) {
+        optionsMap.set(st.code, { code: st.code, label: st.code, type: 'shift' });
+      }
+    });
+    
+    // Add leave types (use code as label, deduplicate by code)
+    leaveTypes.forEach(lt => {
+      if (!optionsMap.has(lt.code)) {
+        optionsMap.set(lt.code, { code: lt.code, label: lt.code, type: 'leave' });
+      }
+    });
+    
+    // Convert map to array and sort
+    const options = Array.from(optionsMap.values());
+    return options.sort((a, b) => {
+      // Sort: empty first, then by code
+      if (a.code === '') return -1;
+      if (b.code === '') return 1;
+      return a.code.localeCompare(b.code);
+    });
+  };
+
+  // Handle shift change
+  const handleShiftChange = (employee: string, date: string, newShift: string) => {
+    if (!onScheduleChange) return;
+    
+    const dateStr = date.split('T')[0]; // Ensure we use just the date part
+    const updatedSchedule = [...schedule];
+    
+    // Remove existing entry for this employee/date if it exists
+    const existingIndex = updatedSchedule.findIndex(
+      entry => entry.employee === employee && entry.date.split('T')[0] === dateStr
+    );
+    
+    if (existingIndex >= 0) {
+      if (newShift === '') {
+        // Remove the entry if empty
+        updatedSchedule.splice(existingIndex, 1);
+      } else {
+        // Update the shift
+        updatedSchedule[existingIndex] = {
+          ...updatedSchedule[existingIndex],
+          shift: newShift,
+          date: `${dateStr}T00:00:00` // Ensure consistent date format
+        };
+      }
+    } else if (newShift !== '') {
+      // Add new entry if shift is not empty
+      updatedSchedule.push({
+        employee,
+        date: `${dateStr}T00:00:00`,
+        shift: newShift
+      });
+    }
+    
+    onScheduleChange(updatedSchedule);
+    setEditingCell(null);
+  };
 
   // Get shift color (use custom if available, otherwise default)
   const getShiftColor = (shift: string): string => {
@@ -314,7 +405,11 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
             </tr>
           </thead>
           <tbody>
-            {reorderedEmployees.map(employee => (
+            {reorderedEmployees.map(employee => {
+              // Get shift options once per row (more efficient)
+              const shiftOptions = editable ? getAvailableShiftOptions() : [];
+              
+              return (
               <tr key={employee}>
                 <td className="border border-black px-2 py-1 font-semibold sticky left-0 bg-white z-10">
                   {employee}
@@ -339,22 +434,72 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({ schedule, year, mo
                     return shift;
                   })() : '';
 
+                  const isEditing = editingCell?.employee === employee && editingCell?.date === dateStr;
+
                   return (
                     <td
                       key={dateStr}
-                      className="border border-black px-1 py-1 text-center font-bold text-xs cursor-pointer transition-transform hover:scale-110"
+                      className="border border-black px-1 py-1 text-center font-bold text-xs relative"
                       style={{
                         backgroundColor,
                         color: isDark ? '#000000' : '#000000',
                       }}
                       title={shift ? `${employee} - ${getDynamicShiftLabel(shift)}` : `${employee} - No shift`}
                     >
+                      {editable ? (
+                        <div className="shift-dropdown-container relative">
+                          <div
+                            className={`cursor-pointer transition-all ${isEditing ? 'ring-2 ring-blue-500 rounded' : 'hover:scale-110'}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCell(isEditing ? null : { employee, date: dateStr });
+                            }}
+                    >
                       {displayText}
+                          </div>
+                          {isEditing && (
+                            <div className="absolute top-full left-0 z-50 bg-white border-2 border-gray-300 rounded-lg shadow-xl mt-1 max-h-64 overflow-y-auto min-w-[200px] shift-dropdown-container">
+                              <div className="p-1">
+                                {shiftOptions.map((option) => {
+                                  const optionColor = getShiftColor(option.code);
+                                  const isSelected = shift === option.code;
+                                  return (
+                                    <div
+                                      key={option.code || 'empty'}
+                                      className={`px-3 py-2 cursor-pointer hover:bg-gray-100 rounded flex items-center justify-between ${
+                                        isSelected ? 'bg-blue-50 border border-blue-300' : ''
+                                      }`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleShiftChange(employee, dateStr, option.code);
+                                      }}
+                                    >
+                                      <div className="flex items-center space-x-2">
+                                        <div
+                                          className="w-4 h-4 border border-gray-300 rounded"
+                                          style={{ backgroundColor: optionColor }}
+                                        />
+                                        <span className="text-sm font-medium">{option.label}</span>
+                                      </div>
+                                      {isSelected && (
+                                        <span className="text-blue-600 text-xs">✓</span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="cursor-default">{displayText}</div>
+                      )}
                     </td>
                   );
                 })}
               </tr>
-            ))}
+              );
+            })}
             
             {/* TOTAL MAIN row */}
             <tr className="font-bold">
