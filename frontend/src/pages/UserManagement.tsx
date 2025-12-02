@@ -1,9 +1,15 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useAuthGuard } from '../hooks/useAuthGuard';
 import { dataAPI, usersAPI, requestsAPI } from '../services/api';
 import api from '../services/api';
 import { Pagination } from '../components/Pagination';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { isTokenExpired } from '../utils/tokenUtils';
+import { useResizableColumns } from '../hooks/useResizableColumns';
+import { useTableSort } from '../hooks/useTableSort';
+import { useTableSearch } from '../hooks/useTableSearch';
+import { SearchBar } from '../components/SearchBar';
 
 interface User {
   username: string;
@@ -520,7 +526,11 @@ const CalendarView: React.FC<{
 };
 
 export const UserManagement: React.FC = () => {
-  const { user: currentUser } = useAuth();
+  // MAJOR RESTRUCTURE: Use auth guard to prevent API calls until auth is confirmed
+  // This component is protected by requireManager, so if we're here, user MUST be Manager
+  // But we still wait for auth to be fully ready before making any API calls
+  const { isReady: authReady, isManager, user: currentUser } = useAuthGuard(true);
+  const { loading: authLoading } = useAuth(); // Keep for loading state display
   const [users, setUsers] = useState<User[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState('');
@@ -534,6 +544,30 @@ export const UserManagement: React.FC = () => {
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+  
+  // Resizable columns for leave requests table
+  const leaveTableColumns = ['employee', 'from_date', 'to_date', 'type', 'reason', 'status', 'submitted', 'actions'];
+  const { columnWidths: leaveWidths, handleMouseDown: leaveHandleMouseDown, tableRef: leaveTableRef, isResizing: leaveResizing } = useResizableColumns(leaveTableColumns, 150);
+  
+  // Resizable columns for shift requests table
+  const shiftTableColumns = ['employee', 'from_date', 'to_date', 'shift', 'type', 'status', 'submitted', 'actions'];
+  const { columnWidths: shiftWidths, handleMouseDown: shiftHandleMouseDown, tableRef: shiftTableRef, isResizing: shiftResizing } = useResizableColumns(shiftTableColumns, 150);
+  
+  // Resizable columns for users table
+  const usersTableColumns = ['username', 'employee_name', 'employee_type', 'password', 'actions'];
+  const { columnWidths: usersWidths, handleMouseDown: usersHandleMouseDown, tableRef: usersTableRef, isResizing: usersResizing } = useResizableColumns(usersTableColumns, 200);
+  
+  // Search and sort for leave requests
+  const { searchTerm: leaveSearchTerm, setSearchTerm: setLeaveSearchTerm, filteredData: searchedLeaveRequests } = useTableSearch(leaveRequests, ['employee', 'leave_type', 'reason', 'status']);
+  const { sortedData: sortedLeaveRequests, sortConfig: leaveSortConfig, handleSort: handleLeaveSort } = useTableSort(searchedLeaveRequests);
+  
+  // Search and sort for shift requests
+  const { searchTerm: shiftSearchTerm, setSearchTerm: setShiftSearchTerm, filteredData: searchedShiftRequests } = useTableSearch(shiftRequests, ['employee', 'shift', 'reason', 'status']);
+  const { sortedData: sortedShiftRequests, sortConfig: shiftSortConfig, handleSort: handleShiftSort } = useTableSort(searchedShiftRequests);
+  
+  // Search and sort for users
+  const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(users, ['username', 'employee_name', 'employee_type']);
+  const { sortedData: sortedUsers, sortConfig: usersSortConfig, handleSort: handleUsersSort } = useTableSort(searchedUsers);
   const [leaveCalendarDate, setLeaveCalendarDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -553,27 +587,33 @@ export const UserManagement: React.FC = () => {
   const pendingLeaveCount = leaveRequests.filter((req) => req.status === 'Pending').length;
   const pendingShiftCount = shiftRequests.filter((req) => req.status === 'Pending').length;
 
-  useEffect(() => {
-    loadData();
-    if (currentUser?.employee_type === 'Manager') {
-      loadRequests();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (currentUser?.employee_type === 'Manager' && (activeTab === 'leave' || activeTab === 'shift')) {
-      loadRequests();
-    }
-  }, [activeTab, currentUser]);
-
-  const loadRequests = async () => {
-    // Double-check user is manager before making API calls
-    if (!currentUser || currentUser.employee_type !== 'Manager') {
+  const loadRequests = useCallback(async () => {
+    // MAJOR RESTRUCTURE: Only make API calls if auth guard confirms we're ready
+    // This eliminates all race conditions - we KNOW user is Manager if authReady is true
+    if (!authReady || !isManager || !currentUser) {
+      // Auth not ready or user not confirmed Manager - don't make any calls
       setLeaveRequests([]);
       setShiftRequests([]);
       return;
     }
 
+    // CRITICAL: Double-check token is still valid right before making the call
+    // This prevents race conditions where token expires between guard check and API call
+    const token = localStorage.getItem('access_token');
+    if (!token || isTokenExpired(token)) {
+      // Token expired between guard check and API call - wait for refresh
+      console.warn('⚠️ Token expired between guard check and API call - skipping request');
+      setLeaveRequests([]);
+      setShiftRequests([]);
+      return;
+    }
+
+    // At this point, we're 100% certain:
+    // 1. Auth is fully loaded
+    // 2. User is authenticated
+    // 3. User is confirmed to be a Manager
+    // 4. Token is still valid
+    // Safe to make manager-only API calls
     try {
       const [leaveRes, shiftRes] = await Promise.all([
         requestsAPI.getAllLeaveRequests(),
@@ -591,17 +631,26 @@ export const UserManagement: React.FC = () => {
         new CustomEvent('pendingRequestsUpdated', { detail: { count: pendingCount } })
       );
     } catch (error: any) {
-      // Silently handle 403 errors (non-managers) - already handled in API
-      if (error.response?.status !== 403) {
-        console.error('Failed to load requests:', error);
+      // If we get 403 here, something is seriously wrong (auth guard should prevent this)
+      // Log it for debugging
+      if (error.response?.status === 403) {
+        console.error('⚠️ Unexpected 403 error - auth guard should have prevented this:', {
+          authReady,
+          isManager,
+          userType: currentUser?.employee_type
+        });
+        setLeaveRequests([]);
+        setShiftRequests([]);
+        return;
       }
+      // Log other errors
+      console.error('Failed to load requests:', error);
       setLeaveRequests([]);
       setShiftRequests([]);
     }
-  };
+  }, [authReady, isManager, currentUser]);
 
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [usersRes, employeesRes] = await Promise.all([
@@ -618,7 +667,31 @@ export const UserManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // MAJOR RESTRUCTURE: Use auth guard instead of manual checks
+    // loadData doesn't require manager status, so it can run when auth is ready
+    if (!authLoading) {
+      loadData();
+    }
+    
+    // Only load manager-only requests if auth guard confirms we're ready
+    if (authReady && isManager) {
+      loadRequests();
+    } else {
+      // Auth not ready or not manager - clear requests
+      setLeaveRequests([]);
+      setShiftRequests([]);
+    }
+  }, [authLoading, authReady, isManager, loadData, loadRequests]);
+
+  useEffect(() => {
+    // MAJOR RESTRUCTURE: Only reload if auth guard confirms we're ready
+    if (authReady && isManager && (activeTab === 'leave' || activeTab === 'shift')) {
+      loadRequests();
+    }
+  }, [activeTab, authReady, isManager, loadRequests]);
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -774,11 +847,29 @@ export const UserManagement: React.FC = () => {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString();
+    // Use DD-MM-YYYY format
+    if (!dateStr) return '';
+    const dateOnly = dateStr.split('T')[0]; // Get YYYY-MM-DD part
+    const parts = dateOnly.split('-');
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      return `${day}-${month}-${year}`;
+    }
+    // Fallback to original if parsing fails
+    return dateStr;
   };
 
   const formatDateTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString();
+    // Format date as DD-MM-YYYY and time as HH:MM
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}-${month}-${year} ${hours}:${minutes}`;
   };
 
   const leaveCalendarEntries = useMemo(
@@ -862,24 +953,47 @@ export const UserManagement: React.FC = () => {
   const paginatedUsers = useMemo(() => {
     const start = (usersPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
-    return users.slice(start, end);
-  }, [users, usersPage]);
-
+    return sortedUsers.slice(start, end);
+  }, [sortedUsers, usersPage]);
+  
   const paginatedLeaveRequests = useMemo(() => {
     const start = (leavePage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
-    return leaveRequests.slice(start, end);
-  }, [leaveRequests, leavePage]);
-
+    return sortedLeaveRequests.slice(start, end);
+  }, [sortedLeaveRequests, leavePage]);
+  
   const paginatedShiftRequests = useMemo(() => {
     const start = (shiftPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
-    return shiftRequests.slice(start, end);
-  }, [shiftRequests, shiftPage]);
+    return sortedShiftRequests.slice(start, end);
+  }, [sortedShiftRequests, shiftPage]);
 
-  const usersTotalPages = Math.ceil(users.length / itemsPerPage);
-  const leaveTotalPages = Math.ceil(leaveRequests.length / itemsPerPage);
-  const shiftTotalPages = Math.ceil(shiftRequests.length / itemsPerPage);
+  const usersTotalPages = Math.ceil(sortedUsers.length / itemsPerPage);
+  const leaveTotalPages = Math.ceil(sortedLeaveRequests.length / itemsPerPage);
+  const shiftTotalPages = Math.ceil(sortedShiftRequests.length / itemsPerPage);
+
+  // MAJOR RESTRUCTURE: Show loading while auth is being verified
+  // This prevents components from rendering and making API calls before auth is ready
+  if (authLoading || !authReady) {
+    return (
+      <div>
+        <h2 className="text-3xl font-bold text-gray-900 mb-6">User Management</h2>
+        <LoadingSkeleton type="list" rows={5} />
+      </div>
+    );
+  }
+
+  // If auth is ready but user is not a Manager (shouldn't happen due to ProtectedRoute, but be safe)
+  if (!isManager || !currentUser) {
+    return (
+      <div>
+        <h2 className="text-3xl font-bold text-gray-900 mb-6">User Management</h2>
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+          You don't have permission to access this page.
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -909,7 +1023,8 @@ export const UserManagement: React.FC = () => {
       )}
 
       {/* Tabs for Managers */}
-      {currentUser?.employee_type === 'Manager' && (
+      {/* MAJOR RESTRUCTURE: We know user is Manager if we got here (auth guard + ProtectedRoute) */}
+      {isManager && (
         <div className="mb-6 border-b border-gray-200">
           <nav className="flex space-x-8">
             <button
@@ -961,7 +1076,7 @@ export const UserManagement: React.FC = () => {
       )}
 
       {/* Leave Requests Tab */}
-      {activeTab === 'leave' && currentUser?.employee_type === 'Manager' && (
+      {activeTab === 'leave' && isManager && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
@@ -980,29 +1095,92 @@ export const UserManagement: React.FC = () => {
           </div>
           {leaveRequests.length > 0 ? (
             <>
+            <SearchBar
+              searchTerm={leaveSearchTerm}
+              onSearchChange={setLeaveSearchTerm}
+              placeholder="Search leave requests by employee, type, reason, or status..."
+            />
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                <thead className="bg-gray-50">
+              <table ref={leaveTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'fixed', width: '100%' }}>
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Reason</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Submitted</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
+                    <th key="employee" style={{ width: `${leaveWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      <div className="flex items-center space-x-1">
+                        <span>Employee</span>
+                        <button onClick={() => handleLeaveSort('employee')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee">
+                          {leaveSortConfig?.key === 'employee' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                        </button>
+                      </div>
+                      <div onMouseDown={(e) => leaveHandleMouseDown(e, 'employee')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="from_date" style={{ width: `${leaveWidths.from_date || 150}px`, position: 'relative' }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 whitespace-nowrap min-w-[120px]">
+                      <div className="flex items-center space-x-1">
+                        <span>From Date</span>
+                        <button onClick={() => handleLeaveSort('from_date')} className="p-1 hover:bg-gray-200 rounded">
+                          {leaveSortConfig?.key === 'from_date' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                        </button>
+                      </div>
+                      <div onMouseDown={(e) => leaveHandleMouseDown(e, 'from_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="to_date" style={{ width: `${leaveWidths.to_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50 whitespace-nowrap min-w-[120px]">
+                      <div className="flex items-center space-x-1">
+                        <span>To Date</span>
+                        <button onClick={() => handleLeaveSort('to_date')} className="p-1 hover:bg-gray-200 rounded">
+                          {leaveSortConfig?.key === 'to_date' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                        </button>
+                      </div>
+                      <div onMouseDown={(e) => leaveHandleMouseDown(e, 'to_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="type" style={{ width: `${leaveWidths.type || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      <div className="flex items-center space-x-1">
+                        <span>Type</span>
+                        <button onClick={() => handleLeaveSort('leave_type')} className="p-1 hover:bg-gray-200 rounded">
+                          {leaveSortConfig?.key === 'leave_type' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                        </button>
+                      </div>
+                      <div onMouseDown={(e) => leaveHandleMouseDown(e, 'type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="reason" style={{ width: `${leaveWidths.reason || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      <div className="flex items-center space-x-1">
+                        <span>Reason</span>
+                        <button onClick={() => handleLeaveSort('reason')} className="p-1 hover:bg-gray-200 rounded">
+                          {leaveSortConfig?.key === 'reason' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                        </button>
+                      </div>
+                      <div onMouseDown={(e) => leaveHandleMouseDown(e, 'reason')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="status" style={{ width: `${leaveWidths.status || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      <div className="flex items-center space-x-1">
+                        <span>Status</span>
+                        <button onClick={() => handleLeaveSort('status')} className="p-1 hover:bg-gray-200 rounded">
+                          {leaveSortConfig?.key === 'status' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                        </button>
+                      </div>
+                      <div onMouseDown={(e) => leaveHandleMouseDown(e, 'status')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="submitted" style={{ width: `${leaveWidths.submitted || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      <div className="flex items-center space-x-1">
+                        <span>Submitted</span>
+                        <button onClick={() => handleLeaveSort('submitted_at')} className="p-1 hover:bg-gray-200 rounded">
+                          {leaveSortConfig?.key === 'submitted_at' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                        </button>
+                      </div>
+                      <div onMouseDown={(e) => leaveHandleMouseDown(e, 'submitted')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="actions" style={{ width: `${leaveWidths.actions || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedLeaveRequests.map((req) => (
                     <tr key={req.request_id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.leave_type}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
-                      <td className="px-4 py-3 text-sm border border-gray-300">
+                      <td style={{ width: `${leaveWidths.employee || 150}px` }} className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
+                      <td style={{ width: `${leaveWidths.from_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300 whitespace-nowrap">{formatDate(req.from_date)}</td>
+                      <td style={{ width: `${leaveWidths.to_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300 whitespace-nowrap">{formatDate(req.to_date)}</td>
+                      <td style={{ width: `${leaveWidths.type || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.leave_type}</td>
+                      <td style={{ width: `${leaveWidths.reason || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
+                      <td style={{ width: `${leaveWidths.status || 150}px` }} className="px-4 py-3 text-sm border border-gray-300">
                         <span className={`px-2 py-1 text-xs rounded-full ${
                           req.status === 'Approved' ? 'bg-green-100 text-green-800' :
                           req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
@@ -1011,8 +1189,8 @@ export const UserManagement: React.FC = () => {
                           {req.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
-                      <td className="px-4 py-3 text-sm border border-gray-300">
+                      <td style={{ width: `${leaveWidths.submitted || 150}px` }} className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
+                      <td style={{ width: `${leaveWidths.actions || 200}px` }} className="px-4 py-3 text-sm border border-gray-300">
                         {req.status === 'Pending' ? (
                           <div className="flex space-x-2">
                             <button
@@ -1055,7 +1233,7 @@ export const UserManagement: React.FC = () => {
                   totalPages={leaveTotalPages}
                   onPageChange={setLeavePage}
                   itemsPerPage={itemsPerPage}
-                  totalItems={leaveRequests.length}
+                  totalItems={sortedLeaveRequests.length}
                 />
               )}
             </>
@@ -1090,7 +1268,7 @@ export const UserManagement: React.FC = () => {
       )}
 
       {/* Shift Requests Tab */}
-      {activeTab === 'shift' && currentUser?.employee_type === 'Manager' && (
+      {activeTab === 'shift' && isManager && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
@@ -1110,32 +1288,58 @@ export const UserManagement: React.FC = () => {
           {shiftRequests.length > 0 ? (
             <>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                <thead className="bg-gray-50">
+              <table ref={shiftTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'fixed', width: '100%' }}>
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Shift</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Reason</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Submitted</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
+                    <th key="employee" style={{ width: `${shiftWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Employee
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'employee')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="from_date" style={{ width: `${shiftWidths.from_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      From Date
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'from_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="to_date" style={{ width: `${shiftWidths.to_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      To Date
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'to_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="shift" style={{ width: `${shiftWidths.shift || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Shift
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'shift')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="type" style={{ width: `${shiftWidths.type || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Type
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="reason" style={{ width: `${shiftWidths.reason || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Reason
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'reason')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="status" style={{ width: `${shiftWidths.status || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Status
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'status')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="submitted" style={{ width: `${shiftWidths.submitted || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Submitted
+                      <div onMouseDown={(e) => shiftHandleMouseDown(e, 'submitted')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                    </th>
+                    <th key="actions" style={{ width: `${shiftWidths.actions || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {paginatedShiftRequests.map((req) => (
                     <tr key={req.request_id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date || req.from_date)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.shift}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">
+                      <td style={{ width: `${shiftWidths.employee || 150}px` }} className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
+                      <td style={{ width: `${shiftWidths.from_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
+                      <td style={{ width: `${shiftWidths.to_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date || req.from_date)}</td>
+                      <td style={{ width: `${shiftWidths.shift || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.shift}</td>
+                      <td style={{ width: `${shiftWidths.type || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">
                         {req.force ? 'Force (Must)' : 'Forbid (Cannot)'}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
-                      <td className="px-4 py-3 text-sm border border-gray-300">
+                      <td style={{ width: `${shiftWidths.reason || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
+                      <td style={{ width: `${shiftWidths.status || 150}px` }} className="px-4 py-3 text-sm border border-gray-300">
                         <span className={`px-2 py-1 text-xs rounded-full ${
                           req.status === 'Approved' ? 'bg-green-100 text-green-800' :
                           req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
@@ -1144,8 +1348,8 @@ export const UserManagement: React.FC = () => {
                           {req.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
-                      <td className="px-4 py-3 text-sm border border-gray-300">
+                      <td style={{ width: `${shiftWidths.submitted || 150}px` }} className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
+                      <td style={{ width: `${shiftWidths.actions || 200}px` }} className="px-4 py-3 text-sm border border-gray-300">
                         {req.status === 'Pending' ? (
                           <div className="flex space-x-2">
                             <button
@@ -1188,7 +1392,7 @@ export const UserManagement: React.FC = () => {
                   totalPages={shiftTotalPages}
                   onPageChange={setShiftPage}
                   itemsPerPage={itemsPerPage}
-                  totalItems={shiftRequests.length}
+                  totalItems={sortedShiftRequests.length}
                 />
               )}
             </>
@@ -1230,23 +1434,47 @@ export const UserManagement: React.FC = () => {
         <h3 className="text-xl font-bold text-gray-900 mb-4">Employee User Accounts</h3>
         {users.length > 0 ? (
           <>
+          <SearchBar
+            searchTerm={usersSearchTerm}
+            onSearchChange={setUsersSearchTerm}
+            placeholder="Search users by username, employee name, or type..."
+          />
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-              <thead className="bg-gray-50">
+            <table ref={usersTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'fixed', width: '100%' }}>
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Username
+                  <th key="username" style={{ width: `${usersWidths.username || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
+                    <div className="flex items-center space-x-1">
+                      <span>Username</span>
+                      <button onClick={() => handleUsersSort('username')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by username">
+                        {usersSortConfig?.key === 'username' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                      </button>
+                    </div>
+                    <div onMouseDown={(e) => usersHandleMouseDown(e, 'username')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Employee Name
+                  <th key="employee_name" style={{ width: `${usersWidths.employee_name || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
+                    <div className="flex items-center space-x-1">
+                      <span>Employee Name</span>
+                      <button onClick={() => handleUsersSort('employee_name')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee name">
+                        {usersSortConfig?.key === 'employee_name' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                      </button>
+                    </div>
+                    <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_name')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                    Employee Type
+                  <th key="employee_type" style={{ width: `${usersWidths.employee_type || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
+                    <div className="flex items-center space-x-1">
+                      <span>Employee Type</span>
+                      <button onClick={() => handleUsersSort('employee_type')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee type">
+                        {usersSortConfig?.key === 'employee_type' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                      </button>
+                    </div>
+                    <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                  <th key="password" style={{ width: `${usersWidths.password || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                     Password
+                    <div onMouseDown={(e) => usersHandleMouseDown(e, 'password')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                  <th key="actions" style={{ width: `${usersWidths.actions || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                     Actions
                   </th>
                 </tr>
@@ -1254,19 +1482,19 @@ export const UserManagement: React.FC = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                   {paginatedUsers.map((user, index) => (
                   <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-300">
+                    <td style={{ width: `${usersWidths.username || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-300">
                       {user.username}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                    <td style={{ width: `${usersWidths.employee_name || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
                       {user.employee_name}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                    <td style={{ width: `${usersWidths.employee_type || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
                       {user.employee_type}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
+                    <td style={{ width: `${usersWidths.password || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
                       {user.password_hidden}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm border border-gray-300">
+                    <td style={{ width: `${usersWidths.actions || 150}px` }} className="px-6 py-4 whitespace-nowrap text-sm border border-gray-300">
                       <button
                         onClick={() => handleDeleteUser(user.username, user.employee_name)}
                         disabled={deleting === user.username || user.username === currentUser?.username}
@@ -1287,7 +1515,7 @@ export const UserManagement: React.FC = () => {
                 totalPages={usersTotalPages}
                 onPageChange={setUsersPage}
                 itemsPerPage={itemsPerPage}
-                totalItems={users.length}
+                totalItems={sortedUsers.length}
               />
             )}
           </>

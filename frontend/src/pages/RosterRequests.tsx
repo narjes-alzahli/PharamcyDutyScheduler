@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { requestsAPI, leaveTypesAPI, LeaveType } from '../services/api';
 import { Pagination } from '../components/Pagination';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
 
 interface LeaveRequest {
   from_date: string;
@@ -61,12 +62,13 @@ export const RosterRequests: React.FC = () => {
     if (!authLoading) {
     loadRequests();
       loadLeaveTypes();
-    // Set default dates to today
-    const today = new Date().toISOString().split('T')[0];
-    setLeaveFromDate(today);
-    setLeaveToDate(today);
-    setShiftFromDate(today);
-    setShiftToDate(today);
+    // Set default dates to today in DD-MM-YYYY format
+    const today = new Date();
+    const todayDDMMYYYY = formatDateDDMMYYYY(today.toISOString().split('T')[0]);
+    setLeaveFromDate(todayDDMMYYYY);
+    setLeaveToDate(todayDDMMYYYY);
+    setShiftFromDate(todayDDMMYYYY);
+    setShiftToDate(todayDDMMYYYY);
     }
   }, [user, authLoading]);
 
@@ -146,18 +148,20 @@ export const RosterRequests: React.FC = () => {
   };
 
   const resetLeaveForm = () => {
-    const today = new Date().toISOString().split('T')[0];
-    setLeaveFromDate(today);
-    setLeaveToDate(today);
+    const today = new Date();
+    const todayDDMMYYYY = formatDateDDMMYYYY(today.toISOString().split('T')[0]);
+    setLeaveFromDate(todayDDMMYYYY);
+    setLeaveToDate(todayDDMMYYYY);
     setLeaveType('DO');
     setLeaveReason('');
     setEditingLeaveId(null);
   };
 
   const resetShiftForm = () => {
-    const today = new Date().toISOString().split('T')[0];
-    setShiftFromDate(today);
-    setShiftToDate(today);
+    const today = new Date();
+    const todayDDMMYYYY = formatDateDDMMYYYY(today.toISOString().split('T')[0]);
+    setShiftFromDate(todayDDMMYYYY);
+    setShiftToDate(todayDDMMYYYY);
     setShiftType('M');
     setRequestType('Force (Must)');
     setShiftReason('');
@@ -167,7 +171,16 @@ export const RosterRequests: React.FC = () => {
   const handleSubmitLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (new Date(leaveFromDate) > new Date(leaveToDate)) {
+    // Convert DD-MM-YYYY to ISO format for validation and API
+    const isoFromDate = parseDateToISO(leaveFromDate);
+    const isoToDate = parseDateToISO(leaveToDate);
+    
+    if (!isoFromDate || !isoToDate) {
+      alert('Invalid date format. Please use DD-MM-YYYY format.');
+      return;
+    }
+    
+    if (new Date(isoFromDate) > new Date(isoToDate)) {
       alert('From date cannot be after to date');
       return;
     }
@@ -175,8 +188,8 @@ export const RosterRequests: React.FC = () => {
     try {
       setSubmitting(true);
       const payload = {
-        from_date: leaveFromDate,
-        to_date: leaveToDate,
+        from_date: isoFromDate,
+        to_date: isoToDate,
         leave_type: leaveType,
         reason: leaveReason,
       };
@@ -215,7 +228,16 @@ export const RosterRequests: React.FC = () => {
   const handleSubmitShift = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (new Date(shiftFromDate) > new Date(shiftToDate)) {
+    // Convert DD-MM-YYYY to ISO format for validation and API
+    const isoFromDate = parseDateToISO(shiftFromDate);
+    const isoToDate = parseDateToISO(shiftToDate);
+    
+    if (!isoFromDate || !isoToDate) {
+      alert('Invalid date format. Please use DD-MM-YYYY format.');
+      return;
+    }
+
+    if (new Date(isoFromDate) > new Date(isoToDate)) {
       alert('From date cannot be after to date');
       return;
     }
@@ -223,8 +245,8 @@ export const RosterRequests: React.FC = () => {
     try {
       setSubmitting(true);
       const payload = {
-        from_date: shiftFromDate,
-        to_date: shiftToDate,
+        from_date: isoFromDate,
+        to_date: isoToDate,
         shift: shiftType,
         request_type: requestType,
         reason: shiftReason,
@@ -296,8 +318,9 @@ export const RosterRequests: React.FC = () => {
   const handleEditShiftRequest = (req: ShiftRequest) => {
     setActiveTab('shift');
     setEditingShiftId(req.request_id);
-    setShiftFromDate(req.from_date);
-    setShiftToDate(req.to_date || req.from_date);
+    // Convert ISO dates to DD-MM-YYYY for display
+    setShiftFromDate(formatDateDDMMYYYY(req.from_date));
+    setShiftToDate(formatDateDDMMYYYY(req.to_date || req.from_date));
     setShiftType(req.shift);
     setRequestType(req.force ? 'Force (Must)' : 'Forbid (Cannot)');
     setShiftReason(req.reason || '');
@@ -327,11 +350,29 @@ export const RosterRequests: React.FC = () => {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString();
+    // Use DD-MM-YYYY format
+    if (!dateStr) return '';
+    const dateOnly = dateStr.split('T')[0]; // Get YYYY-MM-DD part
+    const parts = dateOnly.split('-');
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      return `${day}-${month}-${year}`;
+    }
+    // Fallback to original if parsing fails
+    return dateStr;
   };
 
   const formatDateTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString();
+    // Format date as DD-MM-YYYY and time as HH:MM
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}-${month}-${year} ${hours}:${minutes}`;
   };
 
   // Paginated data
@@ -436,9 +477,11 @@ export const RosterRequests: React.FC = () => {
                       From Date
                     </label>
                     <input
-                      type="date"
+                      type="text"
                       value={leaveFromDate}
                       onChange={(e) => setLeaveFromDate(e.target.value)}
+                      placeholder="DD-MM-YYYY"
+                      pattern="\d{2}-\d{2}-\d{4}"
                       required
                       className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     />
@@ -449,9 +492,11 @@ export const RosterRequests: React.FC = () => {
                       To Date
                     </label>
                     <input
-                      type="date"
+                      type="text"
                       value={leaveToDate}
                       onChange={(e) => setLeaveToDate(e.target.value)}
+                      placeholder="DD-MM-YYYY"
+                      pattern="\d{2}-\d{2}-\d{4}"
                       required
                       className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     />
@@ -573,27 +618,27 @@ export const RosterRequests: React.FC = () => {
                   </div>
                   <div className="hidden overflow-x-auto rounded-lg border border-gray-200 md:block">
                     <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-50 sticky top-0 z-10">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             From Date
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             To Date
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Type
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Reason
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Status
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Submitted
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Actions
                           </th>
                         </tr>
@@ -700,9 +745,11 @@ export const RosterRequests: React.FC = () => {
                       To Date
                     </label>
                     <input
-                      type="date"
+                      type="text"
                       value={shiftToDate}
                       onChange={(e) => setShiftToDate(e.target.value)}
+                      placeholder="DD-MM-YYYY"
+                      pattern="\d{2}-\d{2}-\d{4}"
                       required
                       className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     />
@@ -846,30 +893,30 @@ export const RosterRequests: React.FC = () => {
                   </div>
                   <div className="hidden overflow-x-auto rounded-lg border border-gray-200 md:block">
                     <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-50 sticky top-0 z-10">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             From Date
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             To Date
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Shift
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Type
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Reason
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Status
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Submitted
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                          <th style={{ position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
                             Actions
                           </th>
                         </tr>

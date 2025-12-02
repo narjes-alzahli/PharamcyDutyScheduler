@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { EditableTable } from './EditableTable';
 import { useToast } from '../contexts/ToastContext';
 import { shiftTypesAPI, ShiftType } from '../services/api';
@@ -142,6 +142,15 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     }
   }, []);
 
+  // Cleanup timeout on unmount (no longer needed since we save immediately, but keep for safety)
+  useEffect(() => {
+    return () => {
+      if (demandSaveTimeoutRef.current) {
+        clearTimeout(demandSaveTimeoutRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!selectedYear || !selectedMonth) {
       setLoading(false);
@@ -151,19 +160,66 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     const loadMonthDemands = async () => {
       try {
         setLoading(true);
-        const response = await api.get(`/api/data/demands/month/${selectedYear}/${selectedMonth}`);
-        const demands = response.data;
         
-        if (demands.length === 0) {
-          // Auto-generate if empty
-          await generateDefaults(selectedYear, selectedMonth);
+        // First, check localStorage for recent changes
+        const localBackup = loadDemandsFromLocalStorage();
+        const localTimestamp = localBackup?.timestamp || 0;
+        const now = Date.now();
+        const isLocalRecent = localTimestamp > 0 && (now - localTimestamp) < 300000; // 5 minutes
+        
+        // Load from backend
+        let backendDemands: any[] = [];
+        let backendTimestamp = 0;
+        try {
+          const response = await api.get(`/api/data/demands/month/${selectedYear}/${selectedMonth}`);
+          backendDemands = response.data || [];
+          // Use file modification time as proxy for backend timestamp
+          // Since we can't get this directly, we'll compare data instead
+          backendTimestamp = 0; // We'll use data comparison instead
+        } catch (error) {
+          console.error('Failed to load demands from backend:', error);
+        }
+        
+        // Decision logic: Always prefer backend data (since we save immediately now)
+        // Only use localStorage if backend is empty or failed
+        if (backendDemands.length > 0) {
+          // Backend has data - use it (this is the source of truth)
+          setMonthDemands(addDayNames(backendDemands));
+          // Update localStorage backup with backend data
+          saveDemandsToLocalStorage(backendDemands);
+        } else if (localBackup?.data && localBackup.data.length > 0) {
+          // Backend is empty but localStorage has data - use localStorage and restore to backend
+          console.log('Loading demands from localStorage (backend empty, restoring to backend)');
+          setMonthDemands(addDayNames(localBackup.data));
+          // Try to restore to backend
+          try {
+            await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, localBackup.data);
+            console.log('Restored demands from localStorage to backend');
+          } catch (saveError) {
+            console.error('Failed to restore to backend:', saveError);
+            showToast({ 
+              type: 'error', 
+              message: '⚠️ Loaded from local backup. Failed to restore to backend.' 
+            });
+          }
         } else {
-          setMonthDemands(addDayNames(demands));
+          // No data anywhere - show empty state
+          setMonthDemands([]);
         }
       } catch (error) {
         console.error('Failed to load demands:', error);
-        // Try to generate defaults
-        await generateDefaults(selectedYear, selectedMonth);
+        // Last resort: try localStorage
+        const localBackup = loadDemandsFromLocalStorage();
+        if (localBackup?.data && localBackup.data.length > 0) {
+          console.log('Loading demands from localStorage (fallback)');
+          setMonthDemands(addDayNames(localBackup.data));
+          showToast({ 
+            type: 'error', 
+            message: '⚠️ Loaded from local backup. Backend unavailable.' 
+          });
+        } else {
+          setMonthDemands([]);
+        }
       } finally {
         setLoading(false);
       }
@@ -190,6 +246,39 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     setLoading(false);
   };
 
+  // Debounce timer for saving demands
+  const demandSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Save demands to localStorage as backup with timestamp
+  const saveDemandsToLocalStorage = useCallback((demands: any[]) => {
+    if (!selectedYear || !selectedMonth) return;
+    const storageKey = `demands_backup_${selectedYear}_${selectedMonth}`;
+    const timestampKey = `demands_timestamp_${selectedYear}_${selectedMonth}`;
+    localStorage.setItem(storageKey, JSON.stringify(demands));
+    localStorage.setItem(timestampKey, Date.now().toString());
+  }, [selectedYear, selectedMonth]);
+
+  // Load demands from localStorage as backup
+  const loadDemandsFromLocalStorage = useCallback(() => {
+    if (!selectedYear || !selectedMonth) return null;
+    const storageKey = `demands_backup_${selectedYear}_${selectedMonth}`;
+    const timestampKey = `demands_timestamp_${selectedYear}_${selectedMonth}`;
+    const saved = localStorage.getItem(storageKey);
+    const timestamp = localStorage.getItem(timestampKey);
+    if (saved) {
+      try {
+        return {
+          data: JSON.parse(saved),
+          timestamp: timestamp ? parseInt(timestamp, 10) : 0
+        };
+      } catch (error) {
+        console.error('Failed to parse saved demands:', error);
+        return null;
+      }
+    }
+    return null;
+  }, [selectedYear, selectedMonth]);
+
   const handleDemandChange = async (date: string, shiftCode: string, value: number) => {
     if (!selectedYear || !selectedMonth) return;
     
@@ -203,20 +292,37 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       return demand;
     });
     
+    // Update UI immediately
     setMonthDemands(updatedDemands);
     
+    // Save demands without holiday column (holidays are saved separately)
+    const demandsWithoutHoliday = stripDayNames(updatedDemands.map(({ holiday, ...rest }) => rest));
+    saveDemandsToLocalStorage(demandsWithoutHoliday);
+    
+    // Clear existing timeout
+    if (demandSaveTimeoutRef.current) {
+      clearTimeout(demandSaveTimeoutRef.current);
+    }
+    
+    // Save to backend immediately (no debounce) - user wants changes saved to backend
     try {
-      const payload = stripDayNames(updatedDemands);
-      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, payload);
-    } catch (error) {
-      console.error('Failed to save demands:', error);
-      showToast({ type: 'error', message: 'Failed to save demands' });
+      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demandsWithoutHoliday);
+      // Save successful - update localStorage with the saved version
+      saveDemandsToLocalStorage(demandsWithoutHoliday);
+    } catch (error: any) {
+      console.error('Failed to save demands to backend:', error);
+      // Backend save failed, but we already saved to localStorage
+      showToast({ 
+        type: 'error', 
+        message: '⚠️ Saved locally. Backend save failed - please try again.' 
+      });
     }
   };
 
   const handleHolidayChange = async (date: string, holiday: string) => {
     if (!selectedYear || !selectedMonth) return;
     
+    // Update local state for UI
     const updatedDemands = monthDemands.map(demand => {
       if (demand.date === date) {
         return {
@@ -230,14 +336,83 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     setMonthDemands(updatedDemands);
     setEditingHoliday(null);
     
+    // Save holidays separately (not in demands)
     try {
-      const payload = stripDayNames(updatedDemands);
-      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, payload);
-    } catch (error) {
-      console.error('Failed to save holiday:', error);
-      showToast({ type: 'error', message: 'Failed to save holiday' });
+      // Build holidays object from current demands
+      const holidays: Record<string, string> = {};
+      updatedDemands.forEach(demand => {
+        if (demand.holiday && demand.holiday.trim()) {
+          holidays[demand.date] = demand.holiday.trim();
+        }
+      });
+      
+      // Save holidays separately
+      await api.post(`/api/data/holidays/month/${selectedYear}/${selectedMonth}`, holidays);
+      
+      // Also update demands (without holiday column) to ensure consistency
+      const demandsWithoutHoliday = stripDayNames(updatedDemands.map(({ holiday, ...rest }) => rest));
+      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demandsWithoutHoliday);
+      
+      showToast({ type: 'success', message: '✅ Holiday saved!' });
+    } catch (error: any) {
+      console.error('Failed to save holiday to backend:', error);
+      showToast({ 
+        type: 'error', 
+        message: '⚠️ Failed to save holiday. Please try again.' 
+      });
     }
   };
+
+  // Save shift requirements configuration to localStorage
+  const saveShiftRequirementsConfig = useCallback(() => {
+    if (!selectedYear || !selectedMonth) return;
+    const configKey = `shift_requirements_${selectedYear}_${selectedMonth}`;
+    const config = {
+      weekday: weekdayConfig,
+      weekend: weekendConfig,
+      harat: haratConfig,
+    };
+    localStorage.setItem(configKey, JSON.stringify(config));
+  }, [selectedYear, selectedMonth, weekdayConfig, weekendConfig, haratConfig]);
+
+  // Load shift requirements configuration from localStorage
+  const loadShiftRequirementsConfig = useCallback(() => {
+    if (!selectedYear || !selectedMonth) return;
+    const configKey = `shift_requirements_${selectedYear}_${selectedMonth}`;
+    const saved = localStorage.getItem(configKey);
+    if (saved) {
+      try {
+        const config = JSON.parse(saved);
+        if (config.weekday) setWeekdayConfig(config.weekday);
+        if (config.weekend) setWeekendConfig(config.weekend);
+        if (config.harat) setHaratConfig(config.harat);
+      } catch (error) {
+        console.error('Failed to load shift requirements config:', error);
+      }
+    }
+  }, [selectedYear, selectedMonth]);
+
+  // Load config when month/year changes
+  useEffect(() => {
+    loadShiftRequirementsConfig();
+  }, [loadShiftRequirementsConfig]);
+
+  // Auto-save config when it changes (with debounce)
+  const configSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (configSaveTimeoutRef.current) {
+      clearTimeout(configSaveTimeoutRef.current);
+    }
+    configSaveTimeoutRef.current = setTimeout(() => {
+      saveShiftRequirementsConfig();
+    }, 1000); // Save 1 second after last change
+    
+    return () => {
+      if (configSaveTimeoutRef.current) {
+        clearTimeout(configSaveTimeoutRef.current);
+      }
+    };
+  }, [weekdayConfig, weekendConfig, haratConfig, saveShiftRequirementsConfig]);
 
   const handleRegenerate = async () => {
     if (!selectedYear || !selectedMonth) return;
@@ -270,7 +445,24 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         weekend_demand,
       });
       
-      setMonthDemands(addDayNames(response.data.demands));
+      // The generate endpoint already saves to backend, but explicitly save again to ensure it persists
+      const generatedDemands = response.data.demands;
+      
+      // Explicitly save to backend to ensure it's persisted (even though generate already saves)
+      try {
+        await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, generatedDemands);
+      } catch (saveError) {
+        console.error('Failed to save regenerated demands:', saveError);
+        // Continue anyway since generate endpoint should have saved it
+      }
+      
+      setMonthDemands(addDayNames(generatedDemands));
+      
+      // Save to localStorage to keep it in sync
+      saveDemandsToLocalStorage(generatedDemands);
+      
+      // Save config after regenerating
+      saveShiftRequirementsConfig();
       showToast({
         type: 'success',
         message: '✅ Month regenerated with custom settings!',

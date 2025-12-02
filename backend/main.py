@@ -36,28 +36,47 @@ api_request_counts = defaultdict(list)
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     """Apply rate limiting to all API routes (100 requests per minute per IP)."""
-    if request.url.path.startswith("/api/"):
-        client_ip = request.client.host if request.client else "unknown"
-        now = datetime.utcnow()
+    try:
+        if request.url.path.startswith("/api/"):
+            # Safely get client IP
+            client_ip = "unknown"
+            if request.client:
+                # request.client is a tuple (host, port) or None
+                if isinstance(request.client, tuple) and len(request.client) > 0:
+                    client_ip = request.client[0]
+                elif hasattr(request.client, 'host'):
+                    client_ip = request.client.host
+            
+            now = datetime.utcnow()
+            
+            # Initialize if not exists
+            if client_ip not in api_request_counts:
+                api_request_counts[client_ip] = []
+            
+            # Remove requests older than 1 minute
+            api_request_counts[client_ip] = [
+                req_time for req_time in api_request_counts[client_ip]
+                if (now - req_time) < timedelta(minutes=1)
+            ]
+            
+            # Check if limit exceeded (100 requests per minute)
+            if len(api_request_counts[client_ip]) >= 100:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded. Maximum 100 requests per minute."}
+                )
+            
+            # Record this request
+            api_request_counts[client_ip].append(now)
         
-        # Remove requests older than 1 minute
-        api_request_counts[client_ip] = [
-            req_time for req_time in api_request_counts[client_ip]
-            if (now - req_time) < timedelta(minutes=1)
-        ]
-        
-        # Check if limit exceeded (100 requests per minute)
-        if len(api_request_counts[client_ip]) >= 100:
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Rate limit exceeded. Maximum 100 requests per minute."}
-            )
-        
-        # Record this request
-        api_request_counts[client_ip].append(now)
-    
-    response = await call_next(request)
-    return response
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        # Log error but don't break the request
+        import logging
+        logging.error(f"Error in rate_limit_middleware: {e}")
+        # Continue with request even if rate limiting fails
+        return await call_next(request)
 
 # CORS configuration
 dev_origins = [

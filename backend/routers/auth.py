@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from backend.database import get_db
 from backend.models import User, EmployeeType
-from backend.utils import verify_password, hash_password, needs_rehash, create_access_token, verify_token, decode_token_without_verification
+from backend.utils import verify_password, hash_password, needs_rehash, create_access_token, create_refresh_token, verify_token, verify_refresh_token, decode_token_without_verification
 
 router = APIRouter()
 security = HTTPBearer()
@@ -27,7 +27,13 @@ token_blacklist = {}
 
 def check_login_rate_limit(request: Request) -> None:
     """Check if failed login attempts exceed rate limit (5 per minute per IP)."""
-    client_ip = request.client.host if request.client else "unknown"
+    # Safely get client IP - request.client is a tuple (host, port)
+    client_ip = "unknown"
+    if request.client:
+        if isinstance(request.client, tuple) and len(request.client) > 0:
+            client_ip = request.client[0]
+        elif hasattr(request.client, 'host'):
+            client_ip = request.client.host
     now = datetime.utcnow()
     
     # Remove attempts older than 1 minute
@@ -46,7 +52,13 @@ def check_login_rate_limit(request: Request) -> None:
 
 def record_failed_login_attempt(request: Request) -> None:
     """Record a failed login attempt for rate limiting."""
-    client_ip = request.client.host if request.client else "unknown"
+    # Safely get client IP - request.client is a tuple (host, port)
+    client_ip = "unknown"
+    if request.client:
+        if isinstance(request.client, tuple) and len(request.client) > 0:
+            client_ip = request.client[0]
+        elif hasattr(request.client, 'host'):
+            client_ip = request.client.host
     now = datetime.utcnow()
     login_attempts[client_ip].append(now)
 
@@ -65,6 +77,7 @@ class UserResponse(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: str
     user: UserResponse
 
 
@@ -194,7 +207,13 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
         )
     
     # Successful login - clear failed attempts for this IP
-    client_ip = request.client.host if request.client else "unknown"
+    # Safely get client IP - request.client is a tuple (host, port)
+    client_ip = "unknown"
+    if request.client:
+        if isinstance(request.client, tuple) and len(request.client) > 0:
+            client_ip = request.client[0]
+        elif hasattr(request.client, 'host'):
+            client_ip = request.client.host
     if client_ip in login_attempts:
         login_attempts[client_ip] = []
     
@@ -204,16 +223,19 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
         db.commit()
     
     # Create JWT access token
-    # Use longer expiration if remember_me is checked
-    expires_delta = timedelta(days=30) if login_data.remember_me else timedelta(days=7)
-    
+    # Production standard: Short-lived access tokens (30 minutes default)
+    # Note: remember_me doesn't extend access token - it's already short-lived
+    # Refresh tokens handle long-term sessions
     token_data = {
         "sub": user.username,  # subject (username)
         "employee_name": user.employee_name,
         "employee_type": user.employee_type.value,
         "id": user.id
     }
-    access_token = create_access_token(data=token_data, expires_delta=expires_delta)
+    access_token = create_access_token(data=token_data)
+    
+    # Create refresh token (longer-lived, 30 days)
+    refresh_token = create_refresh_token(data=token_data)
     
     # Save login state if remember_me is checked (legacy support)
     if login_data.remember_me:
@@ -221,6 +243,7 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
     
     return LoginResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         user=UserResponse(
             username=user.username,
             employee_name=user.employee_name,
@@ -255,6 +278,91 @@ async def logout(
         login_file.unlink()
     
     return {"message": "Logged out successfully. Token has been revoked."}
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    user: UserResponse
+
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+async def refresh_token(
+    request: RefreshTokenRequest,
+    db: Session = Depends(get_db)
+):
+    """Refresh access token using refresh token."""
+    refresh_token = request.refresh_token
+    
+    # Verify refresh token
+    payload = verify_refresh_token(refresh_token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token"
+        )
+    
+    # Check if refresh token is revoked
+    if is_token_revoked(refresh_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked"
+        )
+    
+    # Get user from database to ensure they still exist and get latest data
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token format"
+        )
+    
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    
+    # Create new tokens with latest user data (important: gets fresh employee_type)
+    token_data = {
+        "sub": user.username,
+        "employee_name": user.employee_name,
+        "employee_type": user.employee_type.value,  # Fresh data from database
+        "id": user.id
+    }
+    
+    # Create new access token (uses default 30 minutes from utils.py)
+    # Production standard: Short-lived access tokens expire naturally, no need to revoke
+    new_access_token = create_access_token(data=token_data)
+    
+    # Create new refresh token (30 days)
+    # Production standard: Refresh token rotation - old refresh token is invalidated
+    new_refresh_token = create_refresh_token(data=token_data)
+    
+    # Revoke old refresh token (refresh token rotation - production standard)
+    # This ensures only the latest refresh token is valid
+    payload_old = decode_token_without_verification(refresh_token)
+    if payload_old:
+        exp_timestamp = payload_old.get("exp")
+        if exp_timestamp:
+            exp_time = datetime.utcfromtimestamp(exp_timestamp)
+            if exp_time > datetime.utcnow():
+                revoke_token(refresh_token, exp_time)
+    
+    return RefreshTokenResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+        user=UserResponse(
+            username=user.username,
+            employee_name=user.employee_name,
+            employee_type=user.employee_type.value
+        )
+    )
 
 
 @router.get("/me", response_model=UserResponse)

@@ -1,0 +1,776 @@
+date,employee,shift
+2025-12-01,Idris,MS
+2025-12-02,Idris,MS
+2025-12-03,Idris,MS
+2025-12-04,Idris,MS
+2025-12-05,Idris,O
+2025-12-06,Idris,O
+2025-12-07,Idris,MS
+2025-12-08,Idris,MS
+2025-12-09,Idris,MS
+2025-12-10,Idris,MS
+2025-12-11,Idris,MS
+2025-12-12,Idris,O
+2025-12-13,Idris,O
+2025-12-14,Idris,L
+2025-12-15,Idris,L
+2025-12-16,Idris,L
+2025-12-17,Idris,L
+2025-12-18,Idris,L
+2025-12-19,Idris,L
+2025-12-20,Idris,L
+2025-12-21,Idris,L
+2025-12-22,Idris,L
+2025-12-23,Idris,L
+2025-12-24,Idris,L
+2025-12-25,Idris,L
+2025-12-26,Idris,L
+2025-12-27,Idris,L
+2025-12-28,Idris,L
+2025-12-29,Idris,L
+2025-12-30,Idris,L
+2025-12-31,Idris,L
+2025-12-01,Karima W,P
+2025-12-02,Karima W,O
+2025-12-03,Karima W,M
+2025-12-04,Karima W,N
+2025-12-05,Karima W,O
+2025-12-06,Karima W,O
+2025-12-07,Karima W,M4
+2025-12-08,Karima W,M
+2025-12-09,Karima W,C
+2025-12-10,Karima W,M
+2025-12-11,Karima W,M
+2025-12-12,Karima W,A
+2025-12-13,Karima W,O
+2025-12-14,Karima W,M
+2025-12-15,Karima W,O
+2025-12-16,Karima W,M
+2025-12-17,Karima W,A
+2025-12-18,Karima W,M
+2025-12-19,Karima W,N
+2025-12-20,Karima W,O
+2025-12-21,Karima W,L
+2025-12-22,Karima W,L
+2025-12-23,Karima W,L
+2025-12-24,Karima W,L
+2025-12-25,Karima W,L
+2025-12-26,Karima W,L
+2025-12-27,Karima W,L
+2025-12-28,Karima W,L
+2025-12-29,Karima W,L
+2025-12-30,Karima W,L
+2025-12-31,Karima W,L
+2025-12-01,Rahma,M3
+2025-12-02,Rahma,O
+2025-12-03,Rahma,M
+2025-12-04,Rahma,O
+2025-12-05,Rahma,M3
+2025-12-06,Rahma,N
+2025-12-07,Rahma,O
+2025-12-08,Rahma,IP
+2025-12-09,Rahma,IP
+2025-12-10,Rahma,IP
+2025-12-11,Rahma,IP
+2025-12-12,Rahma,O
+2025-12-13,Rahma,O
+2025-12-14,Rahma,O
+2025-12-15,Rahma,A
+2025-12-16,Rahma,O
+2025-12-17,Rahma,M3
+2025-12-18,Rahma,M
+2025-12-19,Rahma,O
+2025-12-20,Rahma,O
+2025-12-21,Rahma,M
+2025-12-22,Rahma,N
+2025-12-23,Rahma,O
+2025-12-24,Rahma,IP
+2025-12-25,Rahma,O
+2025-12-26,Rahma,O
+2025-12-27,Rahma,O
+2025-12-28,Rahma,M
+2025-12-29,Rahma,M3
+2025-12-30,Rahma,A
+2025-12-31,Rahma,O
+2025-12-01,Ghadeer,IP
+2025-12-02,Ghadeer,IP
+2025-12-03,Ghadeer,IP
+2025-12-04,Ghadeer,IP
+2025-12-05,Ghadeer,O
+2025-12-06,Ghadeer,O
+2025-12-07,Ghadeer,M
+2025-12-08,Ghadeer,A
+2025-12-09,Ghadeer,M
+2025-12-10,Ghadeer,M
+2025-12-11,Ghadeer,M4
+2025-12-12,Ghadeer,N
+2025-12-13,Ghadeer,O
+2025-12-14,Ghadeer,M3
+2025-12-15,Ghadeer,M
+2025-12-16,Ghadeer,O
+2025-12-17,Ghadeer,M
+2025-12-18,Ghadeer,M
+2025-12-19,Ghadeer,O
+2025-12-20,Ghadeer,O
+2025-12-21,Ghadeer,M
+2025-12-22,Ghadeer,M
+2025-12-23,Ghadeer,O
+2025-12-24,Ghadeer,IP
+2025-12-25,Ghadeer,APP
+2025-12-26,Ghadeer,A
+2025-12-27,Ghadeer,O
+2025-12-28,Ghadeer,M
+2025-12-29,Ghadeer,M
+2025-12-30,Ghadeer,M
+2025-12-31,Ghadeer,N
+2025-12-01,Lamees,L
+2025-12-02,Lamees,L
+2025-12-03,Lamees,L
+2025-12-04,Lamees,L
+2025-12-05,Lamees,L
+2025-12-06,Lamees,L
+2025-12-07,Lamees,L
+2025-12-08,Lamees,L
+2025-12-09,Lamees,L
+2025-12-10,Lamees,L
+2025-12-11,Lamees,L
+2025-12-12,Lamees,L
+2025-12-13,Lamees,L
+2025-12-14,Lamees,L
+2025-12-15,Lamees,L
+2025-12-16,Lamees,L
+2025-12-17,Lamees,L
+2025-12-18,Lamees,L
+2025-12-19,Lamees,L
+2025-12-20,Lamees,L
+2025-12-21,Lamees,L
+2025-12-22,Lamees,L
+2025-12-23,Lamees,L
+2025-12-24,Lamees,L
+2025-12-25,Lamees,L
+2025-12-26,Lamees,L
+2025-12-27,Lamees,L
+2025-12-28,Lamees,L
+2025-12-29,Lamees,L
+2025-12-30,Lamees,L
+2025-12-31,Lamees,L
+2025-12-01,Noor,L
+2025-12-02,Noor,L
+2025-12-03,Noor,L
+2025-12-04,Noor,L
+2025-12-05,Noor,L
+2025-12-06,Noor,L
+2025-12-07,Noor,L
+2025-12-08,Noor,L
+2025-12-09,Noor,L
+2025-12-10,Noor,L
+2025-12-11,Noor,L
+2025-12-12,Noor,L
+2025-12-13,Noor,L
+2025-12-14,Noor,L
+2025-12-15,Noor,L
+2025-12-16,Noor,L
+2025-12-17,Noor,L
+2025-12-18,Noor,L
+2025-12-19,Noor,L
+2025-12-20,Noor,L
+2025-12-21,Noor,L
+2025-12-22,Noor,L
+2025-12-23,Noor,L
+2025-12-24,Noor,L
+2025-12-25,Noor,L
+2025-12-26,Noor,L
+2025-12-27,Noor,L
+2025-12-28,Noor,L
+2025-12-29,Noor,L
+2025-12-30,Noor,L
+2025-12-31,Noor,L
+2025-12-01,Marwa J,H
+2025-12-02,Marwa J,APP
+2025-12-03,Marwa J,H
+2025-12-04,Marwa J,O
+2025-12-05,Marwa J,O
+2025-12-06,Marwa J,O
+2025-12-07,Marwa J,O
+2025-12-08,Marwa J,H
+2025-12-09,Marwa J,APP
+2025-12-10,Marwa J,H
+2025-12-11,Marwa J,O
+2025-12-12,Marwa J,O
+2025-12-13,Marwa J,N
+2025-12-14,Marwa J,O
+2025-12-15,Marwa J,H
+2025-12-16,Marwa J,O
+2025-12-17,Marwa J,H
+2025-12-18,Marwa J,O
+2025-12-19,Marwa J,M3
+2025-12-20,Marwa J,O
+2025-12-21,Marwa J,O
+2025-12-22,Marwa J,H
+2025-12-23,Marwa J,O
+2025-12-24,Marwa J,H
+2025-12-25,Marwa J,O
+2025-12-26,Marwa J,O
+2025-12-27,Marwa J,O
+2025-12-28,Marwa J,O
+2025-12-29,Marwa J,H
+2025-12-30,Marwa J,O
+2025-12-31,Marwa J,H
+2025-12-01,Huda,N
+2025-12-02,Huda,O
+2025-12-03,Huda,M3
+2025-12-04,Huda,M3
+2025-12-05,Huda,A
+2025-12-06,Huda,O
+2025-12-07,Huda,IP
+2025-12-08,Huda,IP
+2025-12-09,Huda,IP
+2025-12-10,Huda,O
+2025-12-11,Huda,M
+2025-12-12,Huda,O
+2025-12-13,Huda,O
+2025-12-14,Huda,M
+2025-12-15,Huda,M
+2025-12-16,Huda,M4
+2025-12-17,Huda,M
+2025-12-18,Huda,M
+2025-12-19,Huda,O
+2025-12-20,Huda,O
+2025-12-21,Huda,M
+2025-12-22,Huda,M
+2025-12-23,Huda,M4
+2025-12-24,Huda,A
+2025-12-25,Huda,M3
+2025-12-26,Huda,N
+2025-12-27,Huda,O
+2025-12-28,Huda,M
+2025-12-29,Huda,O
+2025-12-30,Huda,M+P
+2025-12-31,Huda,M3
+2025-12-01,Ameera,P
+2025-12-02,Ameera,IP
+2025-12-03,Ameera,O
+2025-12-04,Ameera,IP
+2025-12-05,Ameera,O
+2025-12-06,Ameera,A
+2025-12-07,Ameera,M
+2025-12-08,Ameera,M3
+2025-12-09,Ameera,M+P
+2025-12-10,Ameera,M
+2025-12-11,Ameera,A
+2025-12-12,Ameera,M3
+2025-12-13,Ameera,O
+2025-12-14,Ameera,M
+2025-12-15,Ameera,M4
+2025-12-16,Ameera,O
+2025-12-17,Ameera,IP
+2025-12-18,Ameera,IP
+2025-12-19,Ameera,O
+2025-12-20,Ameera,O
+2025-12-21,Ameera,M
+2025-12-22,Ameera,M4
+2025-12-23,Ameera,M
+2025-12-24,Ameera,M
+2025-12-25,Ameera,M
+2025-12-26,Ameera,O
+2025-12-27,Ameera,O
+2025-12-28,Ameera,N
+2025-12-29,Ameera,O
+2025-12-30,Ameera,IP
+2025-12-31,Ameera,O
+2025-12-01,Sumayia,O
+2025-12-02,Sumayia,A
+2025-12-03,Sumayia,O
+2025-12-04,Sumayia,M
+2025-12-05,Sumayia,O
+2025-12-06,Sumayia,M3
+2025-12-07,Sumayia,O
+2025-12-08,Sumayia,N
+2025-12-09,Sumayia,O
+2025-12-10,Sumayia,A
+2025-12-11,Sumayia,O
+2025-12-12,Sumayia,O
+2025-12-13,Sumayia,O
+2025-12-14,Sumayia,IP
+2025-12-15,Sumayia,O
+2025-12-16,Sumayia,M3
+2025-12-17,Sumayia,O
+2025-12-18,Sumayia,O
+2025-12-19,Sumayia,O
+2025-12-20,Sumayia,N
+2025-12-21,Sumayia,O
+2025-12-22,Sumayia,M
+2025-12-23,Sumayia,O
+2025-12-24,Sumayia,IP
+2025-12-25,Sumayia,IP
+2025-12-26,Sumayia,O
+2025-12-27,Sumayia,O
+2025-12-28,Sumayia,O
+2025-12-29,Sumayia,M
+2025-12-30,Sumayia,O
+2025-12-31,Sumayia,IP
+2025-12-01,Saja,IP
+2025-12-02,Saja,IP
+2025-12-03,Saja,IP
+2025-12-04,Saja,C
+2025-12-05,Saja,DO
+2025-12-06,Saja,O
+2025-12-07,Saja,DO
+2025-12-08,Saja,DO
+2025-12-09,Saja,C
+2025-12-10,Saja,DO
+2025-12-11,Saja,DO
+2025-12-12,Saja,DO
+2025-12-13,Saja,O
+2025-12-14,Saja,APP
+2025-12-15,Saja,M
+2025-12-16,Saja,M+P
+2025-12-17,Saja,O
+2025-12-18,Saja,IP
+2025-12-19,Saja,O
+2025-12-20,Saja,O
+2025-12-21,Saja,O
+2025-12-22,Saja,IP
+2025-12-23,Saja,IP
+2025-12-24,Saja,O
+2025-12-25,Saja,M
+2025-12-26,Saja,M3
+2025-12-27,Saja,A
+2025-12-28,Saja,M
+2025-12-29,Saja,M
+2025-12-30,Saja,N
+2025-12-31,Saja,O
+2025-12-01,Muna,M
+2025-12-02,Muna,M
+2025-12-03,Muna,M
+2025-12-04,Muna,M
+2025-12-05,Muna,O
+2025-12-06,Muna,O
+2025-12-07,Muna,IP+P
+2025-12-08,Muna,M
+2025-12-09,Muna,N
+2025-12-10,Muna,O
+2025-12-11,Muna,M
+2025-12-12,Muna,O
+2025-12-13,Muna,O
+2025-12-14,Muna,N
+2025-12-15,Muna,O
+2025-12-16,Muna,IP+P
+2025-12-17,Muna,IP
+2025-12-18,Muna,IP
+2025-12-19,Muna,O
+2025-12-20,Muna,A
+2025-12-21,Muna,A
+2025-12-22,Muna,M
+2025-12-23,Muna,M
+2025-12-24,Muna,M3
+2025-12-25,Muna,M
+2025-12-26,Muna,O
+2025-12-27,Muna,O
+2025-12-28,Muna,IP+P
+2025-12-29,Muna,IP
+2025-12-30,Muna,IP
+2025-12-31,Muna,O
+2025-12-01,Aya,M4
+2025-12-02,Aya,M3
+2025-12-03,Aya,N
+2025-12-04,Aya,O
+2025-12-05,Aya,O
+2025-12-06,Aya,O
+2025-12-07,Aya,N
+2025-12-08,Aya,O
+2025-12-09,Aya,M3
+2025-12-10,Aya,M
+2025-12-11,Aya,O
+2025-12-12,Aya,O
+2025-12-13,Aya,O
+2025-12-14,Aya,O
+2025-12-15,Aya,IP
+2025-12-16,Aya,IP
+2025-12-17,Aya,O
+2025-12-18,Aya,A
+2025-12-19,Aya,O
+2025-12-20,Aya,O
+2025-12-21,Aya,DO
+2025-12-22,Aya,DO
+2025-12-23,Aya,IP
+2025-12-24,Aya,O
+2025-12-25,Aya,IP
+2025-12-26,Aya,O
+2025-12-27,Aya,O
+2025-12-28,Aya,A
+2025-12-29,Aya,O
+2025-12-30,Aya,O
+2025-12-31,Aya,IP
+2025-12-01,Rashida,O
+2025-12-02,Rashida,M
+2025-12-03,Rashida,M
+2025-12-04,Rashida,M
+2025-12-05,Rashida,N
+2025-12-06,Rashida,O
+2025-12-07,Rashida,O
+2025-12-08,Rashida,IP
+2025-12-09,Rashida,C
+2025-12-10,Rashida,IP
+2025-12-11,Rashida,IP
+2025-12-12,Rashida,O
+2025-12-13,Rashida,O
+2025-12-14,Rashida,M4
+2025-12-15,Rashida,M3
+2025-12-16,Rashida,A
+2025-12-17,Rashida,M4
+2025-12-18,Rashida,N
+2025-12-19,Rashida,O
+2025-12-20,Rashida,O
+2025-12-21,Rashida,IP
+2025-12-22,Rashida,O
+2025-12-23,Rashida,M
+2025-12-24,Rashida,M4
+2025-12-25,Rashida,A
+2025-12-26,Rashida,O
+2025-12-27,Rashida,O
+2025-12-28,Rashida,IP
+2025-12-29,Rashida,IP
+2025-12-30,Rashida,O
+2025-12-31,Rashida,M
+2025-12-01,Shatha,M
+2025-12-02,Shatha,O
+2025-12-03,Shatha,M4
+2025-12-04,Shatha,M4
+2025-12-05,Shatha,O
+2025-12-06,Shatha,O
+2025-12-07,Shatha,M3
+2025-12-08,Shatha,O
+2025-12-09,Shatha,M
+2025-12-10,Shatha,N
+2025-12-11,Shatha,O
+2025-12-12,Shatha,O
+2025-12-13,Shatha,A
+2025-12-14,Shatha,A
+2025-12-15,Shatha,O
+2025-12-16,Shatha,M
+2025-12-17,Shatha,N
+2025-12-18,Shatha,O
+2025-12-19,Shatha,O
+2025-12-20,Shatha,O
+2025-12-21,Shatha,IP
+2025-12-22,Shatha,IP
+2025-12-23,Shatha,M+P
+2025-12-24,Shatha,M
+2025-12-25,Shatha,O
+2025-12-26,Shatha,O
+2025-12-27,Shatha,O
+2025-12-28,Shatha,O
+2025-12-29,Shatha,M
+2025-12-30,Shatha,M
+2025-12-31,Shatha,M
+2025-12-01,Widad,L
+2025-12-02,Widad,L
+2025-12-03,Widad,L
+2025-12-04,Widad,C
+2025-12-05,Widad,L
+2025-12-06,Widad,L
+2025-12-07,Widad,L
+2025-12-08,Widad,L
+2025-12-09,Widad,L
+2025-12-10,Widad,L
+2025-12-11,Widad,L
+2025-12-12,Widad,L
+2025-12-13,Widad,L
+2025-12-14,Widad,L
+2025-12-15,Widad,L
+2025-12-16,Widad,L
+2025-12-17,Widad,L
+2025-12-18,Widad,L
+2025-12-19,Widad,L
+2025-12-20,Widad,L
+2025-12-21,Widad,N
+2025-12-22,Widad,O
+2025-12-23,Widad,N
+2025-12-24,Widad,O
+2025-12-25,Widad,IP+P
+2025-12-26,Widad,O
+2025-12-27,Widad,O
+2025-12-28,Widad,M
+2025-12-29,Widad,A
+2025-12-30,Widad,M
+2025-12-31,Widad,A
+2025-12-01,Khawla,M
+2025-12-02,Khawla,M+P
+2025-12-03,Khawla,A
+2025-12-04,Khawla,M
+2025-12-05,Khawla,O
+2025-12-06,Khawla,O
+2025-12-07,Khawla,IP
+2025-12-08,Khawla,O
+2025-12-09,Khawla,IP
+2025-12-10,Khawla,IP
+2025-12-11,Khawla,O
+2025-12-12,Khawla,O
+2025-12-13,Khawla,M3
+2025-12-14,Khawla,M
+2025-12-15,Khawla,N
+2025-12-16,Khawla,O
+2025-12-17,Khawla,IP
+2025-12-18,Khawla,IP
+2025-12-19,Khawla,O
+2025-12-20,Khawla,O
+2025-12-21,Khawla,M4
+2025-12-22,Khawla,M3
+2025-12-23,Khawla,A
+2025-12-24,Khawla,M
+2025-12-25,Khawla,N
+2025-12-26,Khawla,O
+2025-12-27,Khawla,O
+2025-12-28,Khawla,M4
+2025-12-29,Khawla,M4
+2025-12-30,Khawla,O
+2025-12-31,Khawla,IP
+2025-12-01,Amna,A
+2025-12-02,Amna,M4
+2025-12-03,Amna,O
+2025-12-04,Amna,M
+2025-12-05,Amna,O
+2025-12-06,Amna,O
+2025-12-07,Amna,M
+2025-12-08,Amna,M4
+2025-12-09,Amna,M4
+2025-12-10,Amna,O
+2025-12-11,Amna,M3
+2025-12-12,Amna,O
+2025-12-13,Amna,O
+2025-12-14,Amna,M
+2025-12-15,Amna,M
+2025-12-16,Amna,N
+2025-12-17,Amna,O
+2025-12-18,Amna,M3
+2025-12-19,Amna,O
+2025-12-20,Amna,O
+2025-12-21,Amna,M3
+2025-12-22,Amna,A
+2025-12-23,Amna,M3
+2025-12-24,Amna,N
+2025-12-25,Amna,O
+2025-12-26,Amna,O
+2025-12-27,Amna,O
+2025-12-28,Amna,IP
+2025-12-29,Amna,IP
+2025-12-30,Amna,IP
+2025-12-31,Amna,O
+2025-12-01,Karima H,M
+2025-12-02,Karima H,N
+2025-12-03,Karima H,O
+2025-12-04,Karima H,A
+2025-12-05,Karima H,O
+2025-12-06,Karima H,O
+2025-12-07,Karima H,M
+2025-12-08,Karima H,M
+2025-12-09,Karima H,M
+2025-12-10,Karima H,O
+2025-12-11,Karima H,IP
+2025-12-12,Karima H,O
+2025-12-13,Karima H,O
+2025-12-14,Karima H,IP
+2025-12-15,Karima H,O
+2025-12-16,Karima H,M
+2025-12-17,Karima H,M
+2025-12-18,Karima H,M4
+2025-12-19,Karima H,A
+2025-12-20,Karima H,O
+2025-12-21,Karima H,L
+2025-12-22,Karima H,L
+2025-12-23,Karima H,L
+2025-12-24,Karima H,L
+2025-12-25,Karima H,L
+2025-12-26,Karima H,DO
+2025-12-27,Karima H,N
+2025-12-28,Karima H,O
+2025-12-29,Karima H,O
+2025-12-30,Karima H,M3
+2025-12-31,Karima H,M
+2025-12-01,Sultan,O
+2025-12-02,Sultan,M
+2025-12-03,Sultan,O
+2025-12-04,Sultan,IP
+2025-12-05,Sultan,O
+2025-12-06,Sultan,O
+2025-12-07,Sultan,A
+2025-12-08,Sultan,M
+2025-12-09,Sultan,A
+2025-12-10,Sultan,M3
+2025-12-11,Sultan,N
+2025-12-12,Sultan,O
+2025-12-13,Sultan,O
+2025-12-14,Sultan,IP
+2025-12-15,Sultan,IP
+2025-12-16,Sultan,IP
+2025-12-17,Sultan,O
+2025-12-18,Sultan,DO
+2025-12-19,Sultan,DO
+2025-12-20,Sultan,M3
+2025-12-21,Sultan,DO
+2025-12-22,Sultan,DO
+2025-12-23,Sultan,DO
+2025-12-24,Sultan,M
+2025-12-25,Sultan,M4
+2025-12-26,Sultan,O
+2025-12-27,Sultan,M3
+2025-12-28,Sultan,M3
+2025-12-29,Sultan,N
+2025-12-30,Sultan,O
+2025-12-31,Sultan,M4
+2025-12-01,Nasra,M
+2025-12-02,Nasra,M
+2025-12-03,Nasra,M
+2025-12-04,Nasra,APP
+2025-12-05,Nasra,O
+2025-12-06,Nasra,O
+2025-12-07,Nasra,M
+2025-12-08,Nasra,M
+2025-12-09,Nasra,M
+2025-12-10,Nasra,M
+2025-12-11,Nasra,M
+2025-12-12,Nasra,O
+2025-12-13,Nasra,O
+2025-12-14,Nasra,M
+2025-12-15,Nasra,M
+2025-12-16,Nasra,M
+2025-12-17,Nasra,M
+2025-12-18,Nasra,M
+2025-12-19,Nasra,O
+2025-12-20,Nasra,O
+2025-12-21,Nasra,M
+2025-12-22,Nasra,M
+2025-12-23,Nasra,M
+2025-12-24,Nasra,M
+2025-12-25,Nasra,M
+2025-12-26,Nasra,O
+2025-12-27,Nasra,O
+2025-12-28,Nasra,M
+2025-12-29,Nasra,M
+2025-12-30,Nasra,M
+2025-12-31,Nasra,M
+2025-12-01,Anisa,IP
+2025-12-02,Anisa,O
+2025-12-03,Anisa,IP
+2025-12-04,Anisa,IP
+2025-12-05,Anisa,O
+2025-12-06,Anisa,O
+2025-12-07,Anisa,M
+2025-12-08,Anisa,L
+2025-12-09,Anisa,L
+2025-12-10,Anisa,M4
+2025-12-11,Anisa,M
+2025-12-12,Anisa,O
+2025-12-13,Anisa,O
+2025-12-14,Anisa,O
+2025-12-15,Anisa,IP
+2025-12-16,Anisa,O
+2025-12-17,Anisa,M
+2025-12-18,Anisa,O
+2025-12-19,Anisa,O
+2025-12-20,Anisa,O
+2025-12-21,Anisa,IP
+2025-12-22,Anisa,IP
+2025-12-23,Anisa,IP
+2025-12-24,Anisa,O
+2025-12-25,Anisa,M
+2025-12-26,Anisa,O
+2025-12-27,Anisa,O
+2025-12-28,Anisa,O
+2025-12-29,Anisa,O
+2025-12-30,Anisa,M4
+2025-12-31,Anisa,M
+2025-12-01,Faiza,IP
+2025-12-02,Faiza,IP
+2025-12-03,Faiza,IP
+2025-12-04,Faiza,C
+2025-12-05,Faiza,O
+2025-12-06,Faiza,O
+2025-12-07,Faiza,IP
+2025-12-08,Faiza,IP
+2025-12-09,Faiza,IP
+2025-12-10,Faiza,IP
+2025-12-11,Faiza,IP
+2025-12-12,Faiza,O
+2025-12-13,Faiza,O
+2025-12-14,Faiza,IP
+2025-12-15,Faiza,IP
+2025-12-16,Faiza,IP
+2025-12-17,Faiza,IP
+2025-12-18,Faiza,C
+2025-12-19,Faiza,O
+2025-12-20,Faiza,O
+2025-12-21,Faiza,IP
+2025-12-22,Faiza,IP
+2025-12-23,Faiza,IP
+2025-12-24,Faiza,IP
+2025-12-25,Faiza,IP
+2025-12-26,Faiza,O
+2025-12-27,Faiza,O
+2025-12-28,Faiza,IP
+2025-12-29,Faiza,IP
+2025-12-30,Faiza,IP
+2025-12-31,Faiza,IP
+2025-12-01,Hawra,CL
+2025-12-02,Hawra,CL
+2025-12-03,Hawra,CL
+2025-12-04,Hawra,CL
+2025-12-05,Hawra,O
+2025-12-06,Hawra,O
+2025-12-07,Hawra,CL
+2025-12-08,Hawra,CL
+2025-12-09,Hawra,CL
+2025-12-10,Hawra,CL
+2025-12-11,Hawra,CL
+2025-12-12,Hawra,O
+2025-12-13,Hawra,O
+2025-12-14,Hawra,CL
+2025-12-15,Hawra,CL
+2025-12-16,Hawra,CL
+2025-12-17,Hawra,CL
+2025-12-18,Hawra,CL
+2025-12-19,Hawra,O
+2025-12-20,Hawra,O
+2025-12-21,Hawra,CL
+2025-12-22,Hawra,CL
+2025-12-23,Hawra,CL
+2025-12-24,Hawra,CL
+2025-12-25,Hawra,CL
+2025-12-26,Hawra,O
+2025-12-27,Hawra,O
+2025-12-28,Hawra,CL
+2025-12-29,Hawra,CL
+2025-12-30,Hawra,CL
+2025-12-31,Hawra,CL
+2025-12-01,Abdullah,CL
+2025-12-02,Abdullah,CL
+2025-12-03,Abdullah,CL
+2025-12-04,Abdullah,CL
+2025-12-05,Abdullah,O
+2025-12-06,Abdullah,O
+2025-12-07,Abdullah,CL
+2025-12-08,Abdullah,CL
+2025-12-09,Abdullah,CL
+2025-12-10,Abdullah,CL
+2025-12-11,Abdullah,CL
+2025-12-12,Abdullah,O
+2025-12-13,Abdullah,O
+2025-12-14,Abdullah,CL
+2025-12-15,Abdullah,CL
+2025-12-16,Abdullah,CL
+2025-12-17,Abdullah,CL
+2025-12-18,Abdullah,CL
+2025-12-19,Abdullah,O
+2025-12-20,Abdullah,O
+2025-12-21,Abdullah,CL
+2025-12-22,Abdullah,CL
+2025-12-23,Abdullah,CL
+2025-12-24,Abdullah,CL
+2025-12-25,Abdullah,CL
+2025-12-26,Abdullah,O
+2025-12-27,Abdullah,O
+2025-12-28,Abdullah,CL
+2025-12-29,Abdullah,CL
+2025-12-30,Abdullah,CL
+2025-12-31,Abdullah,CL

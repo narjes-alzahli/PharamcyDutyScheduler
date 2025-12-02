@@ -303,13 +303,22 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     );
   }
 
-  // Get all unique employees
-  const employees = Array.from(new Set(monthData.map(e => e.employee))).sort();
+  // Get all unique employees from schedule data
+  const employeesInSchedule = Array.from(new Set(monthData.map(e => e.employee)));
   
-  // Reorder: clinic employees at the bottom
-  const clinicEmployees = ['Rasha', 'Hawra', 'Abdullah'];
-  const otherEmployees = employees.filter(emp => !clinicEmployees.includes(emp));
-  const reorderedEmployees = [...otherEmployees, ...clinicEmployees.filter(emp => employees.includes(emp))];
+  // Get employee order from employeeData (employee management order)
+  let employees: string[];
+  if (employeeData && employeeData.length > 0) {
+    // Use the order from employee management, but only include employees that appear in the schedule
+    const employeeOrder = employeeData.map(emp => emp.employee);
+    employees = employeeOrder.filter(emp => employeesInSchedule.includes(emp));
+    // Add any employees in schedule but not in employeeData (shouldn't happen, but be safe)
+    const missingEmployees = employeesInSchedule.filter(emp => !employeeOrder.includes(emp));
+    employees = [...employees, ...missingEmployees];
+  } else {
+    // Fallback: sort alphabetically if no employeeData provided
+    employees = employeesInSchedule.sort();
+  }
 
   // Get all dates in the month - use local date formatting to avoid timezone issues
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -331,7 +340,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
 
   // Create pivot data structure
   const pivotData: Record<string, Record<string, string>> = {};
-  reorderedEmployees.forEach(emp => {
+  employees.forEach(emp => {
     pivotData[emp] = {};
     dates.forEach(date => {
       pivotData[emp][date] = '';
@@ -405,7 +414,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
             </tr>
           </thead>
           <tbody>
-            {reorderedEmployees.map(employee => {
+            {employees.map(employee => {
               // Get shift options once per row (more efficient)
               const shiftOptions = editable ? getAvailableShiftOptions() : [];
               
@@ -511,10 +520,28 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                 TOTAL MAIN
               </td>
               {dates.map(dateStr => {
-                // Count M shifts for this date
-                const mainCount = reorderedEmployees.reduce((count, emp) => {
+                // Check if it's a weekend (Friday=4, Saturday=5 in Oman)
+                const dateObj = new Date(dateStr);
+                const weekday = dateObj.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
+                const isWeekend = weekday === 5 || weekday === 6; // Friday or Saturday
+                
+                // Show empty on weekends, otherwise count M, M+P, M3, M4 shifts
+                if (isWeekend) {
+                  return (
+                    <td
+                      key={dateStr}
+                      className="border border-black px-1 py-1 text-center font-bold"
+                      style={{ backgroundColor: totalsColor }}
+                    >
+                      {/* Empty on weekends */}
+                    </td>
+                  );
+                }
+                
+                const mainCount = employees.reduce((count, emp) => {
                   const shift = pivotData[emp][dateStr] || '';
-                  return count + (shift === 'M' ? 1 : 0);
+                  // Include M, M+P, M3, M4 in total main count
+                  return count + (['M', 'M+P', 'M3', 'M4'].includes(shift) ? 1 : 0);
                 }, 0);
                 return (
                   <td
@@ -538,10 +565,28 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                 TOTAL IP
               </td>
               {dates.map(dateStr => {
-                // Count IP shifts for this date
-                const ipCount = reorderedEmployees.reduce((count, emp) => {
+                // Check if it's a weekend (Friday=4, Saturday=5 in Oman)
+                const dateObj = new Date(dateStr);
+                const weekday = dateObj.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
+                const isWeekend = weekday === 5 || weekday === 6; // Friday or Saturday
+                
+                // Show empty on weekends, otherwise count IP and IP+P shifts
+                if (isWeekend) {
+                  return (
+                    <td
+                      key={dateStr}
+                      className="border border-black px-1 py-1 text-center font-bold"
+                      style={{ backgroundColor: totalsColor }}
+                    >
+                      {/* Empty on weekends */}
+                    </td>
+                  );
+                }
+                
+                const ipCount = employees.reduce((count, emp) => {
                   const shift = pivotData[emp][dateStr] || '';
-                  return count + (shift === 'IP' ? 1 : 0);
+                  // Include IP and IP+P in total IP count
+                  return count + (['IP', 'IP+P'].includes(shift) ? 1 : 0);
                 }, 0);
                 return (
                   <td

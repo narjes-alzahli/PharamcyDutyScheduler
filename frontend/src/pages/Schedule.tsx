@@ -1,16 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { schedulesAPI, Schedule } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
 import * as htmlToImage from 'html-to-image';
 import { useAuth } from '../contexts/AuthContext';
+import { useAuthGuard } from '../hooks/useAuthGuard';
 import { useDate } from '../contexts/DateContext';
 import { DatePicker } from '../components/DatePicker';
+import { isTokenExpired } from '../utils/tokenUtils';
 
 export const SchedulePage: React.FC = () => {
   const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth } = useDate();
+  // FIX: Use auth guard to prevent API calls until auth is confirmed
+  const { isReady: authReady } = useAuthGuard(false); // Requires auth but not manager
+  const { user, loading: authLoading } = useAuth(); // Keep for isManager check
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [schedulesLoaded, setSchedulesLoaded] = useState(false); // Track if schedules list is loaded
   const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingSchedule, setLoadingSchedule] = useState(false); // Separate loading state for individual schedule
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -18,23 +25,38 @@ export const SchedulePage: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const scheduleCardRef = useRef<HTMLDivElement>(null);
-  const { user } = useAuth();
   const isManager = user?.employee_type === 'Manager';
 
-  useEffect(() => {
-    loadSchedules();
-  }, []);
-
-  useEffect(() => {
-    if (selectedYear && selectedMonth) {
-      loadSchedule(selectedYear, selectedMonth);
+  const loadSchedules = useCallback(async (signal?: AbortSignal) => {
+    // FIX: Double-check token is still valid right before making the call
+    // This prevents race conditions where token expires between guard check and API call
+    const token = localStorage.getItem('access_token');
+    if (!token || isTokenExpired(token)) {
+      // Token expired between guard check and API call - skip request
+      console.warn('⚠️ Token expired between guard check and API call - skipping request');
+      setSchedules([]);
+      setSchedulesLoaded(true);
+      setLoading(false);
+      setError('Authentication expired. Please refresh the page.');
+      return;
     }
-  }, [selectedYear, selectedMonth]);
 
-  const loadSchedules = async () => {
+    // FIX: Check if request was cancelled before making API call
+    if (signal?.aborted) {
+      return;
+    }
+
     try {
       setLoading(true);
-      const data = await schedulesAPI.getCommittedSchedules();
+      setSchedulesLoaded(false);
+      // FIX: Pass abort signal to axios request (axios supports AbortSignal)
+      const data = await schedulesAPI.getCommittedSchedules(signal);
+      
+      // FIX: Check if request was cancelled after API call
+      if (signal?.aborted) {
+        return;
+      }
+      
       setSchedules(data);
 
       if (data.length === 0) {
@@ -50,16 +72,58 @@ export const SchedulePage: React.FC = () => {
         setCurrentSchedule(null);
         setSelectedMonth(null);
       }
+      setSchedulesLoaded(true); // Mark schedules as loaded
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load schedules');
+      setSchedulesLoaded(true); // Still mark as loaded so UI can show error state
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // FIX: Load schedules list ONLY after auth guard confirms we're ready
+  // This ensures user is authenticated AND token is valid before making API calls
+  // FIX: Add request cancellation on unmount to prevent memory leaks
+  useEffect(() => {
+    const abortController = new AbortController();
+    
+    if (authReady) {
+      loadSchedules(abortController.signal);
+    } else {
+      // Auth not ready - clear schedules and show loading
+      setSchedules([]);
+      setSchedulesLoaded(false);
+      setLoading(true);
+      setError(null);
+    }
+    
+    // FIX: Cancel request on unmount or when authReady changes
+    return () => {
+      abortController.abort();
+    };
+  }, [authReady, loadSchedules]);
+
+  // Load specific schedule ONLY after schedules list is loaded
+  useEffect(() => {
+    if (!schedulesLoaded) return; // Wait for schedules list to be loaded first
+    
+    if (selectedYear && selectedMonth) {
+      // Verify the schedule exists in the list before trying to load it
+      const scheduleExists = schedules.some(
+        (s) => s.year === selectedYear && s.month === selectedMonth
+      );
+      if (scheduleExists) {
+        loadSchedule(selectedYear, selectedMonth);
+      } else {
+        // Selected schedule doesn't exist, clear selection
+        setCurrentSchedule(null);
+      }
+    }
+  }, [selectedYear, selectedMonth, schedulesLoaded, schedules]);
 
   const loadSchedule = async (year: number, month: number) => {
     try {
-      setLoading(true);
+      setLoadingSchedule(true);
       const schedule = await schedulesAPI.getSchedule(year, month);
       setCurrentSchedule(schedule);
       setHasUnsavedChanges(false);
@@ -69,7 +133,7 @@ export const SchedulePage: React.FC = () => {
       setError(err.response?.data?.detail || 'Failed to load schedule');
       setCurrentSchedule(null);
     } finally {
-      setLoading(false);
+      setLoadingSchedule(false);
     }
   };
 
@@ -174,10 +238,24 @@ export const SchedulePage: React.FC = () => {
     }
   };
 
-  if (loading && !currentSchedule) {
+  // Show loading spinner while auth is loading or initial schedules list is loading
+  // FIX: Show loading while auth is being verified
+  // This prevents components from making API calls before auth is ready
+  if (authLoading || !authReady) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <span className="ml-3 text-gray-600">Loading schedules...</span>
+      </div>
+    );
+  }
+
+  // Show loading spinner while initial schedules list is loading
+  if (loading && !schedulesLoaded) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <span className="ml-3 text-gray-600">Loading schedules...</span>
       </div>
     );
   }
@@ -206,7 +284,14 @@ export const SchedulePage: React.FC = () => {
             availableYearMonthCombos={availableYearMonthCombos}
           />
 
-          {selectedYear && selectedMonth && currentSchedule && (
+          {selectedYear && selectedMonth && loadingSchedule && (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              <span className="ml-3 text-gray-600">Loading schedule...</span>
+            </div>
+          )}
+
+          {selectedYear && selectedMonth && currentSchedule && !loadingSchedule && (
             <>
 
               {/* Schedule Table */}
@@ -272,7 +357,7 @@ export const SchedulePage: React.FC = () => {
             </>
           )}
 
-          {selectedYear && selectedMonth && !currentSchedule && !loading && (
+          {selectedYear && selectedMonth && !currentSchedule && !loading && !loadingSchedule && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
               No schedule data available for {monthNames[selectedMonth - 1]} {selectedYear}
             </div>

@@ -16,9 +16,17 @@ sys.path.insert(0, str(project_root))
 from backend.routers.auth import get_current_user
 from backend.database import get_db
 from backend.utils import hash_password
-from backend.roster_data_loader import load_roster_data_from_db, load_month_demands, save_month_demands, generate_month_demands
+from backend.roster_data_loader import (
+    load_roster_data_from_db, 
+    load_month_demands, 
+    save_month_demands as save_month_demands_to_file, 
+    generate_month_demands,
+    save_month_holidays,
+    load_month_holidays
+)
 from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType
 from sqlalchemy.orm import Session
+from sqlalchemy import not_
 from datetime import date
 
 router = APIRouter()
@@ -310,39 +318,51 @@ async def get_roster_data(
     db: Session = Depends(get_db)
 ):
     """Get all roster data (employees, demands, time_off, locks)."""
-    roster_data = load_roster_data_from_db(db)
-    
-    # Load demands from CSV (no database model yet)
-    from pathlib import Path
-    import pandas as pd
-    project_root = Path(__file__).parent.parent.parent
-    demands_file = project_root / "roster" / "app" / "data" / "demands.csv"
-    if demands_file.exists():
-        demands_df = pd.read_csv(demands_file)
-    else:
-        demands_df = pd.DataFrame()
-    
-    # Convert date objects to ISO strings for JSON serialization
-    time_off_records = roster_data['time_off'].to_dict('records')
-    for record in time_off_records:
-        if isinstance(record.get('from_date'), date):
-            record['from_date'] = record['from_date'].isoformat()
-        if isinstance(record.get('to_date'), date):
-            record['to_date'] = record['to_date'].isoformat()
-    
-    locks_records = roster_data['locks'].to_dict('records')
-    for record in locks_records:
-        if isinstance(record.get('from_date'), date):
-            record['from_date'] = record['from_date'].isoformat()
-        if isinstance(record.get('to_date'), date):
-            record['to_date'] = record['to_date'].isoformat()
-    
-    return {
-        "employees": roster_data['employees'].to_dict('records'),
-        "demands": demands_df.to_dict('records') if not demands_df.empty else [],
-        "time_off": time_off_records,
-        "locks": locks_records
-    }
+    try:
+        roster_data = load_roster_data_from_db(db)
+        
+        # Load demands from CSV (no database model yet)
+        from pathlib import Path
+        import pandas as pd
+        project_root = Path(__file__).parent.parent.parent
+        demands_file = project_root / "roster" / "app" / "data" / "demands.csv"
+        if demands_file.exists():
+            demands_df = pd.read_csv(demands_file)
+        else:
+            demands_df = pd.DataFrame()
+        
+        # Convert date objects to ISO strings for JSON serialization
+        # Replace NaN values with None to make JSON serializable
+        import numpy as np
+        time_off_records = roster_data['time_off'].replace({np.nan: None}).to_dict('records')
+        for record in time_off_records:
+            if isinstance(record.get('from_date'), date):
+                record['from_date'] = record['from_date'].isoformat()
+            if isinstance(record.get('to_date'), date):
+                record['to_date'] = record['to_date'].isoformat()
+        
+        locks_records = roster_data['locks'].replace({np.nan: None}).to_dict('records')
+        for record in locks_records:
+            if isinstance(record.get('from_date'), date):
+                record['from_date'] = record['from_date'].isoformat()
+            if isinstance(record.get('to_date'), date):
+                record['to_date'] = record['to_date'].isoformat()
+        
+        # Replace NaN in employees and demands DataFrames
+        employees_records = roster_data['employees'].replace({np.nan: None}).to_dict('records')
+        demands_records = demands_df.replace({np.nan: None}).to_dict('records') if not demands_df.empty else []
+        
+        return {
+            "employees": employees_records,
+            "demands": demands_records,
+            "time_off": time_off_records,
+            "locks": locks_records
+        }
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error in get_roster_data: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to load roster data: {str(e)}")
 
 
 @router.put("/time-off")
@@ -368,18 +388,33 @@ async def update_time_off(
         LeaveRequest.reason == 'Added via Roster Generator'
     ).delete(synchronize_session=False)
     
-    # Delete ALL existing "Added via Roster Generator" shift requests with force=True
-    # (These are non-standard shifts that appear in time_off)
-    shift_deleted = db.query(ShiftRequest).filter(
-        ShiftRequest.reason == 'Added via Roster Generator',
-        ShiftRequest.force == True
-    ).delete(synchronize_session=False)
+    # Delete only non-standard shift requests (those that appear in time_off)
+    # Do NOT delete standard shift requests (M, IP, A, N, etc.) as those come from locks
+    STANDARD_WORKING_SHIFTS = {'M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'}
+    standard_shift_type_ids = [
+        st.id for st in db.query(ShiftType).filter(ShiftType.code.in_(STANDARD_WORKING_SHIFTS)).all()
+    ]
+    
+    # Only delete shift requests that are NOT standard working shifts
+    # (i.e., non-standard shifts that appear in time_off)
+    if standard_shift_type_ids:
+        shift_deleted = db.query(ShiftRequest).filter(
+            ShiftRequest.reason == 'Added via Roster Generator',
+            ShiftRequest.force == True,
+            not_(ShiftRequest.shift_type_id.in_(standard_shift_type_ids))
+        ).delete(synchronize_session=False)
+    else:
+        # If no standard shifts found, delete all force=True shift requests (fallback)
+        shift_deleted = db.query(ShiftRequest).filter(
+            ShiftRequest.reason == 'Added via Roster Generator',
+            ShiftRequest.force == True
+        ).delete(synchronize_session=False)
     
     db.commit()  # Commit the deletions before creating new ones
     logger.info(f"Deleted {leave_deleted} leave requests and {shift_deleted} shift requests")
     
     # Separate entries into leave types and shift types
-    STANDARD_WORKING_SHIFTS = {'M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'}
+    # (STANDARD_WORKING_SHIFTS already defined above)
     
     leave_entries = []
     shift_entries = []
@@ -416,8 +451,44 @@ async def update_time_off(
         if not leave_type:
             continue
         
-        from_date = date.fromisoformat(entry.from_date)
-        to_date = date.fromisoformat(entry.to_date)
+        # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
+        try:
+            from_date = date.fromisoformat(entry.from_date)
+        except ValueError:
+            # Try parsing DD-MM-YYYY format
+            try:
+                parts = entry.from_date.split('-')
+                if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                    from_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid date format for time-off request (employee: {entry.employee}): '{entry.from_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                    )
+            except (ValueError, IndexError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse from_date '{entry.from_date}' for employee {entry.employee}: {str(e)}"
+                )
+        
+        try:
+            to_date = date.fromisoformat(entry.to_date)
+        except ValueError:
+            # Try parsing DD-MM-YYYY format
+            try:
+                parts = entry.to_date.split('-')
+                if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                    to_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid date format for time-off request (employee: {entry.employee}): '{entry.to_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                    )
+            except (ValueError, IndexError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
+                )
         
         new_request = LeaveRequest(
             user_id=user.id,
@@ -449,8 +520,44 @@ async def update_time_off(
         if not shift_type:
             continue
         
-        from_date = date.fromisoformat(entry.from_date)
-        to_date = date.fromisoformat(entry.to_date)
+        # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
+        try:
+            from_date = date.fromisoformat(entry.from_date)
+        except ValueError:
+            # Try parsing DD-MM-YYYY format
+            try:
+                parts = entry.from_date.split('-')
+                if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                    from_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid date format for time-off request (employee: {entry.employee}): '{entry.from_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                    )
+            except (ValueError, IndexError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse from_date '{entry.from_date}' for employee {entry.employee}: {str(e)}"
+                )
+        
+        try:
+            to_date = date.fromisoformat(entry.to_date)
+        except ValueError:
+            # Try parsing DD-MM-YYYY format
+            try:
+                parts = entry.to_date.split('-')
+                if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                    to_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid date format for time-off request (employee: {entry.employee}): '{entry.to_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                    )
+            except (ValueError, IndexError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
+                )
         
         # Create shift request with force=True (for non-standard shifts that appear in time_off)
         new_request = ShiftRequest(
@@ -491,13 +598,25 @@ async def update_locks(
     
     logger.info(f"Received {len(entries)} shift lock entries to save")
     
-    # Delete ALL existing "Added via Roster Generator" shift requests
-    # This ensures deletions are handled correctly even if an employee has no entries in the new list
-    all_deleted = db.query(ShiftRequest).filter(
-        ShiftRequest.reason == 'Added via Roster Generator'
-    ).delete(synchronize_session=False)
+    # Delete only standard shift requests (those that come from locks)
+    # Do NOT delete non-standard shift requests (MS, C, etc.) as those come from time_off
+    STANDARD_WORKING_SHIFTS = {'M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'}
+    standard_shift_type_ids = [
+        st.id for st in db.query(ShiftType).filter(ShiftType.code.in_(STANDARD_WORKING_SHIFTS)).all()
+    ]
+    
+    # Only delete shift requests that ARE standard working shifts
+    # (i.e., locks, not non-standard shifts from time_off)
+    if standard_shift_type_ids:
+        all_deleted = db.query(ShiftRequest).filter(
+            ShiftRequest.reason == 'Added via Roster Generator',
+            ShiftRequest.shift_type_id.in_(standard_shift_type_ids)
+        ).delete(synchronize_session=False)
+    else:
+        # If no standard shifts found, don't delete anything (safety fallback)
+        all_deleted = 0
     db.commit()  # Commit the deletion before creating new ones
-    logger.info(f"Deleted {all_deleted} existing roster generator shift requests")
+    logger.info(f"Deleted {all_deleted} existing roster generator shift requests (standard shifts only)")
     
     # Group entries by employee, from_date, to_date, shift, and force to create shift requests
     # Each unique combination should be one shift request
@@ -518,13 +637,68 @@ async def update_locks(
             continue
         
         # Parse dates
-        from_date = date.fromisoformat(entry.from_date)
-        to_date = date.fromisoformat(entry.to_date)
+        # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
+        try:
+            from_date = date.fromisoformat(entry.from_date)
+        except ValueError:
+            # Try parsing DD-MM-YYYY format
+            try:
+                parts = entry.from_date.split('-')
+                if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                    from_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid date format for shift request (employee: {entry.employee}): '{entry.from_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                    )
+            except (ValueError, IndexError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse from_date '{entry.from_date}' for employee {entry.employee}: {str(e)}"
+                )
+        
+        try:
+            to_date = date.fromisoformat(entry.to_date)
+        except ValueError:
+            # Try parsing DD-MM-YYYY format
+            try:
+                parts = entry.to_date.split('-')
+                if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                    to_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid date format for shift request (employee: {entry.employee}): '{entry.to_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                    )
+            except (ValueError, IndexError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
+                )
         
         # Find shift type by code
         shift_type = db.query(ShiftType).filter(ShiftType.code == entry.shift).first()
         if not shift_type:
-            logger.warning(f"Shift type not found: {entry.shift} for employee {entry.employee}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Shift type '{entry.shift}' not found for employee {entry.employee}"
+            )
+        
+        # Check if a duplicate shift request already exists (same employee, dates, shift, force, and reason)
+        # This prevents duplicates when the same lock is added multiple times
+        existing_request = db.query(ShiftRequest).filter(
+            ShiftRequest.user_id == user.id,
+            ShiftRequest.shift_type_id == shift_type.id,
+            ShiftRequest.from_date == from_date,
+            ShiftRequest.to_date == to_date,
+            ShiftRequest.force == entry.force,
+            ShiftRequest.reason == 'Added via Roster Generator',
+            ShiftRequest.status == RequestStatus.APPROVED
+        ).first()
+        
+        if existing_request:
+            # Skip if duplicate already exists
+            logger.info(f"Skipping duplicate shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
             continue
         
         # Create new shift request (auto-approved for managers adding via Roster Generator)
@@ -566,6 +740,18 @@ async def generate_demands(
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can generate demands")
     
+    # Load existing holidays separately (not from demands)
+    existing_holidays = load_month_holidays(request.year, request.month)
+    # Convert date strings to date objects for matching
+    existing_holidays_dates = {}
+    for date_str, holiday_name in existing_holidays.items():
+        try:
+            date_val = pd.to_datetime(date_str, errors='coerce').date()
+            if date_val:
+                existing_holidays_dates[date_val] = holiday_name
+        except:
+            continue
+    
     new_demands = generate_month_demands(
         request.year,
         request.month,
@@ -573,12 +759,22 @@ async def generate_demands(
         request.weekend_demand
     )
     
-    # Ensure holiday column exists
-    if 'holiday' not in new_demands.columns:
-        new_demands['holiday'] = ''
+    # Save holidays separately (not in demands)
+    if existing_holidays_dates:
+        # Convert date objects to strings for saving
+        holidays_dict = {d.isoformat(): name for d, name in existing_holidays_dates.items()}
+        save_month_holidays(request.year, request.month, holidays_dict)
     
-    # Save to month-specific file
-    save_month_demands(request.year, request.month, new_demands)
+    # Save demands without holiday column
+    save_month_demands_to_file(request.year, request.month, new_demands)
+    
+    # Add holiday column to response for UI (but not saved in demands CSV)
+    if existing_holidays_dates:
+        new_demands['holiday'] = new_demands['date'].apply(
+            lambda d: existing_holidays_dates.get(d, '')
+        )
+    else:
+        new_demands['holiday'] = ''
     
     # Convert dates to strings for response
     new_demands = new_demands.copy()
@@ -597,19 +793,23 @@ async def get_month_demands(
     month: int,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get demands for a specific month."""
+    """Get demands for a specific month (with holidays merged for UI display)."""
     month_demands = load_month_demands(year, month)
     
     if month_demands.empty:
         return []
     
+    # Load holidays separately
+    holidays = load_month_holidays(year, month)
+    
     # Convert dates to strings
     month_demands = month_demands.copy()
     if 'date' in month_demands.columns:
         month_demands['date'] = pd.to_datetime(month_demands['date'], errors='coerce').dt.strftime('%Y-%m-%d')
-    
-    # Ensure holiday column exists
-    if 'holiday' not in month_demands.columns:
+        # Merge holidays into demands for UI display
+        month_demands['holiday'] = month_demands['date'].map(lambda d: holidays.get(str(d), ''))
+    else:
+        # If no date column, add empty holiday column
         month_demands['holiday'] = ''
     
     return month_demands.to_dict('records')
@@ -622,11 +822,73 @@ async def save_month_demands(
     demands: List[dict],
     current_user: dict = Depends(get_current_user)
 ):
-    """Save demands for a specific month."""
+    """Save demands for a specific month (without holidays - holidays are saved separately)."""
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can save demands")
     
     demands_df = pd.DataFrame(demands)
-    save_month_demands(year, month, demands_df)
+    
+    # Extract holidays if present (for backward compatibility during transition)
+    holidays = {}
+    if 'holiday' in demands_df.columns:
+        for _, row in demands_df.iterrows():
+            date_str = str(row.get('date', ''))
+            holiday_name = str(row.get('holiday', '')).strip()
+            if date_str and holiday_name:
+                holidays[date_str] = holiday_name
+        # Remove holiday column from demands
+        demands_df = demands_df.drop(columns=['holiday'])
+    
+    # Ensure date column is properly formatted
+    if 'date' in demands_df.columns:
+        # Convert date strings to datetime, then back to date for consistent storage
+        demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce')
+        # Filter out any invalid dates
+        demands_df = demands_df[demands_df['date'].notna()]
+        # Convert to date type (not datetime)
+        demands_df['date'] = demands_df['date'].dt.date
+    
+    # Ensure all required columns exist
+    required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL']
+    for col in required_columns:
+        if col not in demands_df.columns:
+            if col == 'date':
+                raise HTTPException(status_code=400, detail="Missing required 'date' column")
+            else:
+                demands_df[col] = 0
+    
+    # Save demands (without holiday column)
+    save_month_demands_to_file(year, month, demands_df)
+    
+    # Save holidays separately if any were provided
+    if holidays:
+        save_month_holidays(year, month, holidays)
+    
     return {"message": "Demands saved successfully"}
+
+
+@router.get("/holidays/month/{year}/{month}")
+async def get_month_holidays(
+    year: int,
+    month: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get holidays for a specific month."""
+    holidays = load_month_holidays(year, month)
+    return holidays
+
+
+@router.post("/holidays/month/{year}/{month}")
+async def save_month_holidays_endpoint(
+    year: int,
+    month: int,
+    holidays: Dict[str, str],
+    current_user: dict = Depends(get_current_user)
+):
+    """Save holidays for a specific month."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can save holidays")
+    
+    save_month_holidays(year, month, holidays)
+    return {"message": "Holidays saved successfully"}
 

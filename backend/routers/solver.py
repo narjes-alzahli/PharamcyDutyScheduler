@@ -8,6 +8,7 @@ import tempfile
 import yaml
 import pandas as pd
 from typing import Dict, Optional
+from datetime import date
 import sys
 import uuid
 
@@ -20,7 +21,13 @@ from roster.app.model.solver import RosterSolver
 from backend.routers.auth import get_current_user
 from backend.database import SessionLocal, get_db
 from backend.models import LeaveType
-from backend.roster_data_loader import load_roster_data_from_db, load_month_demands, save_month_demands, generate_month_demands
+from backend.roster_data_loader import (
+    load_roster_data_from_db, 
+    load_month_demands, 
+    save_month_demands, 
+    generate_month_demands,
+    load_month_holidays
+)
 
 router = APIRouter()
 security = HTTPBearer()
@@ -81,18 +88,44 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 # Save the generated demands for future use
                 save_month_demands(request.year, request.month, month_demands)
             
-            # Ensure holiday column exists if needed
-            if 'holiday' not in month_demands.columns:
-                month_demands['holiday'] = ''
+            # Load holidays separately (not from demands CSV)
+            holidays_dict = load_month_holidays(request.year, request.month)
+            # Convert date strings to date objects for the holidays CSV
+            holidays_for_csv = {}
+            for date_str, holiday_name in holidays_dict.items():
+                try:
+                    date_val = pd.to_datetime(date_str, errors='coerce').date()
+                    if date_val:
+                        holidays_for_csv[date_val] = holiday_name
+                except:
+                    continue
+            
+            # Remove holiday column from demands CSV if it exists (shouldn't be there anymore)
+            demands_for_csv = month_demands.copy()
+            if 'holiday' in demands_for_csv.columns:
+                demands_for_csv = demands_for_csv.drop(columns=['holiday'])
             
             # Convert date to string format for CSV
-            demands_for_csv = month_demands.copy()
             if 'date' in demands_for_csv.columns:
                 demands_for_csv['date'] = pd.to_datetime(demands_for_csv['date'], errors='coerce').dt.strftime('%Y-%m-%d')
             demands_for_csv.to_csv(temp_path / "demands.csv", index=False)
             
-            # Save time_off and locks
-            roster_data['time_off'].to_csv(temp_path / "time_off.csv", index=False)
+            # Save holidays to a separate file for pending_off calculation
+            if holidays_for_csv:
+                holidays_df = pd.DataFrame([
+                    {'date': date_val.isoformat(), 'holiday': holiday_name}
+                    for date_val, holiday_name in holidays_for_csv.items()
+                ])
+                holidays_df.to_csv(temp_path / "holidays.csv", index=False)
+            
+            # Save time_off and locks - ensure dates are formatted as YYYY-MM-DD strings
+            time_off_for_csv = roster_data['time_off'].copy()
+            if not time_off_for_csv.empty:
+                if 'from_date' in time_off_for_csv.columns:
+                    time_off_for_csv['from_date'] = pd.to_datetime(time_off_for_csv['from_date'], errors='coerce').dt.strftime('%Y-%m-%d')
+                if 'to_date' in time_off_for_csv.columns:
+                    time_off_for_csv['to_date'] = pd.to_datetime(time_off_for_csv['to_date'], errors='coerce').dt.strftime('%Y-%m-%d')
+            time_off_for_csv.to_csv(temp_path / "time_off.csv", index=False)
             
             # Filter locks to only include STANDARD shifts (exclude non-standard like MS, C)
             # Non-standard shifts are handled via time_off as direct assignments, not constraints
@@ -101,6 +134,12 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             if not locks_df.empty and 'shift' in locks_df.columns:
                 # Only keep standard shifts in locks - non-standard shifts are in time_off
                 locks_df = locks_df[locks_df['shift'].isin(STANDARD_WORKING_SHIFTS)]
+            # Ensure dates are formatted as YYYY-MM-DD strings
+            if not locks_df.empty:
+                if 'from_date' in locks_df.columns:
+                    locks_df['from_date'] = pd.to_datetime(locks_df['from_date'], errors='coerce').dt.strftime('%Y-%m-%d')
+                if 'to_date' in locks_df.columns:
+                    locks_df['to_date'] = pd.to_datetime(locks_df['to_date'], errors='coerce').dt.strftime('%Y-%m-%d')
             locks_df.to_csv(temp_path / "locks.csv", index=False)
             
             # Load leave types, shift types, and rest codes from database
@@ -203,7 +242,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     data.get_employee_names(),
                     data.get_all_dates(),
                     demands,
-                    initial_pending_off
+                    initial_pending_off,
+                    roster_data=data
                 )
                 
                 solver_jobs[job_id]["status"] = "completed"

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { dataAPI, solverAPI, schedulesAPI, SolveRequest, JobStatus, leaveTypesAPI, LeaveType } from '../services/api';
+import { dataAPI, solverAPI, schedulesAPI, SolveRequest, JobStatus, leaveTypesAPI, LeaveType, shiftTypesAPI, ShiftType, requestsAPI } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
 import { EditableTable } from '../components/EditableTable';
 import { DemandsTab } from '../components/DemandsTab';
 import { ScheduleAnalysis } from '../components/ScheduleAnalysis';
-
-const SHIFT_OPTIONS = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'MS', 'C'] as const;
+import { useAuth } from '../contexts/AuthContext';
+import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
 
 export const RosterGenerator: React.FC = () => {
   const [activeTab, setActiveTab] = useState('employees');
@@ -24,6 +24,8 @@ export const RosterGenerator: React.FC = () => {
   const [showAddLock, setShowAddLock] = useState(false);
   const [newEmployeeName, setNewEmployeeName] = useState('');
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
+  const [allShiftRequests, setAllShiftRequests] = useState<any[]>([]);
   const contentRef = useRef<HTMLDivElement>(null);
   const jobNotFoundCountRef = useRef<number>(0);
 
@@ -32,10 +34,20 @@ export const RosterGenerator: React.FC = () => {
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
+  // Wait for auth to be ready before loading data
+  const { loading: authLoading } = useAuth();
+  
   useEffect(() => {
-    loadRosterData();
-    loadLeaveTypes();
-  }, []);
+    // CRITICAL: Don't load data until auth is fully ready
+    // This prevents 401 errors during initial load
+    if (!authLoading) {
+      loadRosterData(0);
+      loadLeaveTypes();
+      loadShiftTypes();
+      loadAllShiftRequests();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading]);
 
   const loadLeaveTypes = async () => {
     try {
@@ -46,11 +58,39 @@ export const RosterGenerator: React.FC = () => {
     }
   };
 
+  const loadShiftTypes = async () => {
+    try {
+      const types = await shiftTypesAPI.getShiftTypes(true); // Only active types
+      console.log('Loaded shift types:', types); // Debug log
+      console.log('Shift type codes:', types.map(t => t.code)); // Debug log - show all codes
+      setShiftTypes(types);
+    } catch (error) {
+      console.error('Failed to load shift types:', error);
+    }
+  };
+
+  const loadAllShiftRequests = async () => {
+    try {
+      const requests = await requestsAPI.getAllShiftRequests(); // Get all shift requests (manager only)
+      setAllShiftRequests(requests);
+    } catch (error) {
+      console.error('Failed to load shift requests:', error);
+      setAllShiftRequests([]);
+    }
+  };
+
   // Reload roster data when switching to time-off or shift request steps to show newly approved requests
   useEffect(() => {
     if (activeTab === 'time-off' || activeTab === 'locks') {
-      loadRosterData();
+      // Small delay to ensure previous operations complete
+      const timer = setTimeout(() => {
+        loadRosterData(0);
+        loadShiftTypes(); // Reload shift types when switching to locks tab to get latest types
+        loadAllShiftRequests(); // Reload shift requests to get latest data
+      }, 100);
+      return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   // Reset active step when year/month are not selected
@@ -74,13 +114,29 @@ export const RosterGenerator: React.FC = () => {
     }
   }, [jobId, solving]);
 
-  const loadRosterData = async () => {
+  const loadRosterData = async (retryCount = 0): Promise<void> => {
+    const maxRetries = 2;
     try {
       setLoading(true);
       const data = await dataAPI.getRosterData();
       setRosterData(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load roster data:', error);
+      
+      // Retry on 500 errors (server errors might be transient)
+      if (error.response?.status === 500 && retryCount < maxRetries) {
+        console.log(`Retrying loadRosterData (attempt ${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
+        return loadRosterData(retryCount + 1);
+      }
+      
+      // Show user-friendly error message only on final failure
+      if (retryCount >= maxRetries) {
+        const errorMessage = error.response?.data?.detail || error.message || 'Failed to load roster data';
+        console.error('Final failure after retries:', errorMessage);
+        // Don't show alert on every failure - just log it
+        // The user can manually retry by navigating away and back
+      }
     } finally {
       setLoading(false);
     }
@@ -302,10 +358,24 @@ export const RosterGenerator: React.FC = () => {
   };
 
   const handleLocksChange = (newData: any[]) => {
-    const normalizedLocks = newData.map((lock: any) => ({
+    // Normalize locks: ensure dates are in ISO format (YYYY-MM-DD) and force is boolean
+    const normalizedLocks = newData.map((lock: any) => {
+      const isoFromDate = parseDateToISO(lock.from_date);
+      const isoToDate = parseDateToISO(lock.to_date);
+      
+      // Validate dates before sending
+      if (!isoFromDate || !isoToDate || !isoFromDate.match(/^\d{4}-\d{2}-\d{2}$/) || !isoToDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        console.error('Invalid date format in lock:', lock);
+        return null; // Will be filtered out
+      }
+      
+      return {
       ...lock,
+        from_date: isoFromDate,
+        to_date: isoToDate,
       force: !!lock.force,
-    }));
+      };
+    }).filter((lock: any) => lock !== null); // Remove any invalid entries
 
     clearGeneratedResults();
     setRosterData((prev: any) => (prev ? { ...prev, locks: normalizedLocks } : prev));
@@ -316,11 +386,13 @@ export const RosterGenerator: React.FC = () => {
 
     locksSaveTimeoutRef.current = setTimeout(async () => {
       try {
+        console.log('Saving locks to backend:', normalizedLocks.length, 'items');
         await dataAPI.updateLocks(normalizedLocks);
         setSaveNotification({ message: '✅ Shift requests saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
         // Reload roster data to get the updated data from database
         await loadRosterData();
+        console.log('Reloaded roster data from database after saving locks');
       } catch (error: any) {
         console.error('Failed to save shift requests:', error);
         setSaveNotification({
@@ -382,25 +454,47 @@ export const RosterGenerator: React.FC = () => {
   };
 
   const addTimeOff = (employee: string, fromDate: string, toDate: string, code: string) => {
+    // Date inputs already return YYYY-MM-DD format, but handle both formats for safety
+    const isoFromDate = fromDate.match(/^\d{4}-\d{2}-\d{2}$/) ? fromDate : parseDateToISO(fromDate);
+    const isoToDate = toDate.match(/^\d{4}-\d{2}-\d{2}$/) ? toDate : parseDateToISO(toDate);
+    
+    // Validate dates
+    if (!isoFromDate || !isoToDate || !isoFromDate.match(/^\d{4}-\d{2}-\d{2}$/) || !isoToDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      alert(`Invalid date format. Please select valid dates.\nFrom: ${fromDate} → ${isoFromDate}\nTo: ${toDate} → ${isoToDate}`);
+      return;
+    }
+    
     const newTimeOff = {
       employee,
-      from_date: fromDate,
-      to_date: toDate,
+      from_date: isoFromDate,
+      to_date: isoToDate,
       code,
     };
+    console.log('Adding time off:', newTimeOff);
     const newData = [...(rosterData?.time_off || []), newTimeOff];
     handleTimeOffChange(newData);
     setShowAddTimeOff(false);
   };
 
   const addLock = (employee: string, fromDate: string, toDate: string, shift: string, force: boolean) => {
+    // Date inputs already return YYYY-MM-DD format, but handle both formats for safety
+    const isoFromDate = fromDate.match(/^\d{4}-\d{2}-\d{2}$/) ? fromDate : parseDateToISO(fromDate);
+    const isoToDate = toDate.match(/^\d{4}-\d{2}-\d{2}$/) ? toDate : parseDateToISO(toDate);
+    
+    // Validate dates
+    if (!isoFromDate || !isoToDate || !isoFromDate.match(/^\d{4}-\d{2}-\d{2}$/) || !isoToDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      alert(`Invalid date format. Please select valid dates.\nFrom: ${fromDate} → ${isoFromDate}\nTo: ${toDate} → ${isoToDate}`);
+      return;
+    }
+    
     const newLock = {
       employee,
-      from_date: fromDate,
-      to_date: toDate,
+      from_date: isoFromDate,
+      to_date: isoToDate,
       shift,
       force,
     };
+    console.log('Adding lock:', newLock);
     const newData = [...(rosterData?.locks || []), newLock];
     handleLocksChange(newData);
     setShowAddLock(false);
@@ -449,6 +543,224 @@ export const RosterGenerator: React.FC = () => {
       const date = new Date(item[dateField]);
       return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
     });
+  };
+
+  // Group consecutive days with same employee and code into continuous ranges
+  const groupTimeOffIntoRanges = (timeOffData: any[]): any[] => {
+    if (!timeOffData || timeOffData.length === 0) return [];
+
+    // Normalize dates to ISO strings (YYYY-MM-DD)
+    const normalizeDate = (d: any): string => {
+      if (!d) return '';
+      if (typeof d === 'string') {
+        return d.split('T')[0];
+      }
+      if (d instanceof Date) {
+        if (isNaN(d.getTime())) return '';
+        return d.toISOString().split('T')[0];
+      }
+      return String(d);
+    };
+
+    // Filter out invalid entries
+    const validData = timeOffData.filter(item => {
+      if (!item || !item.employee || !item.code) return false;
+      const fromDate = normalizeDate(item.from_date);
+      const toDate = normalizeDate(item.to_date);
+      if (!fromDate || !toDate) return false;
+      // Check if date is valid
+      const dateObj = new Date(fromDate);
+      return !isNaN(dateObj.getTime());
+    });
+
+    if (validData.length === 0) return [];
+
+    // Sort by employee, code, and date
+    const sorted = [...validData].sort((a, b) => {
+      const empCompare = (a.employee || '').localeCompare(b.employee || '');
+      if (empCompare !== 0) return empCompare;
+      const codeCompare = (a.code || '').localeCompare(b.code || '');
+      if (codeCompare !== 0) return codeCompare;
+      const dateA = normalizeDate(a.from_date);
+      const dateB = normalizeDate(b.from_date);
+      return dateA.localeCompare(dateB);
+    });
+
+    const ranges: any[] = [];
+    let currentRange: any = null;
+
+    for (const item of sorted) {
+      const fromDate = normalizeDate(item.from_date);
+      const toDate = normalizeDate(item.to_date);
+      
+      try {
+        const itemDate = new Date(fromDate);
+        if (isNaN(itemDate.getTime())) continue;
+        const itemDateStr = itemDate.toISOString().split('T')[0];
+
+        if (!currentRange) {
+          // Start a new range - preserve request_id and reason if they exist
+          currentRange = {
+            employee: item.employee,
+            code: item.code,
+            from_date: fromDate,
+            to_date: toDate,
+            request_id: item.request_id || null,  // Preserve request_id for grouped ranges
+            reason: item.reason || null,  // Preserve reason for grouped ranges
+            request_ids: item.request_id ? [item.request_id] : [],  // Track all request_ids in this range
+          };
+        } else if (
+          currentRange.employee === item.employee &&
+          currentRange.code === item.code
+        ) {
+          // Check if this date is consecutive to the current range
+          const currentToDate = new Date(normalizeDate(currentRange.to_date));
+          if (isNaN(currentToDate.getTime())) {
+            // Invalid date in current range, save it and start new one
+            ranges.push(currentRange);
+            currentRange = {
+              employee: item.employee,
+              code: item.code,
+              from_date: fromDate,
+              to_date: toDate,
+              request_id: item.request_id || null,
+              reason: item.reason || null,
+              request_ids: item.request_id ? [item.request_id] : [],
+            };
+            continue;
+          }
+          
+          const currentToDateStr = normalizeDate(currentRange.to_date);
+          
+          // Calculate the next day after current range's to_date
+          const nextDay = new Date(currentToDate);
+          nextDay.setDate(nextDay.getDate() + 1);
+          const nextDayStr = nextDay.toISOString().split('T')[0];
+
+          // Check if item's from_date is consecutive (exactly the next day) or overlaps
+          // Since data is sorted, itemDateStr should be >= currentRange.from_date
+          // If itemDateStr <= currentToDateStr, it overlaps with current range
+          // If itemDateStr === nextDayStr, it's consecutive (next day)
+          if (itemDateStr === nextDayStr || itemDateStr <= currentToDateStr) {
+            // This date is consecutive or overlaps, extend the range
+            // Use the later of the two to_date values
+            const itemToDateObj = new Date(toDate);
+            const currentToDateObj = new Date(currentToDateStr);
+            if (itemToDateObj > currentToDateObj) {
+            currentRange.to_date = toDate;
+            }
+            // Track request_id if it exists and is different
+            // Ensure request_ids array exists
+            if (!currentRange.request_ids) {
+              currentRange.request_ids = currentRange.request_id ? [currentRange.request_id] : [];
+            }
+            if (item.request_id && !currentRange.request_ids.includes(item.request_id)) {
+              currentRange.request_ids.push(item.request_id);
+            }
+            // If reason differs, we might have mixed sources - mark as mixed
+            if (item.reason && currentRange.reason && item.reason !== currentRange.reason) {
+              currentRange.reason = 'Mixed sources';  // Indicate mixed sources
+            } else if (item.reason && !currentRange.reason) {
+              currentRange.reason = item.reason;
+            }
+            // If item's to_date is earlier, keep current to_date (already set)
+          } else {
+            // Not consecutive and doesn't overlap, save current range and start a new one
+            ranges.push(currentRange);
+            currentRange = {
+              employee: item.employee,
+              code: item.code,
+              from_date: fromDate,
+              to_date: toDate,
+              request_id: item.request_id || null,
+              reason: item.reason || null,
+              request_ids: item.request_id ? [item.request_id] : [],
+            };
+          }
+        } else {
+          // Different employee or code, save current range and start new one
+          ranges.push(currentRange);
+          currentRange = {
+            employee: item.employee,
+            code: item.code,
+            from_date: fromDate,
+            to_date: toDate,
+            request_id: item.request_id || null,
+            reason: item.reason || null,
+            request_ids: item.request_id ? [item.request_id] : [],
+          };
+        }
+      } catch (error) {
+        console.error('Error processing time off item:', item, error);
+        // Skip invalid items
+        continue;
+      }
+    }
+
+    // Don't forget the last range
+    if (currentRange) {
+      ranges.push(currentRange);
+    }
+
+    // Clean up request_ids array - if all request_ids are the same, use that as the main request_id
+    ranges.forEach(range => {
+      if (range.request_ids && range.request_ids.length > 0) {
+        const uniqueIds = Array.from(new Set(range.request_ids));
+        if (uniqueIds.length === 1) {
+          // All days have the same request_id, use it as the main request_id
+          range.request_id = uniqueIds[0];
+        }
+        // Keep request_ids array for cases where multiple different requests are grouped
+      }
+    });
+
+    return ranges;
+  };
+
+  // Expand ranges back into individual days (for saving to backend)
+  const expandRangesToDays = (ranges: any[]): any[] => {
+    const days: any[] = [];
+
+    for (const range of ranges) {
+      if (!range || !range.employee || !range.code || !range.from_date || !range.to_date) {
+        console.warn('Skipping invalid range:', range);
+        continue;
+      }
+
+      try {
+        const fromDate = new Date(range.from_date);
+        const toDate = new Date(range.to_date);
+        
+        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+          console.warn('Invalid dates in range:', range);
+          continue;
+        }
+
+        if (fromDate > toDate) {
+          console.warn('from_date > to_date in range:', range);
+          continue;
+        }
+        
+        let currentDate = new Date(fromDate);
+        while (currentDate <= toDate) {
+          days.push({
+            employee: range.employee,
+            code: range.code,
+            from_date: currentDate.toISOString().split('T')[0],
+            to_date: currentDate.toISOString().split('T')[0],
+          });
+          const nextDate = new Date(currentDate);
+          nextDate.setDate(nextDate.getDate() + 1);
+          currentDate = nextDate;
+        }
+      } catch (error) {
+        console.error('Error expanding range to days:', range, error);
+        // Skip invalid ranges
+        continue;
+      }
+    }
+
+    return days;
   };
 
   const selectionControls = (
@@ -720,26 +1032,59 @@ export const RosterGenerator: React.FC = () => {
                 />
               )}
                 <EditableTable
-                data={getMonthData((rosterData?.time_off || []).filter((item: any) => {
-                    // Only show actual leave types in Time Off tab (filter out shift codes like MS, C)
-                    return leaveTypes.some(lt => lt.code === item.code);
-                  }), 'from_date')}
+                data={(() => {
+                  // Filter to only leave types (not shift codes like MS, C)
+                  const filteredTimeOff = (rosterData?.time_off || []).filter((item: any) => 
+                    leaveTypes.some(lt => lt.code === item.code)
+                  );
+                  // Get month data
+                  const monthData = getMonthData(filteredTimeOff, 'from_date');
+                  // Group consecutive days into ranges
+                  return groupTimeOffIntoRanges(monthData);
+                })()}
                   columns={[
                   { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
                     { key: 'to_date', label: 'To Date', type: 'text' },
                   { key: 'code', label: 'Code', type: 'select', options: leaveTypes.map(lt => lt.code) },
                   ]}
-                  onDataChange={handleTimeOffChange}
-                  onDeleteRow={(index) => {
+                  onDataChange={(groupedData) => {
+                    // Expand grouped ranges back to individual days
+                    const expandedDays = expandRangesToDays(groupedData);
+                    
+                    // Get all time_off data (including shift codes for solver)
+                    const allTimeOff = rosterData?.time_off || [];
+                    const leaveTypeCodes = new Set(leaveTypes.map(lt => lt.code));
+                    
+                    // Filter out old leave type entries for this month, keep shift codes
+                    const otherTimeOff = allTimeOff.filter((item: any) => {
+                      if (!leaveTypeCodes.has(item.code)) {
+                        // Keep non-leave-type entries (shift codes)
+                        return true;
+                      }
+                      // For leave types, check if they're in the selected month
+                      const itemDate = new Date(item.from_date);
+                      const inMonth = itemDate.getFullYear() === selectedYear && 
+                                     itemDate.getMonth() + 1 === selectedMonth;
+                      // Remove leave types that are in this month (we'll replace them with expandedDays)
+                      return !inMonth;
+                    });
+                    
+                    // Combine with expanded days
+                    const newData = [...otherTimeOff, ...expandedDays];
+                    handleTimeOffChange(newData);
+                  }}
+                  onDeleteRow={async (index) => {
                     // Filter to only leave types (not shift codes) for display
                     const filteredTimeOff = (rosterData?.time_off || []).filter((item: any) => 
                       leaveTypes.some(lt => lt.code === item.code)
                     );
                     const monthData = getMonthData(filteredTimeOff, 'from_date');
-                    if (index >= 0 && index < monthData.length) {
-                      const itemToDelete = monthData[index];
-                      console.log('🗑️ Deleting time-off item:', itemToDelete);
+                    const groupedData = groupTimeOffIntoRanges(monthData);
+                    
+                    if (index >= 0 && index < groupedData.length) {
+                      const rangeToDelete = groupedData[index];
+                      console.log('🗑️ Deleting time-off range:', rangeToDelete);
                       
                       // Normalize dates to ISO strings (YYYY-MM-DD) for comparison
                       const normalizeDate = (d: any): string => {
@@ -753,13 +1098,231 @@ export const RosterGenerator: React.FC = () => {
                         return String(d);
                       };
                       
-                      const deleteKey = `${itemToDelete.employee}|${normalizeDate(itemToDelete.from_date)}|${normalizeDate(itemToDelete.to_date)}|${itemToDelete.code}`;
+                      const deleteFromDate = normalizeDate(rangeToDelete.from_date);
+                      const deleteToDate = normalizeDate(rangeToDelete.to_date);
                       
-                      // Remove from ALL time_off (including shift codes for solver, but we only show leave types in UI)
+                      // First, check if the grouped range has request_id information
+                      // This is more efficient than searching through all items
+                      const requestIdsToDelete = new Set<string>();
+                      
+                      // If the range has request_ids array, use it (for grouped consecutive days)
+                      if (rangeToDelete.request_ids && Array.isArray(rangeToDelete.request_ids) && rangeToDelete.request_ids.length > 0) {
+                        // Check if it's not a Roster Generator request
+                        const isRosterGeneratorRequest = rangeToDelete.reason === 'Added via Roster Generator';
+                        if (!isRosterGeneratorRequest) {
+                          rangeToDelete.request_ids.forEach((id: string) => {
+                            if (id && id.trim() !== '') {
+                              requestIdsToDelete.add(id);
+                            }
+                          });
+                        }
+                      }
+                      // Also check the main request_id if it exists
+                      else if (rangeToDelete.request_id && rangeToDelete.request_id.trim() !== '') {
+                        const isRosterGeneratorRequest = rangeToDelete.reason === 'Added via Roster Generator';
+                        if (!isRosterGeneratorRequest) {
+                          requestIdsToDelete.add(rangeToDelete.request_id);
+                        }
+                      }
+                      
+                      // Fallback: If grouped range doesn't have request_id info, search through all items
+                      // This handles cases where grouping might have lost the information
+                      if (requestIdsToDelete.size === 0) {
+                        const allTimeOff = rosterData?.time_off || [];
+                        const itemsInRange = allTimeOff.filter((item: any) => {
+                          // Only check leave types
+                          if (!leaveTypes.some(lt => lt.code === item.code)) {
+                            return false;
+                          }
+                          
+                          const itemFromDate = normalizeDate(item.from_date);
+                          const itemDate = new Date(itemFromDate);
+                          const deleteFrom = new Date(deleteFromDate);
+                          const deleteTo = new Date(deleteToDate);
+                          
+                          return (
+                            item.employee === rangeToDelete.employee &&
+                            item.code === rangeToDelete.code &&
+                            itemDate >= deleteFrom &&
+                            itemDate <= deleteTo
+                          );
+                        });
+                        
+                        // Collect unique request_ids that are employee-requested (not "Added via Roster Generator")
+                        itemsInRange.forEach((item: any) => {
+                          const hasRequestId = item.request_id && item.request_id.trim() !== '';
+                          const isRosterGeneratorRequest = item.reason === 'Added via Roster Generator';
+                          if (hasRequestId && !isRosterGeneratorRequest) {
+                            requestIdsToDelete.add(item.request_id);
+                          }
+                        });
+                      }
+                      
+                      // If we have employee-requested leave requests, delete them immediately from UI, then sync with API
+                      if (requestIdsToDelete.size > 0) {
+                        // IMMEDIATE UI UPDATE: Remove items from local state right away
                       const allTimeOff = rosterData?.time_off || [];
                       const newData = allTimeOff.filter((item: any) => {
-                        const itemKey = `${item.employee}|${normalizeDate(item.from_date)}|${normalizeDate(item.to_date)}|${item.code}`;
-                        return itemKey !== deleteKey;
+                        // Keep non-leave-type entries
+                        if (!leaveTypes.some(lt => lt.code === item.code)) {
+                          return true;
+                        }
+                        
+                          // Remove items that match the range to delete
+                        const itemFromDate = normalizeDate(item.from_date);
+                          const itemDate = new Date(itemFromDate);
+                          const deleteFrom = new Date(deleteFromDate);
+                          const deleteTo = new Date(deleteToDate);
+                          
+                          const inRange = (
+                            item.employee === rangeToDelete.employee &&
+                            item.code === rangeToDelete.code &&
+                            itemDate >= deleteFrom &&
+                            itemDate <= deleteTo
+                          );
+                          
+                          // Keep items that are NOT in the range, or are in range but don't have the request_id we're deleting
+                          if (!inRange) return true;
+                          if (inRange && item.request_id && requestIdsToDelete.has(item.request_id)) {
+                            return false; // Remove this item
+                          }
+                          return true;
+                        });
+                        
+                        // Update UI immediately
+                        handleTimeOffChange(newData);
+                        setSaveNotification({ message: '✅ Leave request(s) deleted!', type: 'success' });
+                        setTimeout(() => setSaveNotification(null), 2000);
+                        
+                        // Sync with backend in the background (don't await - fire and forget)
+                        Promise.all(
+                          Array.from(requestIdsToDelete).map(requestId => 
+                            requestsAPI.deleteLeaveRequest(requestId)
+                          )
+                        ).then(() => {
+                          console.log('Successfully deleted leave requests from backend');
+                          // Optionally reload to ensure sync, but don't block UI
+                          loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
+                        }).catch((error: any) => {
+                          console.error('Failed to delete leave request(s) via API:', error);
+                          // Show error but don't revert UI (user already saw it deleted)
+                          setSaveNotification({
+                            message: `⚠️ Deleted locally but sync failed: ${error.response?.data?.detail || 'Please refresh'}`,
+                            type: 'error',
+                          });
+                          setTimeout(() => setSaveNotification(null), 4000);
+                          // Reload to get correct state from server
+                          loadRosterData().catch(err => console.error('Failed to reload after error:', err));
+                        });
+                        
+                        return; // Exit early - UI already updated
+                      }
+                      
+                      // If it has request_id but reason is 'Added via Roster Generator' or missing, try API delete first
+                      // (in case the reason field wasn't properly set)
+                      // Get allTimeOff for use in fallback and final deletion
+                      const allTimeOff = rosterData?.time_off || [];
+                      
+                      // We need to get itemsInRange if we haven't already (for fallback case)
+                      let itemsInRange: any[] = [];
+                      if (requestIdsToDelete.size === 0) {
+                        itemsInRange = allTimeOff.filter((item: any) => {
+                          // Only check leave types
+                          if (!leaveTypes.some(lt => lt.code === item.code)) {
+                            return false;
+                          }
+                          
+                          const itemFromDate = normalizeDate(item.from_date);
+                          const itemDate = new Date(itemFromDate);
+                          const deleteFrom = new Date(deleteFromDate);
+                          const deleteTo = new Date(deleteToDate);
+                          
+                          return (
+                            item.employee === rangeToDelete.employee &&
+                            item.code === rangeToDelete.code &&
+                            itemDate >= deleteFrom &&
+                            itemDate <= deleteTo
+                          );
+                        });
+                      }
+                      
+                      const allRequestIds = new Set<string>();
+                      itemsInRange.forEach((item: any) => {
+                        if (item.request_id && item.request_id.trim() !== '') {
+                          allRequestIds.add(item.request_id);
+                        }
+                      });
+                      
+                      if (allRequestIds.size > 0) {
+                        // IMMEDIATE UI UPDATE: Remove items from local state right away
+                        const newData = allTimeOff.filter((item: any) => {
+                          // Keep non-leave-type entries
+                          if (!leaveTypes.some(lt => lt.code === item.code)) {
+                            return true;
+                          }
+                          
+                          // Remove items that match the range to delete
+                          const itemFromDate = normalizeDate(item.from_date);
+                          const itemDate = new Date(itemFromDate);
+                          const deleteFrom = new Date(deleteFromDate);
+                          const deleteTo = new Date(deleteToDate);
+                          
+                          const inRange = (
+                            item.employee === rangeToDelete.employee &&
+                            item.code === rangeToDelete.code &&
+                            itemDate >= deleteFrom &&
+                            itemDate <= deleteTo
+                          );
+                          
+                          // Keep items that are NOT in the range, or are in range but don't have the request_id we're deleting
+                          if (!inRange) return true;
+                          if (inRange && item.request_id && allRequestIds.has(item.request_id)) {
+                            return false; // Remove this item
+                          }
+                          return true;
+                        });
+                        
+                        // Update UI immediately
+                        handleTimeOffChange(newData);
+                        setSaveNotification({ message: '✅ Leave request(s) deleted!', type: 'success' });
+                        setTimeout(() => setSaveNotification(null), 2000);
+                        
+                        // Try API delete in background (fallback case)
+                        Promise.all(
+                          Array.from(allRequestIds).map(requestId => 
+                            requestsAPI.deleteLeaveRequest(requestId)
+                          )
+                        ).then(() => {
+                          console.log('Successfully deleted leave requests from backend (fallback)');
+                          loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
+                        }).catch((error: any) => {
+                          console.log('API delete failed, using time_off update method:', error.response?.data?.detail);
+                          // Fall through to time_off update method if API delete fails
+                          // The UI is already updated, so this is just for backend sync
+                        });
+                        
+                        return; // Exit early - UI already updated
+                      }
+                      
+                      // Otherwise, it's a "Added via Roster Generator" request - delete via time_off update
+                      const newData = allTimeOff.filter((item: any) => {
+                        // Keep non-leave-type entries
+                        if (!leaveTypes.some(lt => lt.code === item.code)) {
+                          return true;
+                        }
+                        
+                        // For leave types, check if they're in the range to delete
+                        const itemFromDate = normalizeDate(item.from_date);
+                        const itemDate = new Date(itemFromDate);
+                        const deleteFrom = new Date(deleteFromDate);
+                        const deleteTo = new Date(deleteToDate);
+                        
+                        return !(
+                          item.employee === rangeToDelete.employee &&
+                          item.code === rangeToDelete.code &&
+                          itemDate >= deleteFrom &&
+                          itemDate <= deleteTo
+                        );
                     });
                     
                     console.log(`📊 Filtered ${allTimeOff.length} items to ${newData.length} items`);
@@ -790,12 +1353,15 @@ export const RosterGenerator: React.FC = () => {
                   employees={rosterData?.employees?.map((e: any) => e.employee) || []}
                   year={selectedYear || 2025}
                   month={selectedMonth || 1}
+                  shiftTypes={shiftTypes}
                   onSubmit={addLock}
                   onCancel={() => setShowAddLock(false)}
                 />
               )}
                 <EditableTable
-                data={getMonthData(rosterData?.locks || [], 'from_date').map((lock: any) => ({
+                data={getMonthData(rosterData?.locks || [], 'from_date')
+                  .filter((lock: any) => lock.shift !== 'DO' && lock.shift !== 'O') // Filter out DO and O from shift requests
+                  .map((lock: any) => ({
                     ...lock,
                     force: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
                   }))}
@@ -803,7 +1369,7 @@ export const RosterGenerator: React.FC = () => {
                   { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
                     { key: 'to_date', label: 'To Date', type: 'text' },
-                    { key: 'shift', label: 'Shift', type: 'select', options: Array.from(SHIFT_OPTIONS) },
+                    { key: 'shift', label: 'Shift', type: 'select', options: shiftTypes.length > 0 ? shiftTypes.filter(st => st.code !== 'O' && st.code !== 'DO').map(st => st.code) : [] },
                     { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
                   ]}
                   onDataChange={(newData) => {
@@ -813,10 +1379,57 @@ export const RosterGenerator: React.FC = () => {
                     }));
                     handleLocksChange(converted);
                   }}
-                  onDeleteRow={(index) => {
-                    const monthData = getMonthData(rosterData?.locks || [], 'from_date');
+                  onDeleteRow={async (index) => {
+                    const monthData = getMonthData(rosterData?.locks || [], 'from_date')
+                      .filter((lock: any) => lock.shift !== 'DO' && lock.shift !== 'O'); // Filter out DO and O
                     if (index >= 0 && index < monthData.length) {
                       const itemToDelete = monthData[index];
+                      
+                      // Check if this is an employee-requested shift request
+                      // It's employee-requested if it has request_id AND reason is NOT 'Added via Roster Generator'
+                      const hasRequestId = itemToDelete.request_id && itemToDelete.request_id.trim() !== '';
+                      const isRosterGeneratorRequest = itemToDelete.reason === 'Added via Roster Generator';
+                      
+                      if (hasRequestId && !isRosterGeneratorRequest) {
+                        // Delete via API endpoint (employee-requested shift request)
+                        try {
+                          console.log('Deleting employee-requested shift request:', itemToDelete.request_id);
+                          await requestsAPI.deleteShiftRequest(itemToDelete.request_id);
+                          setSaveNotification({ message: '✅ Shift request deleted successfully!', type: 'success' });
+                          setTimeout(() => setSaveNotification(null), 2000);
+                          // Reload data to reflect the deletion
+                          await loadRosterData();
+                          await loadAllShiftRequests();
+                          return;
+                        } catch (error: any) {
+                          console.error('Failed to delete shift request via API:', error);
+                          setSaveNotification({
+                            message: `❌ ${error.response?.data?.detail || 'Failed to delete shift request'}`,
+                            type: 'error',
+                          });
+                          setTimeout(() => setSaveNotification(null), 4000);
+                          return; // Don't fall through if API delete fails
+                        }
+                      }
+                      
+                      // If it has request_id but reason is 'Added via Roster Generator' or missing, try API delete first
+                      // (in case the reason field wasn't properly set)
+                      if (hasRequestId) {
+                        try {
+                          console.log('Attempting to delete shift request via API (fallback):', itemToDelete.request_id);
+                          await requestsAPI.deleteShiftRequest(itemToDelete.request_id);
+                          setSaveNotification({ message: '✅ Shift request deleted successfully!', type: 'success' });
+                          setTimeout(() => setSaveNotification(null), 2000);
+                          await loadRosterData();
+                          await loadAllShiftRequests();
+                          return;
+                        } catch (error: any) {
+                          console.log('API delete failed, trying locks update method:', error.response?.data?.detail);
+                          // Fall through to locks update method if API delete fails
+                        }
+                      }
+                      
+                      // Otherwise, it's a "Added via Roster Generator" request - delete via locks update
                       // Normalize dates to ISO strings for comparison
                       const normalizeDate = (d: any) => {
                         if (!d) return '';
@@ -947,8 +1560,10 @@ const AddTimeOffForm: React.FC<{
   onCancel: () => void;
 }> = ({ employees, leaveTypes, year, month, onSubmit, onCancel }) => {
   const [employee, setEmployee] = useState(employees[0] || '');
-  const [fromDate, setFromDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
-  const [toDate, setToDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
+  // Initialize with YYYY-MM-DD format (for date input) - default to first day of selected month
+  const defaultDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+  const [fromDate, setFromDate] = useState(defaultDate);
+  const [toDate, setToDate] = useState(defaultDate);
   const [code, setCode] = useState(leaveTypes.length > 0 ? leaveTypes[0].code : '');
 
   // Update code when leaveTypes loads
@@ -958,6 +1573,13 @@ const AddTimeOffForm: React.FC<{
     }
   }, [leaveTypes, code]);
 
+  // Update dates when year/month changes
+  useEffect(() => {
+    const newDefaultDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+    setFromDate(newDefaultDate);
+    setToDate(newDefaultDate);
+  }, [year, month]);
+
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
       <h4 className="font-semibold mb-4">Add Leave Request</h4>
@@ -965,8 +1587,18 @@ const AddTimeOffForm: React.FC<{
         <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="px-3 py-2 border rounded">
           {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
         </select>
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="px-3 py-2 border rounded" />
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="px-3 py-2 border rounded" />
+        <input 
+          type="date" 
+          value={fromDate} 
+          onChange={(e) => setFromDate(e.target.value)} 
+          className="px-3 py-2 border rounded" 
+        />
+        <input 
+          type="date" 
+          value={toDate} 
+          onChange={(e) => setToDate(e.target.value)} 
+          className="px-3 py-2 border rounded" 
+        />
         <select value={code} onChange={(e) => setCode(e.target.value)} className="px-3 py-2 border rounded">
           {leaveTypes.map(lt => (
             <option key={lt.code} value={lt.code}>
@@ -987,14 +1619,34 @@ const AddLockForm: React.FC<{
   employees: string[];
   year: number;
   month: number;
+  shiftTypes: ShiftType[];
   onSubmit: (employee: string, fromDate: string, toDate: string, shift: string, force: boolean) => void;
   onCancel: () => void;
-}> = ({ employees, year, month, onSubmit, onCancel }) => {
+}> = ({ employees, year, month, shiftTypes, onSubmit, onCancel }) => {
   const [employee, setEmployee] = useState(employees[0] || '');
-  const [fromDate, setFromDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
-  const [toDate, setToDate] = useState(`${year}-${month.toString().padStart(2, '0')}-01`);
-  const [shift, setShift] = useState<typeof SHIFT_OPTIONS[number]>(SHIFT_OPTIONS[0]);
+  // Initialize with YYYY-MM-DD format (for date input) - default to first day of selected month
+  const defaultDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+  const [fromDate, setFromDate] = useState(defaultDate);
+  const [toDate, setToDate] = useState(defaultDate);
+  
+  // Filter out O and DO from available shift types
+  const availableShiftTypes = shiftTypes.filter((st: ShiftType) => st.code !== 'O' && st.code !== 'DO');
+  const [shift, setShift] = useState<string>(availableShiftTypes[0]?.code || '');
   const [force, setForce] = useState(true);
+
+  // Update shift when shiftTypes loads
+  useEffect(() => {
+    if (availableShiftTypes.length > 0 && (!shift || shift === 'O' || shift === 'DO')) {
+      setShift(availableShiftTypes[0].code);
+    }
+  }, [shiftTypes, shift]);
+
+  // Update dates when year/month changes
+  useEffect(() => {
+    const newDefaultDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+    setFromDate(newDefaultDate);
+    setToDate(newDefaultDate);
+  }, [year, month]);
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
@@ -1003,10 +1655,20 @@ const AddLockForm: React.FC<{
         <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="px-3 py-2 border rounded">
           {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
         </select>
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="px-3 py-2 border rounded" />
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="px-3 py-2 border rounded" />
-        <select value={shift} onChange={(e) => setShift(e.target.value as typeof SHIFT_OPTIONS[number])} className="px-3 py-2 border rounded">
-          {SHIFT_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+        <input 
+          type="date" 
+          value={fromDate} 
+          onChange={(e) => setFromDate(e.target.value)} 
+          className="px-3 py-2 border rounded" 
+        />
+        <input 
+          type="date" 
+          value={toDate} 
+          onChange={(e) => setToDate(e.target.value)} 
+          className="px-3 py-2 border rounded" 
+        />
+        <select value={shift} onChange={(e) => setShift(e.target.value)} className="px-3 py-2 border rounded">
+          {availableShiftTypes.length > 0 ? availableShiftTypes.map(st => <option key={st.code} value={st.code}>{st.code}</option>) : <option>Loading...</option>}
         </select>
         <select value={force ? 'Force' : 'Forbid'} onChange={(e) => setForce(e.target.value === 'Force')} className="px-3 py-2 border rounded">
           <option value="Force">Force (Must)</option>

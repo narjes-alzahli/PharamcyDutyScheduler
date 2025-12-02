@@ -11,8 +11,11 @@ load_dotenv()
 
 # JWT Configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production-please-use-strong-random-key")
+REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY", SECRET_KEY + "-refresh")  # Different key for refresh tokens
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+# Production-standard token expiration times
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # 30 minutes (short-lived, expires naturally)
+REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days (long-lived, rotated on refresh)
 
 
 def hash_password(password: str) -> str:
@@ -72,8 +75,10 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except jwt.ExpiredSignatureError:
         return None  # Token expired
-    except jwt.JWTError:
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.InvalidSignatureError):
         return None  # Invalid token
+    except Exception:
+        return None  # Any other error
 
 
 def decode_token_without_verification(token: str) -> Optional[Dict[str, Any]]:
@@ -81,6 +86,33 @@ def decode_token_without_verification(token: str) -> Optional[Dict[str, Any]]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_signature": False})
         return payload
-    except jwt.JWTError:
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.InvalidSignatureError):
         return None
+    except Exception:
+        return None
+
+
+def create_refresh_token(data: Dict[str, Any]) -> str:
+    """Create a JWT refresh token (longer-lived)."""
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "iat": datetime.utcnow(), "type": "refresh"})
+    encoded_jwt = jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
+    """Verify and decode a refresh token."""
+    try:
+        payload = jwt.decode(token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+        # Ensure it's a refresh token
+        if payload.get("type") != "refresh":
+            return None
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None  # Token expired
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.InvalidSignatureError):
+        return None  # Invalid token
+    except Exception:
+        return None  # Any other error
 

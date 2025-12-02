@@ -1,14 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useAuthGuard } from '../hooks/useAuthGuard';
 import { authAPI, requestsAPI } from '../services/api';
+import { isTokenExpired } from '../utils/tokenUtils';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, loading: authLoading } = useAuth();
+  // MAJOR RESTRUCTURE: Use auth guard to prevent API calls until auth is confirmed
+  // This ensures we never make manager-only API calls unless user is confirmed Manager
+  const { isReady: managerAuthReady, isManager } = useAuthGuard(true);
   const location = useLocation();
   const navigate = useNavigate();
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -42,33 +47,81 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    const fetchPendingRequests = async () => {
-      // Wait for user to be loaded and check if manager
-      if (!user || user?.employee_type !== 'Manager') {
-        setPendingRequestCount(0);
-        return;
-      }
+    // MAJOR RESTRUCTURE: Only make API calls if auth guard confirms we're ready
+    // This eliminates race conditions - we KNOW user is Manager if managerAuthReady is true
+    if (!managerAuthReady || !isManager) {
+      // Auth not ready or user not confirmed Manager - don't make any calls
+      setPendingRequestCount(0);
+      return;
+    }
 
-      try {
-        const [leaveRes, shiftRes] = await Promise.all([
-          requestsAPI.getAllLeaveRequests(),
-          requestsAPI.getAllShiftRequests(),
-        ]);
+    // At this point, we're 100% certain:
+    // 1. Auth is fully loaded
+    // 2. User is authenticated
+    // 3. User is confirmed to be a Manager
+    // Safe to make manager-only API calls
 
-        const leavePending = leaveRes.filter((req: any) => req.status === 'Pending').length;
-        const shiftPending = shiftRes.filter((req: any) => req.status === 'Pending').length;
-        setPendingRequestCount(leavePending + shiftPending);
-      } catch (error: any) {
-        // Silently handle 403 errors (non-managers) - already handled in API
-        if (error.response?.status !== 403) {
-          console.error('Failed to fetch pending requests:', error);
+    // Add debounce to prevent rapid-fire requests during navigation
+    let cancelled = false;
+    const timeoutId = setTimeout(() => {
+      const fetchPendingRequests = async () => {
+        if (cancelled) return;
+        
+        // CRITICAL: Double-check token is still valid right before making the call
+        const token = localStorage.getItem('access_token');
+        if (!token || isTokenExpired(token)) {
+          // Token expired between guard check and API call - skip
+          if (!cancelled) setPendingRequestCount(0);
+          return;
         }
-        setPendingRequestCount(0);
-      }
-    };
+        
+        // DEBUG: Log guard state to help diagnose 403 errors
+        const currentUser = user;
+        if (currentUser) {
+          console.log('[Layout] Making manager API calls with:', {
+            authReady: managerAuthReady,
+            isManager,
+            userType: currentUser.employee_type,
+            tokenValid: !isTokenExpired(token)
+          });
+        }
+        
+        try {
+          const [leaveRes, shiftRes] = await Promise.all([
+            requestsAPI.getAllLeaveRequests(),
+            requestsAPI.getAllShiftRequests(),
+          ]);
 
-    fetchPendingRequests();
-  }, [user, location.pathname]);
+          if (cancelled) return;
+
+          const leavePending = leaveRes.filter((req: any) => req.status === 'Pending').length;
+          const shiftPending = shiftRes.filter((req: any) => req.status === 'Pending').length;
+          setPendingRequestCount(leavePending + shiftPending);
+        } catch (error: any) {
+          if (cancelled) return;
+          
+          // If we get 403/401 here, something is seriously wrong (auth guard should prevent this)
+          // Log it for debugging but don't spam console
+          if (error.response?.status === 403 || error.response?.status === 401) {
+            console.warn('⚠️ Unexpected auth error in Layout - auth guard should have prevented this');
+            setPendingRequestCount(0);
+            return;
+          }
+          
+          // Log other errors
+          console.error('Failed to fetch pending requests:', error);
+          setPendingRequestCount(0);
+        }
+      };
+
+      fetchPendingRequests();
+    }, 300); // 300ms debounce to batch rapid navigations
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [managerAuthReady, isManager, location.pathname]);
 
   useEffect(() => {
     // Close mobile nav on route change

@@ -82,11 +82,13 @@ async def create_shift_type(
     if existing:
         raise HTTPException(status_code=400, detail=f"Shift type with code '{shift_type.code}' already exists")
     
-    # Validate code format (alphanumeric, uppercase)
-    if not shift_type.code.isalnum() or not shift_type.code.isupper():
+    # Validate code format (uppercase alphanumeric with allowed separators: +, -, _)
+    # Allow letters, numbers, and safe separator characters
+    allowed_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-_')
+    if not shift_type.code or not all(c in allowed_chars for c in shift_type.code) or not shift_type.code.isupper():
         raise HTTPException(
             status_code=400,
-            detail="Shift type code must be uppercase alphanumeric (e.g., 'M', 'IP', 'A', 'N')"
+            detail="Shift type code must be uppercase alphanumeric with optional separators (+, -, _) (e.g., 'M', 'IP', 'A', 'N', 'M+P')"
         )
     
     new_shift_type = ShiftType(

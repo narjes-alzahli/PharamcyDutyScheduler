@@ -1,4 +1,6 @@
-import axios from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { isTokenExpired } from '../utils/tokenUtils';
+import { getValidAccessToken, clearRefreshState } from './tokenRefreshManager';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
@@ -11,10 +13,22 @@ const api = axios.create({
 
 // Add token to requests
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
     const token = localStorage.getItem('access_token');
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      // If token is expired, refresh it before making the request
+      // This prevents sending expired tokens and getting 401/403 errors
+      if (isTokenExpired(token)) {
+        try {
+          const validToken = await getValidAccessToken();
+          config.headers.Authorization = `Bearer ${validToken}`;
+        } catch (error) {
+          // Refresh failed - let the request proceed and response interceptor will handle it
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      } else {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
     return config;
   },
@@ -23,31 +37,100 @@ api.interceptors.request.use(
   }
 );
 
-// Handle auth errors
+// Handle auth errors and automatic token refresh
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Only clear storage and redirect if not already on login page
-      // and not during a login request (to avoid interfering with login flow)
-      const isLoginRequest = error.config?.url?.includes('/auth/login');
-      const isOnLoginPage = window.location.pathname === '/login';
+  async (error: AxiosError) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    
+    // Skip auth endpoints - don't try to refresh on these
+    const isLoginRequest = originalRequest?.url?.includes('/auth/login');
+    const isRefreshRequest = originalRequest?.url?.includes('/auth/refresh');
+    const isAuthMeRequest = originalRequest?.url?.includes('/auth/me');
+    const isOnLoginPage = window.location.pathname === '/login';
+    
+    // Handle 401 Unauthorized or 403 Forbidden - both could indicate expired token
+    // Some backends return 403 for expired tokens, so we check both
+    const isAuthError = error.response?.status === 401 || error.response?.status === 403;
+    
+    if (isAuthError && originalRequest && !isLoginRequest && !isRefreshRequest && !isAuthMeRequest) {
+      // Don't retry if we've already tried once
+      if (originalRequest._retry) {
+        // Already retried - clear tokens and redirect
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user');
+        clearRefreshState();
+        
+        if (!isOnLoginPage) {
+          const shouldRedirect = sessionStorage.getItem('auth_redirect') !== 'blocked';
+          if (shouldRedirect) {
+            sessionStorage.setItem('auth_redirect', 'blocked');
+            window.location.href = '/login';
+          }
+        }
+        return Promise.reject(error);
+      }
       
-      if (!isLoginRequest && !isOnLoginPage) {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user');
-        // Use a flag to prevent redirect loops
+      // Mark request as retried
+      originalRequest._retry = true;
+      
+      try {
+        // Use centralized token refresh manager
+        // This will either:
+        // 1. Return immediately if token is valid
+        // 2. Wait for an in-progress refresh
+        // 3. Start a new refresh if needed
+        const newToken = await getValidAccessToken();
+        
+        // Update the original request with new token
+        if (originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        }
+        
+        // Retry the original request with the new token
+        return api(originalRequest);
+      } catch (refreshError) {
+        // Refresh failed - clear tokens and redirect to login
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user');
+        clearRefreshState();
+        
+        if (!isOnLoginPage) {
+          const shouldRedirect = sessionStorage.getItem('auth_redirect') !== 'blocked';
+          if (shouldRedirect) {
+            sessionStorage.setItem('auth_redirect', 'blocked');
+            window.location.href = '/login';
+          }
+        }
+        
+        return Promise.reject(refreshError);
+      }
+    }
+    
+    // For auth endpoint failures, handle specially
+    if ((isLoginRequest || isRefreshRequest) && error.response?.status === 401) {
+      if (!isOnLoginPage) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user');
+        clearRefreshState();
         const shouldRedirect = sessionStorage.getItem('auth_redirect') !== 'blocked';
         if (shouldRedirect) {
           sessionStorage.setItem('auth_redirect', 'blocked');
-      window.location.href = '/login';
+          window.location.href = '/login';
         }
       }
     }
+    
     // Reset redirect flag on successful requests
-    if (error.config?.url?.includes('/auth/login') && error.response?.status !== 401) {
+    if (isLoginRequest && error.response?.status !== 401) {
       sessionStorage.removeItem('auth_redirect');
     }
+    
+    // For 403 errors that aren't token-related, just reject
+    // (e.g., non-manager trying to access manager-only endpoint)
     return Promise.reject(error);
   }
 );
@@ -66,6 +149,13 @@ export interface LoginRequest {
 
 export interface LoginResponse {
   access_token: string;
+  refresh_token: string;
+  user: User;
+}
+
+export interface RefreshTokenResponse {
+  access_token: string;
+  refresh_token: string;
   user: User;
 }
 
@@ -79,6 +169,19 @@ export const authAPI = {
   },
   getCurrentUser: async (): Promise<User> => {
     const response = await api.get<User>('/api/auth/me');
+    return response.data;
+  },
+  refreshToken: async (refreshToken: string): Promise<RefreshTokenResponse> => {
+    // Use a separate axios instance without interceptors to avoid infinite loops
+    const refreshApi = axios.create({
+      baseURL: process.env.REACT_APP_API_URL || '',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    const response = await refreshApi.post<RefreshTokenResponse>('/api/auth/refresh', {
+      refresh_token: refreshToken,
+    });
     return response.data;
   },
   changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
@@ -199,8 +302,10 @@ export interface Schedule {
 }
 
 export const schedulesAPI = {
-  getCommittedSchedules: async (): Promise<Schedule[]> => {
-    const response = await api.get<Schedule[]>('/api/schedules/committed');
+  getCommittedSchedules: async (signal?: AbortSignal): Promise<Schedule[]> => {
+    const response = await api.get<Schedule[]>('/api/schedules/committed', {
+      signal, // FIX: Support request cancellation
+    });
     return response.data;
   },
   getSchedule: async (year: number, month: number): Promise<Schedule> => {
@@ -249,8 +354,9 @@ export const requestsAPI = {
       const response = await api.get('/api/requests/leave/all');
       return response.data;
     } catch (error: any) {
-      // Handle 403 Forbidden (non-managers) gracefully
+      // Handle 403 Forbidden (non-managers) gracefully - don't log or throw
       if (error.response?.status === 403) {
+        // Silently return empty array for non-managers
         return [];
       }
       throw error;
@@ -282,8 +388,9 @@ export const requestsAPI = {
       const response = await api.get('/api/requests/shift/all');
       return response.data;
     } catch (error: any) {
-      // Handle 403 Forbidden (non-managers) gracefully
+      // Handle 403 Forbidden (non-managers) gracefully - don't log or throw
       if (error.response?.status === 403) {
+        // Silently return empty array for non-managers
         return [];
       }
       throw error;

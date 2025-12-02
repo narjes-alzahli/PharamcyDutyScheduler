@@ -178,7 +178,8 @@ class RosterSolver:
         employees: List[str],
         dates: List[date],
         demands: Dict[date, Dict[str, int]] = None,
-        initial_pending_off: Dict[str, float] = None
+        initial_pending_off: Dict[str, float] = None,
+        roster_data: 'RosterData' = None
     ) -> pd.DataFrame:
         """Create employee workload report with pending_off calculation."""
         rows = []
@@ -200,7 +201,8 @@ class RosterSolver:
                         if shift == "N":
                             # Night shift counting logic: Friday/Saturday/vacation counts as 2
                             is_weekend = day.weekday() in [4, 5]  # Friday=4, Saturday=5
-                            is_vacation = demands and demands.get(day, {}).get('holiday') is not None
+                            # Check for holiday using roster_data.get_holiday() instead of demands dict
+                            is_vacation = roster_data and roster_data.get_holiday(day) is not None
                             
                             if is_weekend or is_vacation:
                                 night_shifts += 2  # Count as 2 for pending_off calculation

@@ -50,6 +50,9 @@ class DailyRequirement(BaseModel):
         """Handle nan values from pandas."""
         if pd.isna(v) or v is None:
             return None
+        # Convert empty string to None for consistency
+        if isinstance(v, str) and v.strip() == '':
+            return None
         return str(v)
 
     class Config:
@@ -93,6 +96,7 @@ class RosterData:
         self.daily_requirements_dict: Dict[date, DailyRequirement] = {}
         self.leave_dict: Dict[Tuple[str, date], str] = {}
         self.special_requirements_dict: Dict[Tuple[str, date, str], bool] = {}
+        self.holidays_dict: Dict[date, str] = {}  # Separate holidays dict for pending_off calculation
         
     def load_data(self) -> None:
         """Load all data from CSV files."""
@@ -100,6 +104,7 @@ class RosterData:
         self._load_daily_requirements()
         self._load_leave()
         self._load_special_requirements()
+        self._load_holidays()  # Load holidays separately
         self._build_dictionaries()
         
     def _load_employees(self) -> None:
@@ -108,14 +113,23 @@ class RosterData:
         self.employees = [Employee(**row) for row in df.to_dict("records")]
         
     def _load_daily_requirements(self) -> None:
-        """Load daily requirements from CSV."""
-        df = pd.read_csv(self.data_dir / "demands.csv")
+        """Load daily requirements from CSV (holiday column is NOT in demands.csv anymore)."""
+        df = pd.read_csv(self.data_dir / "demands.csv", keep_default_na=False, na_values=[])
         # Clean data - remove rows with empty dates
         df = df.dropna(subset=['date'])
         df["date"] = pd.to_datetime(df["date"], errors='coerce').dt.date
         # Remove any rows that still have NaT dates
         df = df.dropna(subset=['date'])
-        self.daily_requirements = [DailyRequirement(**row) for row in df.to_dict("records")]
+        # Holiday column is no longer in demands.csv - it's in a separate holidays.csv file
+        # Remove holiday column if it exists (for backward compatibility)
+        if 'holiday' in df.columns:
+            df = df.drop(columns=['holiday'])
+        # Create DailyRequirement objects without holiday (holiday is handled separately)
+        # We need to add holiday=None to each record for the model validation
+        records = df.to_dict("records")
+        for record in records:
+            record['holiday'] = None  # Set to None since it's not in demands.csv
+        self.daily_requirements = [DailyRequirement(**row) for row in records]
         
     def _load_leave(self) -> None:
         """Load leave from CSV."""
@@ -140,6 +154,23 @@ class RosterData:
             # Remove any rows that still have NaT dates
             df = df.dropna(subset=['from_date', 'to_date'])
             self.special_requirements = [SpecialRequirement(**row) for row in df.to_dict("records")]
+    
+    def _load_holidays(self) -> None:
+        """Load holidays from separate CSV file (for pending_off calculation only)."""
+        holidays_file = self.data_dir / "holidays.csv"
+        if holidays_file.exists():
+            df = pd.read_csv(holidays_file, keep_default_na=False, na_values=[])
+            # Clean data - remove rows with empty dates
+            df = df.dropna(subset=['date'])
+            df["date"] = pd.to_datetime(df["date"], errors='coerce').dt.date
+            # Remove any rows that still have NaT dates
+            df = df.dropna(subset=['date', 'holiday'])
+            # Build holidays dictionary
+            for _, row in df.iterrows():
+                date_val = row['date']
+                holiday_name = str(row['holiday']).strip()
+                if date_val and holiday_name:
+                    self.holidays_dict[date_val] = holiday_name
             
     def _build_dictionaries(self) -> None:
         """Build lookup dictionaries for efficient access."""
@@ -179,7 +210,7 @@ class RosterData:
         }
         
     def get_daily_requirement(self, date: date) -> Dict[str, int]:
-        """Get daily requirement for a date."""
+        """Get daily requirement for a date (only need_* fields, no holiday)."""
         dr = self.daily_requirements_dict.get(date)
         if not dr:
             return {"M": 0, "IP": 0, "A": 0, "N": 0, "M3": 0, "M4": 0, "H": 0, "CL": 0}
@@ -193,6 +224,10 @@ class RosterData:
             "H": dr.need_H,
             "CL": dr.need_CL
         }
+    
+    def get_holiday(self, date: date) -> Optional[str]:
+        """Get holiday name for a date (if any) from separate holidays dict."""
+        return self.holidays_dict.get(date)
         
     def get_leave_code(self, employee: str, date: date) -> Optional[str]:
         """Get leave code for employee on date."""

@@ -62,15 +62,19 @@ def leave_request_to_dict(req: LeaveRequestModel) -> Dict[str, Any]:
 
 def shift_request_to_dict(req: ShiftRequestModel) -> Dict[str, Any]:
     """Convert database ShiftRequest model to JSON-compatible dict."""
+    # Handle cases where relationships might not be loaded or are None
+    employee_name = req.user.employee_name if req.user else 'Unknown'
+    shift_code = req.shift_type.code if req.shift_type else 'UNKNOWN'
+    
     return {
         'request_id': f"SR_{req.id}",
-        'employee': req.user.employee_name,
-        'from_date': req.from_date.isoformat(),
-        'to_date': req.to_date.isoformat(),
-        'shift': req.shift_type.code if req.shift_type else 'UNKNOWN',  # Use shift_type.code
-        'force': req.force,
+        'employee': employee_name,
+        'from_date': req.from_date.isoformat() if req.from_date else '',
+        'to_date': req.to_date.isoformat() if req.to_date else '',
+        'shift': shift_code,
+        'force': req.force if req.force is not None else False,
         'reason': req.reason or '',
-        'status': req.status.value,
+        'status': req.status.value if req.status else 'Pending',
         'submitted_at': req.submitted_at.isoformat() if req.submitted_at else datetime.now().isoformat(),
         'approved_by': req.approved_by,
         'approved_at': req.approved_at.isoformat() if req.approved_at else None,
@@ -118,9 +122,44 @@ async def create_leave_request(
     db: Session = Depends(get_db)
 ):
     """Create a new leave request."""
-    # Validate dates
-    from_date = date.fromisoformat(request.from_date)
-    to_date = date.fromisoformat(request.to_date)
+    # Validate dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
+    try:
+        from_date = date.fromisoformat(request.from_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = request.from_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                from_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for from_date: '{request.from_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse from_date '{request.from_date}': {str(e)}"
+            )
+    
+    try:
+        to_date = date.fromisoformat(request.to_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = request.to_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                to_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for to_date: '{request.to_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse to_date '{request.to_date}': {str(e)}"
+            )
     
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
@@ -172,8 +211,45 @@ async def update_leave_request(
     if req.status != RequestStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
 
-    from_date = date.fromisoformat(update.from_date)
-    to_date = date.fromisoformat(update.to_date)
+    # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
+    try:
+        from_date = date.fromisoformat(update.from_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = update.from_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                from_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for from_date: '{update.from_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse from_date '{update.from_date}': {str(e)}"
+            )
+    
+    try:
+        to_date = date.fromisoformat(update.to_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = update.to_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                to_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for to_date: '{update.to_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse to_date '{update.to_date}': {str(e)}"
+            )
+    
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
@@ -199,7 +275,7 @@ async def delete_leave_request(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a pending leave request."""
+    """Delete a leave request. Managers can delete any request, employees can only delete their own pending requests."""
     db_id = parse_request_id(request_id)
     if not db_id:
         raise HTTPException(status_code=404, detail="Leave request not found")
@@ -209,11 +285,16 @@ async def delete_leave_request(
         raise HTTPException(status_code=404, detail="Leave request not found")
 
     # Check authorization
-    if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
+    is_manager = current_user['employee_type'] == 'Manager'
+    is_owner = req.user.employee_name == current_user['employee_name']
+    
+    if not is_manager and not is_owner:
         raise HTTPException(status_code=403, detail="Not authorized to delete this request")
 
-    if req.status != RequestStatus.PENDING:
-        raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
+    # Employees can only delete their own pending requests
+    # Managers can delete any request (pending or approved)
+    if not is_manager and req.status != RequestStatus.PENDING:
+        raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}. Only managers can delete approved requests.")
     
     db.delete(req)
     db.commit()
@@ -248,9 +329,44 @@ async def create_shift_request(
     db: Session = Depends(get_db)
 ):
     """Create a new shift request."""
-    # Validate dates
-    from_date = date.fromisoformat(request.from_date)
-    to_date = date.fromisoformat(request.to_date)
+    # Validate dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
+    try:
+        from_date = date.fromisoformat(request.from_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = request.from_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                from_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for from_date: '{request.from_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse from_date '{request.from_date}': {str(e)}"
+            )
+    
+    try:
+        to_date = date.fromisoformat(request.to_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = request.to_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                to_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for to_date: '{request.to_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse to_date '{request.to_date}': {str(e)}"
+            )
 
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
@@ -313,8 +429,45 @@ async def update_shift_request(
     if req.status != RequestStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
 
-    from_date = date.fromisoformat(update.from_date)
-    to_date = date.fromisoformat(update.to_date)
+    # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
+    try:
+        from_date = date.fromisoformat(update.from_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = update.from_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                from_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for from_date: '{update.from_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse from_date '{update.from_date}': {str(e)}"
+            )
+    
+    try:
+        to_date = date.fromisoformat(update.to_date)
+    except ValueError:
+        # Try parsing DD-MM-YYYY format
+        try:
+            parts = update.to_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+                to_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format for to_date: '{update.to_date}'. Expected YYYY-MM-DD or DD-MM-YYYY."
+                )
+        except (ValueError, IndexError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse to_date '{update.to_date}': {str(e)}"
+            )
+    
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
@@ -355,7 +508,8 @@ async def delete_shift_request(
             if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
                 raise HTTPException(status_code=403, detail="Not authorized to delete this request")
 
-            if req.status != RequestStatus.PENDING:
+            # Allow managers to delete any status, employees can only delete pending requests
+            if current_user['employee_type'] != 'Manager' and req.status != RequestStatus.PENDING:
                 raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
             
             db.delete(req)
@@ -390,14 +544,33 @@ async def get_all_shift_requests(
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can view all requests")
     
-    # Get all requests except "Added via Roster Generator" (those are admin-managed, not employee requests)
-    requests = db.query(ShiftRequestModel).options(
-        joinedload(ShiftRequestModel.shift_type),
-        joinedload(ShiftRequestModel.user)
-    ).filter(
-        ShiftRequestModel.reason != 'Added via Roster Generator'
-    ).order_by(ShiftRequestModel.submitted_at.desc()).all()
-    return [shift_request_to_dict(req) for req in requests]
+    try:
+        # Get all requests except "Added via Roster Generator" (those are admin-managed, not employee requests)
+        requests = db.query(ShiftRequestModel).options(
+            joinedload(ShiftRequestModel.shift_type),
+            joinedload(ShiftRequestModel.user)
+        ).filter(
+            ShiftRequestModel.reason != 'Added via Roster Generator'
+        ).order_by(ShiftRequestModel.submitted_at.desc()).all()
+        
+        # Convert to dict with error handling
+        result = []
+        for req in requests:
+            try:
+                result.append(shift_request_to_dict(req))
+            except Exception as e:
+                # Log error but continue processing other requests
+                import logging
+                logging.error(f"Error converting shift request {req.id} to dict: {e}")
+                # Skip this request or add a placeholder
+                continue
+        
+        return result
+    except Exception as e:
+        import logging
+        import traceback
+        logging.error(f"Error in get_all_shift_requests: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to load shift requests: {str(e)}")
 
 
 @router.put("/leave/{request_id}/approve")
