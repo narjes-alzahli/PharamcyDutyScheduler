@@ -620,30 +620,48 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
           {[
-            // Get all shifts used in the schedule + default colors + leave types from database
+            // Only show shifts that are: 1) in shiftTypes, 2) in leaveTypes, or 3) actually used in schedule
             ...(() => {
               // Get all unique shifts from the schedule
               const shiftsInSchedule = new Set(schedule.map(entry => entry.shift).filter(Boolean));
               
-              // Start with dynamic colors (includes leave types from DB)
+              // Get shift codes from database shift types
+              const shiftTypeCodes = new Set(shiftTypes.map(st => st.code));
+              
+              // Get leave codes from database leave types
+              const leaveTypeCodes = new Set(leaveTypes.map(lt => lt.code));
+              
+              // Get dynamic colors
               const allColors = getDynamicShiftColors();
               
-              // Ensure all shifts from schedule have a color entry (even if not in defaults or DB yet)
+              // Build set of allowed shifts: shift types + leave types + shifts actually used in schedule
+              const allowedShifts = new Set<string>();
+              
+              // Add all shift types
+              shiftTypeCodes.forEach(code => allowedShifts.add(code));
+              
+              // Add all leave types
+              leaveTypeCodes.forEach(code => allowedShifts.add(code));
+              
+              // Add shifts actually used in schedule (non-standard combinations like M+P, IP+P, etc.)
               shiftsInSchedule.forEach(shift => {
-                if (!allColors[shift] && shift && shift !== '0' && shift !== '') {
-                  // Try to find leave type in DB
-                  const leaveType = leaveTypes.find(lt => lt.code === shift);
-                  allColors[shift] = leaveType?.color_hex || '#F5F5F5'; // Default gray if not found
+                if (shift && shift !== '0' && shift !== '') {
+                  // Only add if it's not already a shift type or leave type (i.e., it's a non-standard combination)
+                  if (!shiftTypeCodes.has(shift) && !leaveTypeCodes.has(shift)) {
+                    allowedShifts.add(shift);
+                  }
                 }
               });
               
-              return Object.entries(allColors)
-                .filter(([shift]) => shift && shift !== '0' && shift !== '' && !shift.startsWith('__'))
-              .map(([shift, defaultColor]) => ({
-                key: shift,
-                defaultColor,
+              // Filter to only show allowed shifts
+              return Array.from(allowedShifts)
+                .filter(shift => shift && shift !== '0' && shift !== '' && !shift.startsWith('__'))
+                .map(shift => ({
+                  key: shift,
+                  defaultColor: allColors[shift] || '#F5F5F5',
                   label: `${shift}: ${getDynamicShiftLabel(shift)}`,
-                }));
+                }))
+                .sort((a, b) => a.key.localeCompare(b.key)); // Sort alphabetically
             })(),
             {
               key: SPECIAL_COLOR_KEYS.weekend,

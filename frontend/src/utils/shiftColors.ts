@@ -13,18 +13,12 @@ export const shiftColors: Record<string, string> = {
   'UL': '#F5F5F5',     // Light gray - Unpaid Leave
   'H': '#FFE4E1',      // Misty rose - Harat Pharmacy
   'STL': '#B0E0E6',    // Powder blue - Study Leave
-  'ATT': '#E0E0E0',    // Light gray - Attending
   'APP': '#FF6B6B',    // Light red - Appointment
-  'RT': '#87CEEB',     // Sky blue - Return
-  'EV': '#DDA0DD',     // Plum - Event
-  'P': '#FFA07A',      // Light salmon - Pharmacy
-  'M+P': '#FFB6C1',    // Light pink - Main + Pharmacy
-  'IP+P': '#FFB6C1',   // Light pink - Inpatient + Pharmacy
+  'P': '#FFA07A',      // Light salmon - Preparation
+  'M+P': '#FFB6C1',    // Light pink - Main + Preparation
+  'IP+P': '#FFB6C1',   // Light pink - Inpatient + Preparation
   'M3': '#FFFFFF',     // White - M3 (7am-2pm)
   'M4': '#FFFFFF',     // White - M4 (12pm-7pm)
-  'M3+P': '#FFB6C1',   // Light pink - M3 + Pharmacy
-  'DR+M': '#FFB6C1',   // Light pink - Doctor + Main
-  'V+P': '#FF6B6B',    // Light red - V + Pharmacy
   'C': '#F0F8FF',      // Very light blue - Clinic
   'L': '#F5F5F5',      // Light gray - Leave
   '0': '#FFFFFF',      // White - Empty/Default
@@ -45,18 +39,12 @@ export const shiftLabels: Record<string, string> = {
   'UL': 'Unpaid Leave',
   'H': 'Harat Pharmacy',
   'STL': 'Study Leave',
-  'ATT': 'Attending',
   'APP': 'Appointment',
-  'RT': 'Return',
-  'EV': 'Event',
-  'P': 'Pharmacy',
-  'M+P': 'Main + Pharmacy',
-  'IP+P': 'Inpatient + Pharmacy',
+  'P': 'Preparation',
+  'M+P': 'Main + Preparation',
+  'IP+P': 'Inpatient + Preparation',
   'M3': 'M3 (7am-2pm)',
   'M4': 'M4 (12pm-7pm)',
-  'M3+P': 'M3 + Pharmacy',
-  'DR+M': 'Doctor + Main',
-  'V+P': 'V + Pharmacy',
   'C': 'Clinic',
   'L': 'Leave',
   '0': 'Empty',

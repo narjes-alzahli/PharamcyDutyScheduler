@@ -55,9 +55,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     { Shift: 'N', Count: 1 },
     { Shift: 'M3', Count: 1 },
   ]);
-  const [haratConfig, setHaratConfig] = useState([
-    { Shift: 'H', Count: 3 }, // 3 H shifts per week randomly distributed
-  ]);
+  // H shifts are now fixed: 2 on Monday, 2 on Wednesday (not configurable)
+  // Removed haratConfig since H is no longer editable
   const [regenerating, setRegenerating] = useState(false);
   const { showToast } = useToast();
 
@@ -123,10 +122,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
 
   const generateDefaults = useCallback(async (year: number, month: number) => {
     const base_demand = {
-      'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2 // H: 3 shifts per week randomly distributed
+      'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'CL': 2 // H: Fixed to 2 on Monday and Wednesday (not configurable)
     };
     const weekend_demand = {
-      'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
+      'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'CL': 0
     };
     
     try {
@@ -241,7 +240,6 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       { Shift: 'M4', Count: 1 },
       { Shift: 'CL', Count: 2 },
     ]);
-    setHaratConfig([{ Shift: 'H', Count: 3 }]); // 3 H shifts per week randomly distributed
     await generateDefaults(selectedYear, selectedMonth);
     setLoading(false);
   };
@@ -370,10 +368,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     const config = {
       weekday: weekdayConfig,
       weekend: weekendConfig,
-      harat: haratConfig,
+      // H shifts are fixed (2 on Mon, 2 on Wed) - not saved in config
     };
     localStorage.setItem(configKey, JSON.stringify(config));
-  }, [selectedYear, selectedMonth, weekdayConfig, weekendConfig, haratConfig]);
+  }, [selectedYear, selectedMonth, weekdayConfig, weekendConfig]);
 
   // Load shift requirements configuration from localStorage
   const loadShiftRequirementsConfig = useCallback(() => {
@@ -385,7 +383,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         const config = JSON.parse(saved);
         if (config.weekday) setWeekdayConfig(config.weekday);
         if (config.weekend) setWeekendConfig(config.weekend);
-        if (config.harat) setHaratConfig(config.harat);
+        // H shifts are fixed (2 on Mon, 2 on Wed) - not loaded from config
       } catch (error) {
         console.error('Failed to load shift requirements config:', error);
       }
@@ -412,7 +410,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         clearTimeout(configSaveTimeoutRef.current);
       }
     };
-  }, [weekdayConfig, weekendConfig, haratConfig, saveShiftRequirementsConfig]);
+  }, [weekdayConfig, weekendConfig, saveShiftRequirementsConfig]);
 
   const handleRegenerate = async () => {
     if (!selectedYear || !selectedMonth) return;
@@ -428,11 +426,12 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       
       // Extract values from configs
       weekdayConfig.forEach(item => {
+        // H shifts are fixed (2 on Mon, 2 on Wed) - not from config
         if (item.Shift !== 'H') {
           base_demand[item.Shift] = item.Count;
         }
       });
-      base_demand['H'] = haratConfig[0]?.Count || 0;
+      // H shifts are fixed: 2 on Monday, 2 on Wednesday (handled in backend)
       
       weekendConfig.forEach(item => {
         weekend_demand[item.Shift] = item.Count;
@@ -868,51 +867,33 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                 </div>
               </div>
 
-              {/* Each Week (Harat) */}
+              {/* H Shifts (Fixed) */}
               <div>
-                <h5 className="font-semibold text-gray-700 mb-2">Each Week (H shifts)</h5>
+                <h5 className="font-semibold text-gray-700 mb-2">H Shifts (Fixed)</h5>
                 <p className="text-xs text-gray-500 mb-2">
-                  3 H shifts randomly distributed across weekdays of the week
+                  H shifts are fixed: 1 shift on Monday, 1 shift on Wednesday (not configurable)
                 </p>
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
                   <table className="w-full">
                     <thead>
                       <tr className="bg-gray-50">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Shift</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Day</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Count</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {haratConfig.map((row, idx) => {
-                        const shiftColor = getShiftColor(row.Shift);
-                        const hexToRgba = (hex: string, alpha: number) => {
-                          const r = parseInt(hex.slice(1, 3), 16);
-                          const g = parseInt(hex.slice(3, 5), 16);
-                          const b = parseInt(hex.slice(5, 7), 16);
-                          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                        };
-                        return (
-                          <tr key={idx} className="border-b border-gray-100">
-                            <td className="px-3 py-2 text-sm font-medium" style={{ backgroundColor: hexToRgba(shiftColor, 0.2) }}>
-                              {row.Shift}
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={row.Count}
-                                onChange={(e) => {
-                                  const newConfig = [...haratConfig];
-                                  newConfig[idx] = { ...newConfig[idx], Count: parseInt(e.target.value) || 0 };
-                                  setHaratConfig(newConfig);
-                                }}
-                                min={0}
-                                max={10}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center"
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      <tr className="border-b border-gray-100">
+                        <td className="px-3 py-2 text-sm font-medium" style={{ backgroundColor: 'rgba(244, 114, 182, 0.2)' }}>
+                          Monday
+                        </td>
+                        <td className="px-3 py-2 text-sm text-gray-600">1</td>
+                      </tr>
+                      <tr className="border-b border-gray-100">
+                        <td className="px-3 py-2 text-sm font-medium" style={{ backgroundColor: 'rgba(244, 114, 182, 0.2)' }}>
+                          Wednesday
+                        </td>
+                        <td className="px-3 py-2 text-sm text-gray-600">1</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
