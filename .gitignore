@@ -67,4 +67,20 @@ htmlcov/
 # Database files
 *.db
 roster.db
+*.sqlite
+*.sqlite3
+
+# Database backups (optional - uncomment if you want to ignore backups)
+database_backups/
+*.sql
+
+# Python cache (already ignored above, but explicit)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
 
