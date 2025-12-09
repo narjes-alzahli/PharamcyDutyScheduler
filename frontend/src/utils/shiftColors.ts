@@ -1,27 +1,33 @@
-// Shift color mapping (matching Python schedule_display.py)
+// Shift color mapping - fallback defaults when database is unavailable
+// Note: Database colors (from ShiftType and LeaveType) take precedence
+// These are fallback defaults for initial render and offline scenarios
 export const shiftColors: Record<string, string> = {
-  'M': '#FFFFFF',      // White - Main shift
-  'O': '#E6F3FF',      // Light blue - Off (from schedule)
-  'IP': '#F0F8FF',     // Very light blue - Inpatient
-  'A': '#FFA500',      // Orange - Afternoon (2:30pm - 9:30pm)
-  'N': '#FFFF00',      // Yellow - Night (9:30pm - 7am)
-  'DO': '#90EE90',     // Light green - Day Off
-  'AL': '#FFD27F',     // Light orange - Annual Leave
-  'CL': '#FFB6C1',     // Light pink - Clinic
-  'ML': '#DDA0DD',     // Plum - Maternity Leave
-  'W': '#D8BFD8',      // Thistle - Workshop
-  'UL': '#F5F5F5',     // Light gray - Unpaid Leave
-  'H': '#FFE4E1',      // Misty rose - Harat Pharmacy
-  'STL': '#B0E0E6',    // Powder blue - Study Leave
-  'APP': '#FF6B6B',    // Light red - Appointment
-  'P': '#FFA07A',      // Light salmon - Preparation
-  'M+P': '#FFB6C1',    // Light pink - Main + Preparation
-  'IP+P': '#FFB6C1',   // Light pink - Inpatient + Preparation
-  'M3': '#FFFFFF',     // White - M3 (7am-2pm)
-  'M4': '#FFFFFF',     // White - M4 (12pm-7pm)
-  'C': '#F0F8FF',      // Very light blue - Clinic
-  'L': '#F5F5F5',      // Light gray - Leave
+  // Shift Types
   '0': '#FFFFFF',      // White - Empty/Default
+  'M': '#FFFFFF',      // White - Main / Morning
+  'O': '#ffffff',      // White - Off Duty
+  'IP': '#ffffff',     // White - Inpatient
+  'A': '#845699',      // Purple/Violet - Afternoon
+  'N': '#FFFF00',      // Bright Yellow - Night
+  'M3': '#ecd0d0',     // Light Pink-Gray/Beige - M3 (7am-2pm)
+  'M4': '#a6cdf7',     // Light Blue - M4 (12pm-7pm)
+  'H': '#ffcd9e',      // Peach/Light Orange - Harat Pharmacy
+  'CL': '#ffffff',     // White - Clinic
+  'MS': '#ffffff',     // White - Medical Store
+  'C': '#e66bcf',      // Pink/Magenta - Course
+  'P': '#FFA07A',      // Light Salmon/Peach - Preparation
+  'M+P': '#ec7c13',    // Orange/Brown-Orange - Main + Preparation
+  'IP+P': '#ec7c13',   // Orange/Brown-Orange - Inpatient + Preparation
+  // Leave Types
+  'DO': '#70c770',     // Medium Green - Day Off
+  'AL': '#FFD27F',     // Light Orange/Peach - Annual Leave
+  'ML': '#DDA0DD',     // Plum/Light Purple - Maternity Leave
+  'W': '#D8BFD8',      // Thistle/Light Purple - Workshop
+  'UL': '#F5F5F5',     // Light Gray - Unpaid Leave
+  'APP': '#ec7c13',    // Orange/Brown-Orange - Appointment
+  'STL': '#B0E0E6',    // Powder Blue - Study Leave
+  'L': '#ded9d9',      // Light Gray/Beige - Leave
+  // Special/Empty
   '': '#FFFFFF',       // White - Empty
 };
 

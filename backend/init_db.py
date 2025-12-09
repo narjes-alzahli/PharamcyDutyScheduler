@@ -28,12 +28,12 @@ def init_db():
         )
         db.add(admin_user)
 
-        # Create default leave types
+        # Create default leave types (with updated colors)
         default_leave_types = [
             LeaveType(
                 code="DO",
                 description="Day Off",
-                color_hex="#90EE90",
+                color_hex="#70c770",
                 counts_as_rest=True,
                 is_active=True
             ),
@@ -68,7 +68,7 @@ def init_db():
             LeaveType(
                 code="APP",
                 description="Appointment",
-                color_hex="#FF6B6B",
+                color_hex="#ec7c13",
                 counts_as_rest=True,
                 is_active=True
             ),
@@ -82,14 +82,14 @@ def init_db():
             LeaveType(
                 code="L",
                 description="Leave",
-                color_hex="#F5F5F5",
+                color_hex="#ded9d9",
                 counts_as_rest=True,
                 is_active=True
             ),
             LeaveType(
                 code="O",
                 description="Off Duty",
-                color_hex="#E6F3FF",
+                color_hex="#ffffff",
                 counts_as_rest=True,
                 is_active=True
             ),

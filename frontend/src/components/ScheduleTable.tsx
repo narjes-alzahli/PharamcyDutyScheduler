@@ -43,8 +43,8 @@ const SPECIAL_COLOR_KEYS = {
 } as const;
 
 const defaultSpecialColors: Record<string, string> = {
-  [SPECIAL_COLOR_KEYS.weekend]: '#E8FDF2',
-  [SPECIAL_COLOR_KEYS.totals]: '#D8DDE5',
+  [SPECIAL_COLOR_KEYS.weekend]: '#5f8ace',  // Medium Blue - Weekend
+  [SPECIAL_COLOR_KEYS.totals]: '#684d80',   // Dark Purple-Gray - Totals Row
 };
 
 const adjustColorBrightness = (hexColor: string, factor: number): string => {
