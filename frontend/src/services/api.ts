@@ -2,7 +2,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { isTokenExpired } from '../utils/tokenUtils';
 import { getValidAccessToken, clearRefreshState } from './tokenRefreshManager';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const API_BASE_URL = 'http://localhost:8001';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -174,7 +174,7 @@ export const authAPI = {
   refreshToken: async (refreshToken: string): Promise<RefreshTokenResponse> => {
     // Use a separate axios instance without interceptors to avoid infinite loops
     const refreshApi = axios.create({
-      baseURL: process.env.REACT_APP_API_URL || '',
+      baseURL: 'http://localhost:8001',
       headers: {
         'Content-Type': 'application/json',
       },
