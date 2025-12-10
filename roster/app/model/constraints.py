@@ -17,16 +17,19 @@ def create_decision_variables(
     """Create binary decision variables for the optimization model."""
     x = {}
     
-    # Base working shifts that are always available
-    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"}
+    # Base working shifts that are always available (DO is now a leave code, only assigned when requested)
+    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"}
     
     # Leave codes that should only be created when explicitly requested
+    # DO is now treated as a leave code - only assigned when requested in time_off
     # If leave_codes is provided, use it; otherwise infer from shifts list
     if leave_codes:
+        # DO is no longer in working_shifts, so if it's in leave_codes, it will be in leave_only_codes
         leave_only_codes = leave_codes - working_shifts
     else:
         # Fallback: infer leave codes from shifts list (exclude working shifts)
         # This ensures we're not hardcoding specific leave types
+        # DO will automatically be included if it's in shifts but not in working_shifts
         all_shifts_set = set(shifts)
         leave_only_codes = all_shifts_set - working_shifts
     
@@ -40,7 +43,8 @@ def create_decision_variables(
                             f"x_{employee}_{day}_{shift}"
                         )
                 else:
-                    # Create all other variables (working shifts, O, DO)
+                    # Create all other variables (working shifts, O)
+                    # DO is now only created when requested in time_off (handled above)
                     x[(employee, day, shift)] = model.NewBoolVar(
                         f"x_{employee}_{day}_{shift}"
                     )
@@ -266,24 +270,19 @@ def add_sequencing_constraints(
     dates: List[date]
 ) -> None:
     """Add sequencing constraints for shift patterns."""
-    rest_codes = {"DO", "O"}
+    # Only use O for rest days after shifts (DO is only assigned when requested in time off)
+    rest_code = "O"
     
     for emp in employees:
         for i, day in enumerate(dates):
-            # Rule 1: After Night (N) → rest day (O/DO) next day
+            # Rule 1: After Night (N) → rest day (O) next day
             if i < len(dates) - 1:  # Not the last day
                 next_day = dates[i + 1]
                 
-                # If working Night today, must be off tomorrow
-                if (emp, day, "N") in x and (emp, next_day, "N") in x:
-                    # Create constraint: N_today <= (sum of rest codes tomorrow)
-                    rest_vars_tomorrow = []
-                    for rest_code in rest_codes:
-                        if (emp, next_day, rest_code) in x:
-                            rest_vars_tomorrow.append(x[(emp, next_day, rest_code)])
-                    
-                    if rest_vars_tomorrow:
-                        model.Add(x[(emp, day, "N")] <= sum(rest_vars_tomorrow))
+                # If working Night today, must be off tomorrow (O only, not DO)
+                if (emp, day, "N") in x and (emp, next_day, rest_code) in x:
+                    # Create constraint: N_today <= O_tomorrow
+                    model.Add(x[(emp, day, "N")] <= x[(emp, next_day, rest_code)])
             
             # Rule 2: No back-to-back N shifts
             if i < len(dates) - 1:  # Not the last day

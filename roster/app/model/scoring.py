@@ -51,12 +51,8 @@ class RosterScoring:
         if area_vars:
             objectives.append(sum(area_vars) * self.weights.get("area_switching", 1.0))
         
-        # 4. DO after N preference (tie-breaker)
-        do_after_n_vars = self._add_do_after_n_variables(
-            model, x, employees, dates
-        )
-        if do_after_n_vars:
-            objectives.append(sum(do_after_n_vars) * self.weights.get("do_after_n", 1.0))
+        # 4. DO after N preference removed - DO is now only assigned when requested in time off
+        # (No longer preferring DO after N shifts)
         
         if objectives:
             model.Minimize(sum(objectives))
@@ -266,19 +262,9 @@ class RosterScoring:
         employees: List[str],
         dates: List[date]
     ) -> List[cp_model.IntVar]:
-        """Add variables to prefer DO after N shifts."""
-        do_after_n_vars = []
-        
-        for emp in employees:
-            for i in range(len(dates) - 1):
-                day1, day2 = dates[i], dates[i + 1]
-                
-                # Prefer DO after N
-                do_after_n = model.NewBoolVar(f"do_after_n_{emp}_{day1}_{day2}")
-                model.Add(do_after_n >= x[(emp, day1, "N")] + x[(emp, day2, "DO")] - 1)
-                do_after_n_vars.append(do_after_n)
-        
-        return do_after_n_vars
+        """Deprecated: DO is now only assigned when requested in time off, not automatically after N shifts."""
+        # This function is no longer used - DO preference after N has been removed
+        return []
 
 
 def calculate_roster_metrics(

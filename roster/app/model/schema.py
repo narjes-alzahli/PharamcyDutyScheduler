@@ -258,7 +258,7 @@ class RosterData:
         """Get all possible shifts (working shifts + leave types + requested non-standard shifts)."""
         # Get all shifts from config if available (loaded from database)
         if hasattr(self, 'config') and hasattr(self.config, 'all_shift_codes') and self.config.all_shift_codes:
-            all_shifts = set(self.config.all_shift_codes)  # Start with standard shifts + rest (DO, O)
+            all_shifts = set(self.config.all_shift_codes)  # Start with standard shifts + O (DO is added via leave_codes)
             
             # Add leave codes from config (leave types from database)
             if hasattr(self.config, 'leave_codes') and self.config.leave_codes:

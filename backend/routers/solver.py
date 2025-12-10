@@ -129,7 +129,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             
             # Filter locks to only include STANDARD shifts (exclude non-standard like MS, C)
             # Non-standard shifts are handled via time_off as direct assignments, not constraints
-            STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"}
+            # DO is now a leave code, only assigned when requested in time off
+            STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"}
             locks_df = roster_data['locks'].copy()
             if not locks_df.empty and 'shift' in locks_df.columns:
                 # Only keep standard shifts in locks - non-standard shifts are in time_off
@@ -164,15 +165,17 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
                 working_shift_codes = [st.code for st in all_shift_types 
                                       if st.is_working_shift == True and st.code in STANDARD_WORKING_SHIFTS]
-                # Only include standard shifts + rest shifts (DO, O) in all_shift_codes
+                # Only include standard shifts + O in all_shift_codes
+                # DO is now a leave code, only assigned when requested in time off
                 # Exclude non-standard shifts like MS - they'll be added via time_off when requested
                 all_shift_codes = [st.code for st in all_shift_types 
-                                   if st.code in STANDARD_WORKING_SHIFTS or st.code in {"DO", "O"}]
+                                   if st.code in STANDARD_WORKING_SHIFTS or st.code == "O"]
                 
                 # Add non-standard shift types (like MS, C) to leave_codes so they're treated as leave-only
                 # These shifts should only be assigned when explicitly requested, never randomly
+                # DO is already in leave_codes (from LeaveType table), so we don't need to exclude it here
                 non_standard_shift_codes = [st.code for st in all_shift_types 
-                                           if st.code not in STANDARD_WORKING_SHIFTS and st.code not in {"DO", "O"}]
+                                           if st.code not in STANDARD_WORKING_SHIFTS and st.code != "O"]
                 # Add non-standard shifts to leave_codes (they behave like leave types in the solver)
                 # Use set to avoid duplicates, then convert back to list
                 leave_codes_set = set(leave_codes)
@@ -180,10 +183,12 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 leave_codes = list(leave_codes_set)
             except Exception as e:
                 # Fallback to default codes if database query fails
+                # DO is a leave code, only assigned when requested in time off
                 leave_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
                 rest_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
                 working_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
-                all_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"]
+                # DO is in leave_codes, so it will be available when requested, but not in all_shift_codes for automatic assignment
+                all_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"]
                 print(f"Warning: Failed to load shift/leave types from database: {e}. Using defaults.")
             finally:
                 db.close()
