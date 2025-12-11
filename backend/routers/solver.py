@@ -57,6 +57,7 @@ class JobStatus(BaseModel):
     progress: Optional[float] = None
     result: Optional[Dict] = None
     error: Optional[str] = None
+    issues: Optional[list] = None  # List of sanity check issues
 
 
 def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
@@ -262,10 +263,16 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 # Provide more detailed error message
                 error_msg = "Solver failed to find a solution. "
                 if metrics and metrics.get("status") == "INFEASIBLE":
-                    error_msg += "The constraints may be too restrictive. Check: "
-                    error_msg += "1) Employee skills match shift requirements, "
-                    error_msg += "2) Time off requests don't conflict with coverage needs, "
-                    error_msg += "3) Lock constraints are feasible."
+                    # Check if sanity check found specific issues
+                    if metrics.get("sanity_check_failed"):
+                        error_msg = metrics.get("error_message", error_msg)
+                        # Store issues separately for frontend display
+                        solver_jobs[job_id]["issues"] = metrics.get("issues", [])
+                    else:
+                        error_msg += "The constraints may be too restrictive. Check: "
+                        error_msg += "1) Employee skills match shift requirements, "
+                        error_msg += "2) Time off requests don't conflict with coverage needs, "
+                        error_msg += "3) Lock constraints are feasible."
                 else:
                     error_msg += "Try increasing the time limit or relaxing constraints."
                 solver_jobs[job_id]["error"] = error_msg
@@ -320,6 +327,7 @@ async def get_job_status(job_id: str, current_user: dict = Depends(get_current_u
         job_id=job_id,
         status=job["status"],
         result=job.get("result"),
-        error=job.get("error")
+        error=job.get("error"),
+        issues=job.get("issues")
     )
 

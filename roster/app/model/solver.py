@@ -9,6 +9,7 @@ import time
 from .schema import RosterData, RosterConfig
 from .constraints import add_all_constraints, create_decision_variables
 from .scoring import RosterScoring, calculate_roster_metrics
+from .sanity_check import check_roster_feasibility
 
 
 class RosterSolver:
@@ -39,6 +40,18 @@ class RosterSolver:
         
         if not employees or not dates:
             return False, {}, {}
+        
+        # Run sanity check before solving
+        is_feasible, issues = check_roster_feasibility(data)
+        if not is_feasible:
+            error_details = "\n".join(issues)
+            return False, {}, {
+                "status": "INFEASIBLE",
+                "solve_time": 0,
+                "sanity_check_failed": True,
+                "issues": issues,
+                "error_message": f"Sanity check failed. Found {len(issues)} issue(s):\n{error_details}"
+            }
             
         # Prepare constraint data first
         demands = {day: data.get_daily_requirement(day) for day in dates}

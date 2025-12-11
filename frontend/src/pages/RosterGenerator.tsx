@@ -29,6 +29,7 @@ export const RosterGenerator: React.FC = () => {
   const [allShiftRequests, setAllShiftRequests] = useState<any[]>([]);
   const contentRef = useRef<HTMLDivElement>(null);
   const jobNotFoundCountRef = useRef<number>(0);
+  const hasShownFailureAlertRef = useRef<boolean>(false);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -164,7 +165,12 @@ export const RosterGenerator: React.FC = () => {
         setActiveTab('schedule');
       } else if (status.status === 'failed') {
         setSolving(false);
-        alert(`Solver failed: ${status.error || 'Unknown error'}`);
+        // Brief alert - detailed issues will be shown in the red box below
+        // Only show alert once to avoid duplicate popups
+        if (!hasShownFailureAlertRef.current) {
+          hasShownFailureAlertRef.current = true;
+          alert('Solver failed. Check below for potential cause(s).');
+        }
       }
     } catch (error: any) {
       // Handle 404 gracefully - job might not exist yet (race condition) or was lost
@@ -196,6 +202,7 @@ export const RosterGenerator: React.FC = () => {
     setScheduleMetrics(null);
     setJobId(null);
     setJobStatus(null);
+    hasShownFailureAlertRef.current = false; // Reset alert flag when clearing results
   };
 
   const handleGenerate = async () => {
@@ -219,6 +226,7 @@ export const RosterGenerator: React.FC = () => {
       setJobId(response.job_id);
       setJobStatus({ job_id: response.job_id, status: 'pending' });
       jobNotFoundCountRef.current = 0; // Reset not found counter when starting new job
+      hasShownFailureAlertRef.current = false; // Reset alert flag when starting new generation
     } catch (error: any) {
       setSolving(false);
       alert(error.response?.data?.detail || 'Failed to start solver');
@@ -2224,8 +2232,21 @@ export const RosterGenerator: React.FC = () => {
 
                   {jobStatus?.status === 'failed' && (
                     <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
-                      <p className="font-semibold">Generation failed:</p>
-                      <p>{jobStatus.error || 'Unknown error'}</p>
+                      <p className="font-semibold mb-2">Generation failed:</p>
+                      {jobStatus.issues && jobStatus.issues.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="mb-2">Found {jobStatus.issues.length} issue(s):</p>
+                          <ul className="list-decimal list-inside space-y-2 ml-4">
+                            {jobStatus.issues.map((issue: string, index: number) => (
+                              <li key={index} className="whitespace-pre-wrap" dangerouslySetInnerHTML={{
+                                __html: issue.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                              }} />
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap">{jobStatus.error || 'Unknown error'}</p>
+                      )}
                     </div>
                   )}
 

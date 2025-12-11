@@ -282,6 +282,7 @@ export interface JobStatus {
     metrics: any;
   };
   error?: string;
+  issues?: string[];  // List of sanity check issues
 }
 
 export const solverAPI = {
