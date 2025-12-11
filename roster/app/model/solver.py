@@ -77,7 +77,8 @@ class RosterSolver:
             model, x, employees, dates, shifts,
             demands, skills, time_off, locks, caps, min_days_off,
             self.config.rest_codes, self.config.forbidden_adjacencies,
-            self.config.weekly_rest_minimum
+            self.config.weekly_rest_minimum,
+            leave_codes_set  # Pass leave_codes to check for existing leave types in sequencing constraints
         )
         
         # Add objective

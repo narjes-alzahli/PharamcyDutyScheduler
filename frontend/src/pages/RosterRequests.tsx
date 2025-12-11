@@ -3,7 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { requestsAPI, leaveTypesAPI, LeaveType } from '../services/api';
 import { Pagination } from '../components/Pagination';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
-import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
+import { CalendarDatePicker } from '../components/CalendarDatePicker';
+import { parseDateToISO } from '../utils/dateFormat';
 
 interface LeaveRequest {
   from_date: string;
@@ -62,13 +63,13 @@ export const RosterRequests: React.FC = () => {
     if (!authLoading) {
     loadRequests();
       loadLeaveTypes();
-    // Set default dates to today in DD-MM-YYYY format
+    // Set default dates to today in YYYY-MM-DD format
     const today = new Date();
-    const todayDDMMYYYY = formatDateDDMMYYYY(today.toISOString().split('T')[0]);
-    setLeaveFromDate(todayDDMMYYYY);
-    setLeaveToDate(todayDDMMYYYY);
-    setShiftFromDate(todayDDMMYYYY);
-    setShiftToDate(todayDDMMYYYY);
+    const todayYYYYMMDD = today.toISOString().split('T')[0];
+    setLeaveFromDate(todayYYYYMMDD);
+    setLeaveToDate(todayYYYYMMDD);
+    setShiftFromDate(todayYYYYMMDD);
+    setShiftToDate(todayYYYYMMDD);
     }
   }, [user, authLoading]);
 
@@ -149,9 +150,9 @@ export const RosterRequests: React.FC = () => {
 
   const resetLeaveForm = () => {
     const today = new Date();
-    const todayDDMMYYYY = formatDateDDMMYYYY(today.toISOString().split('T')[0]);
-    setLeaveFromDate(todayDDMMYYYY);
-    setLeaveToDate(todayDDMMYYYY);
+    const todayYYYYMMDD = today.toISOString().split('T')[0];
+    setLeaveFromDate(todayYYYYMMDD);
+    setLeaveToDate(todayYYYYMMDD);
     setLeaveType('DO');
     setLeaveReason('');
     setEditingLeaveId(null);
@@ -159,9 +160,9 @@ export const RosterRequests: React.FC = () => {
 
   const resetShiftForm = () => {
     const today = new Date();
-    const todayDDMMYYYY = formatDateDDMMYYYY(today.toISOString().split('T')[0]);
-    setShiftFromDate(todayDDMMYYYY);
-    setShiftToDate(todayDDMMYYYY);
+    const todayYYYYMMDD = today.toISOString().split('T')[0];
+    setShiftFromDate(todayYYYYMMDD);
+    setShiftToDate(todayYYYYMMDD);
     setShiftType('M');
     setRequestType('Force (Must)');
     setShiftReason('');
@@ -171,16 +172,22 @@ export const RosterRequests: React.FC = () => {
   const handleSubmitLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Convert DD-MM-YYYY to ISO format for validation and API
-    const isoFromDate = parseDateToISO(leaveFromDate);
-    const isoToDate = parseDateToISO(leaveToDate);
+    // Normalize dates to YYYY-MM-DD format (CalendarDatePicker should already return this, but ensure it)
+    const normalizedFromDate = parseDateToISO(leaveFromDate);
+    const normalizedToDate = parseDateToISO(leaveToDate);
     
-    if (!isoFromDate || !isoToDate) {
-      alert('Invalid date format. Please use DD-MM-YYYY format.');
+    if (!normalizedFromDate || !normalizedToDate) {
+      alert('Please select both from and to dates.');
       return;
     }
     
-    if (new Date(isoFromDate) > new Date(isoToDate)) {
+    // Validate format
+    if (!normalizedFromDate.match(/^\d{4}-\d{2}-\d{2}$/) || !normalizedToDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      alert('Invalid date format. Please select valid dates.');
+      return;
+    }
+    
+    if (new Date(normalizedFromDate) > new Date(normalizedToDate)) {
       alert('From date cannot be after to date');
       return;
     }
@@ -188,8 +195,8 @@ export const RosterRequests: React.FC = () => {
     try {
       setSubmitting(true);
       const payload = {
-        from_date: isoFromDate,
-        to_date: isoToDate,
+        from_date: normalizedFromDate,
+        to_date: normalizedToDate,
         leave_type: leaveType,
         reason: leaveReason,
       };
@@ -228,16 +235,22 @@ export const RosterRequests: React.FC = () => {
   const handleSubmitShift = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Convert DD-MM-YYYY to ISO format for validation and API
-    const isoFromDate = parseDateToISO(shiftFromDate);
-    const isoToDate = parseDateToISO(shiftToDate);
+    // Normalize dates to YYYY-MM-DD format (CalendarDatePicker should already return this, but ensure it)
+    const normalizedFromDate = parseDateToISO(shiftFromDate);
+    const normalizedToDate = parseDateToISO(shiftToDate);
     
-    if (!isoFromDate || !isoToDate) {
-      alert('Invalid date format. Please use DD-MM-YYYY format.');
+    if (!normalizedFromDate || !normalizedToDate) {
+      alert('Please select both from and to dates.');
       return;
     }
 
-    if (new Date(isoFromDate) > new Date(isoToDate)) {
+    // Validate format
+    if (!normalizedFromDate.match(/^\d{4}-\d{2}-\d{2}$/) || !normalizedToDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      alert('Invalid date format. Please select valid dates.');
+      return;
+    }
+
+    if (new Date(normalizedFromDate) > new Date(normalizedToDate)) {
       alert('From date cannot be after to date');
       return;
     }
@@ -245,8 +258,8 @@ export const RosterRequests: React.FC = () => {
     try {
       setSubmitting(true);
       const payload = {
-        from_date: isoFromDate,
-        to_date: isoToDate,
+        from_date: normalizedFromDate,
+        to_date: normalizedToDate,
         shift: shiftType,
         request_type: requestType,
         reason: shiftReason,
@@ -286,8 +299,9 @@ export const RosterRequests: React.FC = () => {
     await loadLeaveTypes();
     setActiveTab('leave');
     setEditingLeaveId(req.request_id);
-    setLeaveFromDate(req.from_date);
-    setLeaveToDate(req.to_date);
+    // Normalize dates to YYYY-MM-DD format when editing
+    setLeaveFromDate(parseDateToISO(req.from_date) || req.from_date);
+    setLeaveToDate(parseDateToISO(req.to_date) || req.to_date);
     setLeaveType(req.leave_type);
     setLeaveReason(req.reason || '');
   };
@@ -318,9 +332,9 @@ export const RosterRequests: React.FC = () => {
   const handleEditShiftRequest = (req: ShiftRequest) => {
     setActiveTab('shift');
     setEditingShiftId(req.request_id);
-    // Convert ISO dates to DD-MM-YYYY for display
-    setShiftFromDate(formatDateDDMMYYYY(req.from_date));
-    setShiftToDate(formatDateDDMMYYYY(req.to_date || req.from_date));
+    // Normalize dates to YYYY-MM-DD format when editing
+    setShiftFromDate(parseDateToISO(req.from_date) || req.from_date);
+    setShiftToDate(parseDateToISO(req.to_date || req.from_date) || req.to_date || req.from_date);
     setShiftType(req.shift);
     setRequestType(req.force ? 'Force (Must)' : 'Forbid (Cannot)');
     setShiftReason(req.reason || '');
@@ -476,14 +490,12 @@ export const RosterRequests: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       From Date
                     </label>
-                    <input
-                      type="text"
+                    <CalendarDatePicker
                       value={leaveFromDate}
-                      onChange={(e) => setLeaveFromDate(e.target.value)}
-                      placeholder="DD-MM-YYYY"
-                      pattern="\d{2}-\d{2}-\d{4}"
+                      onChange={setLeaveFromDate}
+                      placeholder="Select from date"
                       required
-                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                      max={leaveToDate || undefined}
                     />
                   </div>
 
@@ -491,14 +503,12 @@ export const RosterRequests: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       To Date
                     </label>
-                    <input
-                      type="text"
+                    <CalendarDatePicker
                       value={leaveToDate}
-                      onChange={(e) => setLeaveToDate(e.target.value)}
-                      placeholder="DD-MM-YYYY"
-                      pattern="\d{2}-\d{2}-\d{4}"
+                      onChange={setLeaveToDate}
+                      placeholder="Select to date"
                       required
-                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                      min={leaveFromDate || undefined}
                     />
                   </div>
 
@@ -731,12 +741,12 @@ export const RosterRequests: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       From Date
                     </label>
-                    <input
-                      type="date"
+                    <CalendarDatePicker
                       value={shiftFromDate}
-                      onChange={(e) => setShiftFromDate(e.target.value)}
+                      onChange={setShiftFromDate}
+                      placeholder="Select from date"
                       required
-                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                      max={shiftToDate || undefined}
                     />
                   </div>
 
@@ -744,14 +754,12 @@ export const RosterRequests: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       To Date
                     </label>
-                    <input
-                      type="text"
+                    <CalendarDatePicker
                       value={shiftToDate}
-                      onChange={(e) => setShiftToDate(e.target.value)}
-                      placeholder="DD-MM-YYYY"
-                      pattern="\d{2}-\d{2}-\d{4}"
+                      onChange={setShiftToDate}
+                      placeholder="Select to date"
                       required
-                      className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                      min={shiftFromDate || undefined}
                     />
                   </div>
 

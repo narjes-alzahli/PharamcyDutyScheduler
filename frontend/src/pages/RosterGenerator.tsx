@@ -5,6 +5,7 @@ import { EditableTable } from '../components/EditableTable';
 import { DemandsTab } from '../components/DemandsTab';
 import { ScheduleAnalysis } from '../components/ScheduleAnalysis';
 import { useAuth } from '../contexts/AuthContext';
+import { CalendarDatePicker } from '../components/CalendarDatePicker';
 import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
 
 export const RosterGenerator: React.FC = () => {
@@ -119,6 +120,12 @@ export const RosterGenerator: React.FC = () => {
     try {
       setLoading(true);
       const data = await dataAPI.getRosterData();
+      
+      // Log request_ids for debugging
+      const timeOffWithIds = (data.time_off || []).filter((item: any) => item.request_id);
+      const locksWithIds = (data.locks || []).filter((item: any) => item.request_id);
+      console.log(`📊 Loaded roster data: ${timeOffWithIds.length}/${data.time_off?.length || 0} time_off entries have request_id, ${locksWithIds.length}/${data.locks?.length || 0} locks have request_id`);
+      
       setRosterData(data);
     } catch (error: any) {
       console.error('Failed to load roster data:', error);
@@ -327,7 +334,7 @@ export const RosterGenerator: React.FC = () => {
     }
   };
 
-  const handleTimeOffChange = (newData: any[]) => {
+  const handleTimeOffChange = async (newData: any[]) => {
     console.log('handleTimeOffChange called with', newData.length, 'items:', newData);
     clearGeneratedResults();
     setRosterData((prev: any) => (prev ? { ...prev, time_off: newData } : prev));
@@ -338,14 +345,210 @@ export const RosterGenerator: React.FC = () => {
 
     timeOffSaveTimeoutRef.current = setTimeout(async () => {
       try {
-        console.log('Saving time-off data to backend:', newData.length, 'items');
-        await dataAPI.updateTimeOff(newData);
+        // Normalize dates to ensure YYYY-MM-DD format before saving
+        const normalizedData = newData.map((item: any) => {
+          const isoFromDate = parseDateToISO(item.from_date);
+          const isoToDate = parseDateToISO(item.to_date);
+          
+          // Validate dates
+          if (!isoFromDate || !isoToDate || !isoFromDate.match(/^\d{4}-\d{2}-\d{2}$/) || !isoToDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            console.error('Invalid date format in time-off item:', item);
+            return item; // Return original if invalid
+          }
+          
+          return {
+            ...item,
+            from_date: isoFromDate,
+            to_date: isoToDate,
+          };
+        });
+        
+        // Group items by request_id to handle multi-day requests correctly
+        // A single leave request can span multiple days, so we need to group by request_id
+        const leaveRequestsByRequestId = new Map<string, any[]>();
+        const leaveRequestsToCreate: any[] = [];
+        const leaveTypeCodes = new Set(leaveTypes.map(lt => lt.code));
+        
+        normalizedData.forEach((item: any) => {
+          // Only process leave types (not shift codes)
+          if (!leaveTypeCodes.has(item.code)) {
+            leaveRequestsToCreate.push(item); // Shift codes go to create list
+            return;
+          }
+          
+          // Check if this is an edit (has request_id and reason is 'Added via Roster Generator')
+          // Also check if request_id is in format LR_xxx or just a number/string
+          const hasRequestId = item.request_id && (
+            item.request_id.toString().startsWith('LR_') || 
+            item.request_id.toString().startsWith('SR_') ||
+            item.request_id.toString().trim() !== ''
+          );
+          
+          // Check if reason indicates it's a Roster Generator request
+          const isRosterGeneratorRequest = item.reason === 'Added via Roster Generator' || !item.reason;
+          
+          if (hasRequestId && isRosterGeneratorRequest) {
+            // Group by request_id - multiple days with same request_id belong to one request
+            // IMPORTANT: When we have a range (from_date != to_date), this represents ONE request
+            // All expanded days from this range share the same request_id
+            // We should use the range's from_date and to_date directly, not recalculate from expanded days
+            const reqId = item.request_id.toString();
+            if (!leaveRequestsByRequestId.has(reqId)) {
+              leaveRequestsByRequestId.set(reqId, []);
+            }
+            leaveRequestsByRequestId.get(reqId)!.push(item);
+            console.log(`📌 Grouping leave request for update: ${reqId}`, {
+              employee: item.employee,
+              code: item.code,
+              from_date: item.from_date,
+              to_date: item.to_date,
+              isRange: item.from_date !== item.to_date,
+            });
+          } else if (item.request_ids && Array.isArray(item.request_ids) && item.request_ids.length > 0) {
+            // If we have multiple request_ids, group by each one
+            item.request_ids.forEach((reqId: string) => {
+              if (reqId) {
+                if (!leaveRequestsByRequestId.has(reqId)) {
+                  leaveRequestsByRequestId.set(reqId, []);
+                }
+                leaveRequestsByRequestId.get(reqId)!.push({
+                  ...item,
+                  request_id: reqId,
+                });
+              }
+            });
+          } else {
+            // New request (no request_id) - will be created
+            console.log(`➕ Creating new leave request (no request_id):`, {
+              employee: item.employee,
+              code: item.code,
+              from_date: item.from_date,
+              to_date: item.to_date,
+              reason: item.reason,
+            });
+            leaveRequestsToCreate.push(item);
+          }
+        });
+        
+        // Update existing leave requests via API
+        // For each request_id, find the min from_date and max to_date to update the single request
+        if (leaveRequestsByRequestId.size > 0) {
+          console.log('🔄 Updating existing leave requests:', leaveRequestsByRequestId.size, Array.from(leaveRequestsByRequestId.keys()));
+          await Promise.all(
+            Array.from(leaveRequestsByRequestId.entries()).map(async ([requestId, items]) => {
+              try {
+                // Normalize all dates to ISO format (YYYY-MM-DD) before finding min/max
+                const normalizedItems = items.map((item: any) => {
+                  const isoFrom = parseDateToISO(item.from_date);
+                  const isoTo = parseDateToISO(item.to_date);
+                  return {
+                    ...item,
+                    from_date: isoFrom || item.from_date,
+                    to_date: isoTo || item.to_date,
+                  };
+                });
+                
+                // CRITICAL: All items with the same request_id came from the same original request
+                // When user edits a range's dates, we should use the range's from_date and to_date directly
+                // NOT recalculate from expanded individual days
+                
+                // Strategy: If we have a range (from_date != to_date), use it directly
+                // Otherwise, if all items are single days, find min/max
+                const hasRange = normalizedItems.some((item: any) => item.from_date !== item.to_date);
+                
+                let minFromDate: string;
+                let maxToDate: string;
+                
+                if (hasRange) {
+                  // We have at least one range - find the range with the widest span
+                  // This handles the case where user edited a range's dates
+                  let widestRange = normalizedItems[0];
+                  let widestSpan = 0;
+                  
+                  normalizedItems.forEach((item: any) => {
+                    const fromDate = new Date(item.from_date);
+                    const toDate = new Date(item.to_date);
+                    const span = toDate.getTime() - fromDate.getTime();
+                    if (span > widestSpan) {
+                      widestSpan = span;
+                      widestRange = item;
+                    }
+                  });
+                  
+                  minFromDate = widestRange.from_date;
+                  maxToDate = widestRange.to_date;
+                  console.log(`📅 Using range dates directly (user edited): ${minFromDate} to ${maxToDate}`);
+                } else {
+                  // All items are single days - find min/max across all days
+                  const fromDates = normalizedItems.map((item: any) => item.from_date).filter(Boolean).sort();
+                  const toDates = normalizedItems.map((item: any) => item.to_date).filter(Boolean).sort();
+                  
+                  if (fromDates.length === 0 || toDates.length === 0) {
+                    throw new Error(`Invalid dates for request ${requestId}: fromDates=${fromDates.length}, toDates=${toDates.length}`);
+                  }
+                  
+                  minFromDate = fromDates[0];
+                  maxToDate = toDates[toDates.length - 1];
+                  console.log(`📅 Calculated min/max dates from ${normalizedItems.length} single-day items: ${minFromDate} to ${maxToDate}`);
+                }
+                
+                // Validate: from_date must be <= to_date
+                if (minFromDate > maxToDate) {
+                  throw new Error(`Invalid date range for request ${requestId}: from_date (${minFromDate}) cannot be after to_date (${maxToDate})`);
+                }
+                
+                const firstItem = normalizedItems[0];
+                
+                console.log(`📝 Updating leave request ${requestId}:`, {
+                  from_date: minFromDate,
+                  to_date: maxToDate,
+                  leave_type: firstItem.code,
+                  employee: firstItem.employee,
+                });
+                
+                await requestsAPI.updateLeaveRequest(requestId, {
+                  from_date: minFromDate,
+                  to_date: maxToDate,
+                  leave_type: firstItem.code,
+                  reason: firstItem.reason || 'Added via Roster Generator',
+                  employee: firstItem.employee, // Include employee so backend can update user_id if changed
+                });
+                
+                console.log(`✅ Successfully updated leave request ${requestId}`);
+              } catch (error: any) {
+                console.error(`❌ Failed to update leave request ${requestId}:`, error);
+                console.error('Error details:', error.response?.data);
+                // If update fails, add items to create list as fallback (but remove request_id)
+                items.forEach((item: any) => {
+                  const { request_id, request_ids, ...cleanItem } = item;
+                  leaveRequestsToCreate.push(cleanItem);
+                });
+              }
+            })
+          );
+        }
+        
+        // Create new leave requests via updateTimeOff (which handles creation)
+        // IMPORTANT: Remove request_id from items going to create endpoint (backend will assign new ones)
+        const leaveRequestsToCreateClean = leaveRequestsToCreate.map((item: any) => {
+          const { request_id, request_ids, ...cleanItem } = item;
+          return cleanItem;
+        });
+        
+        if (leaveRequestsToCreateClean.length > 0) {
+          console.log('Creating new leave requests:', leaveRequestsToCreateClean.length);
+          const createResponse = await dataAPI.updateTimeOff(leaveRequestsToCreateClean);
+          console.log('✅ Created leave requests with request_ids:', createResponse.created_leave_requests || []);
+        }
+        
         console.log('Successfully saved time-off data');
         setSaveNotification({ message: '✅ Leave data saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
-        // Reload roster data to get the updated data from database
+        
+        // Reload data to get updated request_ids - CRITICAL for future edits
+        console.log('🔄 Reloading roster data to get new request_ids...');
         await loadRosterData();
-        console.log('Reloaded roster data from database');
+        console.log('✅ Roster data reloaded, request_ids should now be available');
       } catch (error: any) {
         console.error('Failed to save time off:', error);
         setSaveNotification({
@@ -353,11 +556,13 @@ export const RosterGenerator: React.FC = () => {
           type: 'error',
         });
         setTimeout(() => setSaveNotification(null), 4000);
+        // Reload on error to get correct state from server
+        await loadRosterData();
       }
     }, 800);
   };
 
-  const handleLocksChange = (newData: any[]) => {
+  const handleLocksChange = async (newData: any[]) => {
     // Normalize locks: ensure dates are in ISO format (YYYY-MM-DD) and force is boolean
     const normalizedLocks = newData.map((lock: any) => {
       const isoFromDate = parseDateToISO(lock.from_date);
@@ -386,13 +591,154 @@ export const RosterGenerator: React.FC = () => {
 
     locksSaveTimeoutRef.current = setTimeout(async () => {
       try {
-        console.log('Saving locks to backend:', normalizedLocks.length, 'items');
-        await dataAPI.updateLocks(normalizedLocks);
+        // Group locks by request_id to handle multi-day requests correctly
+        // A single shift request can span multiple days, so we need to group by request_id
+        const locksByRequestId = new Map<string, any[]>();
+        const locksToCreate: any[] = [];
+        
+        normalizedLocks.forEach((lock: any) => {
+          // Check if request_id exists and is valid (format LR_xxx, SR_xxx, or any non-empty string)
+          const hasRequestId = lock.request_id && (
+            lock.request_id.toString().startsWith('LR_') || 
+            lock.request_id.toString().startsWith('SR_') ||
+            lock.request_id.toString().trim() !== ''
+          );
+          
+          if (hasRequestId && (lock.reason === 'Added via Roster Generator' || !lock.reason)) {
+            // This is an edit - group by request_id
+            const reqId = lock.request_id.toString();
+            if (!locksByRequestId.has(reqId)) {
+              locksByRequestId.set(reqId, []);
+            }
+            locksByRequestId.get(reqId)!.push(lock);
+            console.log(`📌 Grouping shift request for update: ${reqId}`, lock);
+          } else {
+            // This is a new lock - will be created via updateLocks
+            console.log(`➕ Creating new shift request (no request_id or different reason):`, lock);
+            locksToCreate.push(lock);
+          }
+        });
+        
+        // Update existing requests via API
+        // For each request_id, find the min from_date and max to_date to update the single request
+        if (locksByRequestId.size > 0) {
+          console.log('🔄 Updating existing shift requests:', locksByRequestId.size, Array.from(locksByRequestId.keys()));
+          await Promise.all(
+            Array.from(locksByRequestId.entries()).map(async ([requestId, locks]) => {
+              try {
+                // Normalize all dates to ISO format (YYYY-MM-DD) before finding min/max
+                const normalizedLocks = locks.map((lock: any) => {
+                  const isoFrom = parseDateToISO(lock.from_date);
+                  const isoTo = parseDateToISO(lock.to_date);
+                  return {
+                    ...lock,
+                    from_date: isoFrom || lock.from_date,
+                    to_date: isoTo || lock.to_date,
+                  };
+                });
+                
+                // CRITICAL: All locks with the same request_id came from the same original request
+                // When user edits a range's dates, we should use the range's from_date and to_date directly
+                // NOT recalculate from expanded individual days
+                
+                // Strategy: If we have a range (from_date != to_date), use it directly
+                // Otherwise, if all items are single days, find min/max
+                const hasRange = normalizedLocks.some((lock: any) => lock.from_date !== lock.to_date);
+                
+                let minFromDate: string;
+                let maxToDate: string;
+                
+                if (hasRange) {
+                  // We have at least one range - find the range with the widest span
+                  // This handles the case where user edited a range's dates
+                  let widestRange = normalizedLocks[0];
+                  let widestSpan = 0;
+                  
+                  normalizedLocks.forEach((lock: any) => {
+                    const fromDate = new Date(lock.from_date);
+                    const toDate = new Date(lock.to_date);
+                    const span = toDate.getTime() - fromDate.getTime();
+                    if (span > widestSpan) {
+                      widestSpan = span;
+                      widestRange = lock;
+                    }
+                  });
+                  
+                  minFromDate = widestRange.from_date;
+                  maxToDate = widestRange.to_date;
+                  console.log(`📅 Using range dates directly (user edited): ${minFromDate} to ${maxToDate}`);
+                } else {
+                  // All items are single days - find min/max across all days
+                  const fromDates = normalizedLocks.map((lock: any) => lock.from_date).filter(Boolean).sort();
+                  const toDates = normalizedLocks.map((lock: any) => lock.to_date).filter(Boolean).sort();
+                  
+                  if (fromDates.length === 0 || toDates.length === 0) {
+                    throw new Error(`Invalid dates for request ${requestId}: fromDates=${fromDates.length}, toDates=${toDates.length}`);
+                  }
+                  
+                  minFromDate = fromDates[0];
+                  maxToDate = toDates[toDates.length - 1];
+                  console.log(`📅 Calculated min/max dates from ${normalizedLocks.length} single-day items: ${minFromDate} to ${maxToDate}`);
+                }
+                
+                // Validate: from_date must be <= to_date
+                if (minFromDate > maxToDate) {
+                  throw new Error(`Invalid date range for request ${requestId}: from_date (${minFromDate}) cannot be after to_date (${maxToDate})`);
+                }
+                
+                const firstLock = normalizedLocks[0];
+                
+                console.log(`📝 Updating shift request ${requestId}:`, {
+                  from_date: minFromDate,
+                  to_date: maxToDate,
+                  shift: firstLock.shift,
+                  force: firstLock.force,
+                  employee: firstLock.employee,
+                });
+                
+                await requestsAPI.updateShiftRequest(requestId, {
+                  from_date: minFromDate,
+                  to_date: maxToDate,
+                  shift: firstLock.shift,
+                  request_type: firstLock.force ? 'Force (Must)' : 'Forbid (Cannot)',
+                  reason: firstLock.reason || 'Added via Roster Generator',
+                  employee: firstLock.employee, // Include employee so backend can update user_id if changed
+                });
+                
+                console.log(`✅ Successfully updated shift request ${requestId}`);
+              } catch (error: any) {
+                console.error(`❌ Failed to update shift request ${requestId}:`, error);
+                console.error('Error details:', error.response?.data);
+                // If update fails, add locks to create list as fallback (but remove request_id)
+                locks.forEach((lock: any) => {
+                  const { request_id, ...cleanLock } = lock;
+                  locksToCreate.push(cleanLock);
+                });
+              }
+            })
+          );
+        }
+        
+        // Create new locks via updateLocks (which handles creation)
+        // IMPORTANT: Remove request_id from items going to create endpoint (backend will assign new ones)
+        const locksToCreateClean = locksToCreate.map((lock: any) => {
+          const { request_id, ...cleanLock } = lock;
+          return cleanLock;
+        });
+        
+        if (locksToCreateClean.length > 0) {
+          console.log('Creating new shift requests:', locksToCreateClean.length);
+          await dataAPI.updateLocks(locksToCreateClean);
+        }
+        
         setSaveNotification({ message: '✅ Shift requests saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
-        // Reload roster data to get the updated data from database
+        
+        // Reload data to get updated request_ids - CRITICAL for future edits
+        console.log('🔄 Reloading roster data to get new request_ids...');
         await loadRosterData();
-        console.log('Reloaded roster data from database after saving locks');
+        await loadAllShiftRequests();
+        console.log('✅ Roster data reloaded, request_ids should now be available');
       } catch (error: any) {
         console.error('Failed to save shift requests:', error);
         setSaveNotification({
@@ -400,6 +746,8 @@ export const RosterGenerator: React.FC = () => {
           type: 'error',
         });
         setTimeout(() => setSaveNotification(null), 4000);
+        // Reload on error to get correct state from server
+        await loadRosterData();
       }
     }, 800);
   };
@@ -743,12 +1091,22 @@ export const RosterGenerator: React.FC = () => {
         
         let currentDate = new Date(fromDate);
         while (currentDate <= toDate) {
-          days.push({
+          const dayEntry: any = {
             employee: range.employee,
             code: range.code,
             from_date: currentDate.toISOString().split('T')[0],
             to_date: currentDate.toISOString().split('T')[0],
-          });
+          };
+          
+          // Preserve request_id and reason if they exist in the range
+          if (range.request_id) {
+            dayEntry.request_id = range.request_id;
+          }
+          if (range.reason) {
+            dayEntry.reason = range.reason;
+          }
+          
+          days.push(dayEntry);
           const nextDate = new Date(currentDate);
           nextDate.setDate(nextDate.getDate() + 1);
           currentDate = nextDate;
@@ -948,7 +1306,7 @@ export const RosterGenerator: React.FC = () => {
                       { key: 'skill_M4', label: 'M4', type: 'checkbox' },
                       { key: 'skill_H', label: 'Harat', type: 'checkbox' },
                       { key: 'skill_CL', label: 'Clinic', type: 'checkbox' },
-                      { key: 'pending_off', label: 'Pending Off', type: 'number', min: 0, max: 50 },
+                      { key: 'pending_off', label: 'Pending Off', type: 'number', min: -50, max: 50 },
                     ]}
                     onDataChange={handleEmployeesChange}
                     onDeleteRow={async (index) => {
@@ -1037,10 +1395,33 @@ export const RosterGenerator: React.FC = () => {
                   const filteredTimeOff = (rosterData?.time_off || []).filter((item: any) => 
                     leaveTypes.some(lt => lt.code === item.code)
                   );
+                  
+                  // Log entries without request_ids
+                  const entriesWithoutIds = filteredTimeOff.filter((item: any) => !item.request_id);
+                  if (entriesWithoutIds.length > 0) {
+                    console.warn(`⚠️ Found ${entriesWithoutIds.length} leave entries without request_id:`, entriesWithoutIds);
+                  }
+                  
                   // Get month data
                   const monthData = getMonthData(filteredTimeOff, 'from_date');
                   // Group consecutive days into ranges
-                  return groupTimeOffIntoRanges(monthData);
+                  const grouped = groupTimeOffIntoRanges(monthData);
+                  
+                  // Log grouped ranges
+                  const rangesWithIds = grouped.filter((r: any) => r.request_id);
+                  console.log(`📋 Leave ranges: ${rangesWithIds.length}/${grouped.length} have request_id`);
+                  
+                  // Preserve original values for matching during edits
+                  return grouped.map((range: any) => ({
+                    ...range,
+                    _originalRequestId: range.request_id,
+                    _originalRequestIds: range.request_ids || (range.request_id ? [range.request_id] : []),
+                    _originalFromDate: range.from_date,
+                    _originalToDate: range.to_date,
+                    _originalCode: range.code,
+                    _originalEmployee: range.employee,
+                    _originalReason: range.reason, // Also preserve reason
+                  }));
                 })()}
                   columns={[
                   { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
@@ -1049,8 +1430,194 @@ export const RosterGenerator: React.FC = () => {
                   { key: 'code', label: 'Code', type: 'select', options: leaveTypes.map(lt => lt.code) },
                   ]}
                   onDataChange={(groupedData) => {
+                    console.log('🔄 onDataChange called with groupedData:', groupedData.length, 'ranges');
+                    console.log('📋 First few ranges:', groupedData.slice(0, 3).map((r: any) => ({
+                      employee: r.employee,
+                      code: r.code,
+                      from_date: r.from_date,
+                      to_date: r.to_date,
+                      request_id: r.request_id,
+                    })));
+                    
+                    // Get original time_off data to match and preserve request_ids
+                    const filteredTimeOff = (rosterData?.time_off || []).filter((item: any) => 
+                      leaveTypes.some(lt => lt.code === item.code)
+                    );
+                    const monthData = getMonthData(filteredTimeOff, 'from_date');
+                    const originalGrouped = groupTimeOffIntoRanges(monthData);
+                    
+                    // Create a map of original ranges by their unique key for faster lookup
+                    const originalMap = new Map<string, any>();
+                    originalGrouped.forEach((orig: any, idx: number) => {
+                      // Use multiple keys for matching: by index, by original values, and by request_id
+                      if (orig.request_id) {
+                        originalMap.set(`req_${orig.request_id}`, orig);
+                      }
+                      originalMap.set(`idx_${idx}`, orig);
+                      const origFrom = parseDateToISO(orig.from_date);
+                      const origTo = parseDateToISO(orig.to_date);
+                      if (origFrom && origTo) {
+                        originalMap.set(`key_${orig.employee}_${orig.code}_${origFrom}_${origTo}`, orig);
+                      }
+                    });
+                    
+                    // Normalize dates in groupedData to YYYY-MM-DD format
+                    console.log('🔍 Processing groupedData, normalizing dates...');
+                    const normalizedGroupedData = groupedData.map((item: any, index: number) => {
+                      const isoFromDate = parseDateToISO(item.from_date);
+                      const isoToDate = parseDateToISO(item.to_date);
+                      
+                      // Log if dates changed during normalization
+                      if (item.from_date !== isoFromDate || item.to_date !== isoToDate) {
+                        console.log(`📅 Date normalization for range ${index}:`, {
+                          original_from: item.from_date,
+                          normalized_from: isoFromDate,
+                          original_to: item.to_date,
+                          normalized_to: isoToDate,
+                        });
+                      }
+                      
+                      // Try multiple matching strategies
+                      let matchingRange: any = null;
+                      
+                      // Strategy 1: Match by request_id (if we have _originalRequestId) - highest priority
+                      if (item._originalRequestId) {
+                        matchingRange = originalMap.get(`req_${item._originalRequestId}`);
+                        if (matchingRange) {
+                          console.log(`✅ Matched leave request by request_id: ${item._originalRequestId}`, matchingRange);
+                        }
+                      }
+                      
+                      // Strategy 2: Match by index (if row order hasn't changed)
+                      if (!matchingRange) {
+                        matchingRange = originalMap.get(`idx_${index}`);
+                        if (matchingRange && 
+                            matchingRange.employee === item.employee &&
+                            matchingRange.code === item.code) {
+                          console.log(`✅ Matched leave request by index: ${index}`, matchingRange);
+                        } else {
+                          matchingRange = null;
+                        }
+                      }
+                      
+                      // Strategy 3: Match by original values (employee, code, original dates)
+                      if (!matchingRange && item._originalEmployee && item._originalCode && item._originalFromDate) {
+                        const origFrom = parseDateToISO(item._originalFromDate);
+                        const origTo = parseDateToISO(item._originalToDate || item._originalFromDate);
+                        if (origFrom && origTo) {
+                          matchingRange = originalMap.get(`key_${item._originalEmployee}_${item._originalCode}_${origFrom}_${origTo}`);
+                          if (matchingRange) {
+                            console.log(`✅ Matched leave request by original values: ${item._originalEmployee}, ${item._originalCode}`, matchingRange);
+                          }
+                        }
+                      }
+                      
+                      // Strategy 4: Match by current values (in case it's a new entry that matches an existing one)
+                      if (!matchingRange && isoFromDate && isoToDate) {
+                        matchingRange = originalMap.get(`key_${item.employee}_${item.code}_${isoFromDate}_${isoToDate}`);
+                        if (matchingRange) {
+                          console.log(`✅ Matched leave request by current values: ${item.employee}, ${item.code}`, matchingRange);
+                        }
+                      }
+                      
+                      // CRITICAL: If we have _originalRequestId, ALWAYS use it - this is the source of truth
+                      // Even if matching fails, we know this is an edit of an existing request
+                      const requestId = item._originalRequestId || matchingRange?.request_id;
+                      const requestIds = item._originalRequestIds || matchingRange?.request_ids || (requestId ? [requestId] : []);
+                      // Use reason from matching range if available, otherwise preserve original or default
+                      const reason = matchingRange?.reason || item._originalReason || item.reason || 'Added via Roster Generator';
+                      
+                      // If we have _originalRequestId but no requestId, that's a problem - log it
+                      if (item._originalRequestId && !requestId) {
+                        console.error(`❌ CRITICAL: Had _originalRequestId ${item._originalRequestId} but couldn't preserve it!`, {
+                          employee: item.employee,
+                          code: item.code,
+                          from_date: isoFromDate,
+                          to_date: isoToDate,
+                          _originalRequestId: item._originalRequestId,
+                          matchingRange: matchingRange,
+                        });
+                        // Force use the original request_id even if matching failed
+                        const forcedRequestId = item._originalRequestId;
+                        console.log(`🔧 Forcing request_id to ${forcedRequestId} based on _originalRequestId`);
+                        return {
+                          ...item,
+                          from_date: isoFromDate || item.from_date,
+                          to_date: isoToDate || item.to_date,
+                          request_id: forcedRequestId,
+                          request_ids: item._originalRequestIds || [forcedRequestId],
+                          reason: reason,
+                          // Remove temporary fields
+                          _originalRequestId: undefined,
+                          _originalRequestIds: undefined,
+                          _originalFromDate: undefined,
+                          _originalToDate: undefined,
+                          _originalCode: undefined,
+                          _originalEmployee: undefined,
+                        };
+                      }
+                      
+                      if (!requestId) {
+                        console.warn(`⚠️ No request_id found for leave request (new entry?):`, {
+                          employee: item.employee,
+                          code: item.code,
+                          from_date: isoFromDate,
+                          to_date: isoToDate,
+                          _originalRequestId: item._originalRequestId,
+                          matchingRange: matchingRange,
+                        });
+                      } else {
+                        console.log(`📝 Preserving request_id for leave: ${requestId}`, {
+                          employee: item.employee,
+                          code: item.code,
+                          from_date: isoFromDate,
+                          to_date: isoToDate,
+                          hadOriginalRequestId: !!item._originalRequestId,
+                        });
+                      }
+                      
+                      const normalizedItem = {
+                        ...item,
+                        from_date: isoFromDate || item.from_date,
+                        to_date: isoToDate || item.to_date,
+                        request_id: requestId,
+                        request_ids: requestIds,
+                        reason: reason,
+                        // Remove temporary fields
+                        _originalRequestId: undefined,
+                        _originalRequestIds: undefined,
+                        _originalFromDate: undefined,
+                        _originalToDate: undefined,
+                        _originalCode: undefined,
+                        _originalEmployee: undefined,
+                      };
+                      
+                      // Log if this item has a request_id and dates
+                      if (requestId && (normalizedItem.from_date !== item._originalFromDate || normalizedItem.to_date !== item._originalToDate)) {
+                        console.log(`✏️ Range ${index} dates changed:`, {
+                          request_id: requestId,
+                          old_from: item._originalFromDate,
+                          new_from: normalizedItem.from_date,
+                          old_to: item._originalToDate,
+                          new_to: normalizedItem.to_date,
+                        });
+                      }
+                      
+                      return normalizedItem;
+                    });
+                    
+                    console.log('📦 Normalized grouped data:', normalizedGroupedData.length, 'ranges');
+                    console.log('📅 Sample normalized ranges:', normalizedGroupedData.slice(0, 3).map((r: any) => ({
+                      employee: r.employee,
+                      code: r.code,
+                      from_date: r.from_date,
+                      to_date: r.to_date,
+                      request_id: r.request_id,
+                    })));
+                    
                     // Expand grouped ranges back to individual days
-                    const expandedDays = expandRangesToDays(groupedData);
+                    const expandedDays = expandRangesToDays(normalizedGroupedData);
+                    console.log('📆 Expanded to', expandedDays.length, 'individual days');
                     
                     // Get all time_off data (including shift codes for solver)
                     const allTimeOff = rosterData?.time_off || [];
@@ -1063,7 +1630,12 @@ export const RosterGenerator: React.FC = () => {
                         return true;
                       }
                       // For leave types, check if they're in the selected month
-                      const itemDate = new Date(item.from_date);
+                      const itemDateStr = parseDateToISO(item.from_date);
+                      const itemDate = new Date(itemDateStr);
+                      if (isNaN(itemDate.getTime())) {
+                        // Invalid date, keep it (might be in different format)
+                        return true;
+                      }
                       const inMonth = itemDate.getFullYear() === selectedYear && 
                                      itemDate.getMonth() + 1 === selectedMonth;
                       // Remove leave types that are in this month (we'll replace them with expandedDays)
@@ -1359,12 +1931,31 @@ export const RosterGenerator: React.FC = () => {
                 />
               )}
                 <EditableTable
-                data={getMonthData(rosterData?.locks || [], 'from_date')
-                  .filter((lock: any) => lock.shift !== 'DO' && lock.shift !== 'O') // Filter out DO and O from shift requests
-                  .map((lock: any) => ({
+                data={(() => {
+                  const monthData = getMonthData(rosterData?.locks || [], 'from_date')
+                    .filter((lock: any) => lock.shift !== 'DO' && lock.shift !== 'O'); // Filter out DO and O from shift requests
+                  
+                  // Log entries without request_ids
+                  const locksWithoutIds = monthData.filter((lock: any) => !lock.request_id);
+                  if (locksWithoutIds.length > 0) {
+                    console.warn(`⚠️ Found ${locksWithoutIds.length} shift entries without request_id:`, locksWithoutIds);
+                  }
+                  
+                  console.log(`📋 Shift locks: ${monthData.filter((l: any) => l.request_id).length}/${monthData.length} have request_id`);
+                  
+                  return monthData.map((lock: any) => ({
                     ...lock,
                     force: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
-                  }))}
+                    // Preserve original values for matching during edits (even when dates/shift change)
+                    _originalRequestId: lock.request_id,
+                    _originalReason: lock.reason,
+                    _originalShift: lock.shift,
+                    _originalForce: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
+                    _originalFromDate: lock.from_date,
+                    _originalToDate: lock.to_date,
+                    _originalEmployee: lock.employee,
+                  }));
+                })()}
                   columns={[
                   { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
@@ -1373,10 +1964,146 @@ export const RosterGenerator: React.FC = () => {
                     { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
                   ]}
                   onDataChange={(newData) => {
-                    const converted = newData.map((item: any) => ({
-                      ...item,
-                      force: item.force === 'Force (Must)',
-                    }));
+                    console.log('🔄 onDataChange called for locks with', newData.length, 'items');
+                    console.log('📋 First few locks:', newData.slice(0, 3).map((l: any) => ({
+                      employee: l.employee,
+                      shift: l.shift,
+                      from_date: l.from_date,
+                      to_date: l.to_date,
+                      request_id: l.request_id,
+                    })));
+                    
+                    // Get original locks data to match and preserve request_id
+                    const originalLocks = getMonthData(rosterData?.locks || [], 'from_date')
+                      .filter((lock: any) => lock.shift !== 'DO' && lock.shift !== 'O');
+                    
+                    // Create a map for faster lookup
+                    const originalMap = new Map<string, any>();
+                    originalLocks.forEach((orig: any, idx: number) => {
+                      if (orig.request_id) {
+                        originalMap.set(`req_${orig.request_id}`, orig);
+                      }
+                      originalMap.set(`idx_${idx}`, orig);
+                      const origFrom = parseDateToISO(orig.from_date);
+                      const origTo = parseDateToISO(orig.to_date);
+                      if (origFrom && origTo) {
+                        originalMap.set(`key_${orig.employee}_${orig.shift}_${origFrom}_${origTo}`, orig);
+                      }
+                    });
+                    
+                    // Normalize dates and convert force field, preserving request_id
+                    const converted = newData.map((item: any, index: number) => {
+                      const isoFromDate = parseDateToISO(item.from_date);
+                      const isoToDate = parseDateToISO(item.to_date);
+                      
+                      // Try multiple matching strategies
+                      let matchingLock: any = null;
+                      
+                      // Strategy 1: Match by request_id (if we have _originalRequestId) - highest priority
+                      if (item._originalRequestId) {
+                        matchingLock = originalMap.get(`req_${item._originalRequestId}`);
+                        if (matchingLock) {
+                          console.log(`✅ Matched shift request by request_id: ${item._originalRequestId}`, matchingLock);
+                        }
+                      }
+                      
+                      // Strategy 2: Match by index (if row order hasn't changed)
+                      if (!matchingLock) {
+                        matchingLock = originalMap.get(`idx_${index}`);
+                        if (matchingLock && 
+                            matchingLock.employee === item.employee &&
+                            matchingLock.shift === item.shift) {
+                          console.log(`✅ Matched shift request by index: ${index}`, matchingLock);
+                        } else {
+                          matchingLock = null;
+                        }
+                      }
+                      
+                      // Strategy 3: Match by original values (employee, shift, original dates)
+                      if (!matchingLock && item._originalEmployee && item._originalShift && item._originalFromDate) {
+                        const origFrom = parseDateToISO(item._originalFromDate);
+                        const origTo = parseDateToISO(item._originalToDate || item._originalFromDate);
+                        if (origFrom && origTo) {
+                          matchingLock = originalMap.get(`key_${item._originalEmployee}_${item._originalShift}_${origFrom}_${origTo}`);
+                          if (matchingLock) {
+                            console.log(`✅ Matched shift request by original values: ${item._originalEmployee}, ${item._originalShift}`, matchingLock);
+                          }
+                        }
+                      }
+                      
+                      // Strategy 4: Match by current values
+                      if (!matchingLock && isoFromDate && isoToDate) {
+                        matchingLock = originalMap.get(`key_${item.employee}_${item.shift}_${isoFromDate}_${isoToDate}`);
+                        if (matchingLock) {
+                          console.log(`✅ Matched shift request by current values: ${item.employee}, ${item.shift}`, matchingLock);
+                        }
+                      }
+                      
+                      // CRITICAL: If we have _originalRequestId, ALWAYS use it - this is the source of truth
+                      // Even if matching fails, we know this is an edit of an existing request
+                      const requestId = item._originalRequestId || matchingLock?.request_id;
+                      const reason = item._originalReason || matchingLock?.reason || 'Added via Roster Generator';
+                      
+                      // If we have _originalRequestId but no requestId, that's a problem - log it and force it
+                      if (item._originalRequestId && !requestId) {
+                        console.error(`❌ CRITICAL: Had _originalRequestId ${item._originalRequestId} but couldn't preserve it!`, {
+                          employee: item.employee,
+                          shift: item.shift,
+                          from_date: isoFromDate,
+                          to_date: isoToDate,
+                          _originalRequestId: item._originalRequestId,
+                          matchingLock: matchingLock,
+                        });
+                        // Force use the original request_id even if matching failed
+                        const forcedRequestId = item._originalRequestId;
+                        console.log(`🔧 Forcing request_id to ${forcedRequestId} based on _originalRequestId`);
+                        return {
+                          employee: item.employee,
+                          from_date: isoFromDate || item.from_date,
+                          to_date: isoToDate || item.to_date,
+                          shift: item.shift,
+                          force: item.force === 'Force (Must)',
+                          reason: reason,
+                          request_id: forcedRequestId,
+                        };
+                      }
+                      
+                      if (!requestId) {
+                        console.warn(`⚠️ No request_id found for shift request (new entry?):`, {
+                          employee: item.employee,
+                          shift: item.shift,
+                          from_date: isoFromDate,
+                          to_date: isoToDate,
+                          _originalRequestId: item._originalRequestId,
+                          matchingLock: matchingLock,
+                        });
+                      } else {
+                        console.log(`📝 Preserving request_id for shift: ${requestId}`, {
+                          employee: item.employee,
+                          shift: item.shift,
+                          from_date: isoFromDate,
+                          to_date: isoToDate,
+                          hadOriginalRequestId: !!item._originalRequestId,
+                        });
+                      }
+                      
+                      // Clean up the converted item
+                      const cleanedItem: any = {
+                        employee: item.employee,
+                        from_date: isoFromDate || item.from_date,
+                        to_date: isoToDate || item.to_date,
+                        shift: item.shift,
+                        force: item.force === 'Force (Must)',
+                        reason: reason,
+                      };
+                      
+                      // Only include request_id if it exists (for updates)
+                      if (requestId) {
+                        cleanedItem.request_id = requestId;
+                      }
+                      
+                      return cleanedItem;
+                    });
                     handleLocksChange(converted);
                   }}
                   onDeleteRow={async (index) => {
@@ -1587,17 +2314,16 @@ const AddTimeOffForm: React.FC<{
         <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="px-3 py-2 border rounded">
           {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
         </select>
-        <input 
-          type="date" 
-          value={fromDate} 
-          onChange={(e) => setFromDate(e.target.value)} 
-          className="px-3 py-2 border rounded" 
+        <CalendarDatePicker
+          value={fromDate}
+          onChange={setFromDate}
+          className="px-3 py-2"
         />
-        <input 
-          type="date" 
-          value={toDate} 
-          onChange={(e) => setToDate(e.target.value)} 
-          className="px-3 py-2 border rounded" 
+        <CalendarDatePicker
+          value={toDate}
+          onChange={setToDate}
+          className="px-3 py-2"
+          min={fromDate || undefined}
         />
         <select value={code} onChange={(e) => setCode(e.target.value)} className="px-3 py-2 border rounded">
           {leaveTypes.map(lt => (
@@ -1655,17 +2381,16 @@ const AddLockForm: React.FC<{
         <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="px-3 py-2 border rounded">
           {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
         </select>
-        <input 
-          type="date" 
-          value={fromDate} 
-          onChange={(e) => setFromDate(e.target.value)} 
-          className="px-3 py-2 border rounded" 
+        <CalendarDatePicker
+          value={fromDate}
+          onChange={setFromDate}
+          className="px-3 py-2"
         />
-        <input 
-          type="date" 
-          value={toDate} 
-          onChange={(e) => setToDate(e.target.value)} 
-          className="px-3 py-2 border rounded" 
+        <CalendarDatePicker
+          value={toDate}
+          onChange={setToDate}
+          className="px-3 py-2"
+          min={fromDate || undefined}
         />
         <select value={shift} onChange={(e) => setShift(e.target.value)} className="px-3 py-2 border rounded">
           {availableShiftTypes.length > 0 ? availableShiftTypes.map(st => <option key={st.code} value={st.code}>{st.code}</option>) : <option>Loading...</option>}

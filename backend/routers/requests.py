@@ -33,6 +33,7 @@ class LeaveRequest(BaseModel):
     to_date: str
     leave_type: str
     reason: Optional[str] = None
+    employee: Optional[str] = None  # Optional: for managers updating "Added via Roster Generator" requests
 
 
 class ShiftRequest(BaseModel):
@@ -41,6 +42,7 @@ class ShiftRequest(BaseModel):
     shift: str
     request_type: str  # "Force (Must)" or "Forbid (Cannot)"
     reason: Optional[str] = None
+    employee: Optional[str] = None  # Optional: for managers updating "Added via Roster Generator" requests
 
 
 # Helper functions to convert database models to JSON-compatible format
@@ -208,7 +210,12 @@ async def update_leave_request(
     if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
         raise HTTPException(status_code=403, detail="Not authorized to modify this request")
 
-    if req.status != RequestStatus.PENDING:
+    # Allow managers to update "Added via Roster Generator" requests even if they're approved
+    # Regular employee requests can only be updated while pending
+    is_manager = current_user['employee_type'] == 'Manager'
+    is_roster_generator_request = req.reason == 'Added via Roster Generator'
+    
+    if req.status != RequestStatus.PENDING and not (is_manager and is_roster_generator_request):
         raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
 
     # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
@@ -254,14 +261,22 @@ async def update_leave_request(
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
     # Update leave type if changed
-    if update.leave_type != req.leave_type.code:
-        leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
-        if not leave_type:
-            raise HTTPException(status_code=400, detail=f"Leave type '{update.leave_type}' not found")
-        req.leave_type_id = leave_type.id
-    
+    leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
+    if not leave_type:
+        raise HTTPException(status_code=400, detail=f"Leave type '{update.leave_type}' not found")
+
+    # Update employee/user if provided and user is a manager (for "Added via Roster Generator" requests)
+    is_manager = current_user['employee_type'] == 'Manager'
+    is_roster_generator_request = req.reason == 'Added via Roster Generator'
+    if is_manager and is_roster_generator_request and update.employee:
+        new_user = db.query(User).filter(User.employee_name == update.employee).first()
+        if not new_user:
+            raise HTTPException(status_code=400, detail=f"Employee '{update.employee}' not found")
+        req.user_id = new_user.id
+
     req.from_date = from_date
     req.to_date = to_date
+    req.leave_type_id = leave_type.id
     req.reason = update.reason or ''
     db.commit()
     db.refresh(req)
@@ -426,7 +441,12 @@ async def update_shift_request(
     if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
         raise HTTPException(status_code=403, detail="Not authorized to modify this request")
 
-    if req.status != RequestStatus.PENDING:
+    # Allow managers to update "Added via Roster Generator" requests even if they're approved
+    # Regular employee requests can only be updated while pending
+    is_manager = current_user['employee_type'] == 'Manager'
+    is_roster_generator_request = req.reason == 'Added via Roster Generator'
+    
+    if req.status != RequestStatus.PENDING and not (is_manager and is_roster_generator_request):
         raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
 
     # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
@@ -478,6 +498,13 @@ async def update_shift_request(
     if not shift_type:
         raise HTTPException(status_code=400, detail=f"Shift type '{update.shift}' not found")
 
+    # Update employee/user if provided and user is a manager (for "Added via Roster Generator" requests)
+    if is_manager and is_roster_generator_request and hasattr(update, 'employee') and update.employee:
+        new_user = db.query(User).filter(User.employee_name == update.employee).first()
+        if not new_user:
+            raise HTTPException(status_code=400, detail=f"Employee '{update.employee}' not found")
+        req.user_id = new_user.id
+    
     req.from_date = from_date
     req.to_date = to_date
     req.shift_type_id = shift_type.id

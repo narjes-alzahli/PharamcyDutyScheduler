@@ -247,11 +247,13 @@ export const dataAPI = {
     const response = await api.get('/api/data/roster-data');
     return response.data;
   },
-  updateTimeOff: async (timeOff: TimeOffEntry[]): Promise<void> => {
-    await api.put('/api/data/time-off', timeOff);
+  updateTimeOff: async (timeOff: TimeOffEntry[]): Promise<any> => {
+    const response = await api.put('/api/data/time-off', timeOff);
+    return response.data; // Returns {message, created, created_leave_requests, created_shift_requests}
   },
-  updateLocks: async (locks: LockEntry[]): Promise<void> => {
-    await api.put('/api/data/locks', locks);
+  updateLocks: async (locks: LockEntry[]): Promise<any> => {
+    const response = await api.put('/api/data/locks', locks);
+    return response.data; // Returns {message, created, created_requests}
   },
 };
 
@@ -334,6 +336,7 @@ export interface LeaveRequest {
   to_date: string;
   leave_type: string;
   reason?: string;
+  employee?: string; // Optional: for managers updating "Added via Roster Generator" requests
 }
 
 export interface ShiftRequest {
@@ -342,6 +345,7 @@ export interface ShiftRequest {
   shift: string;
   request_type: string;
   reason?: string;
+  employee?: string; // Optional: for managers updating "Added via Roster Generator" requests
 }
 
 export const requestsAPI = {
@@ -362,8 +366,9 @@ export const requestsAPI = {
       throw error;
     }
   },
-  createLeaveRequest: async (request: LeaveRequest): Promise<void> => {
-    await api.post('/api/requests/leave', request);
+  createLeaveRequest: async (request: LeaveRequest): Promise<any> => {
+    const response = await api.post('/api/requests/leave', request);
+    return response.data; // Returns {message, request: {request_id, ...}}
   },
   updateLeaveRequest: async (requestId: string, request: LeaveRequest): Promise<void> => {
     await api.put(`/api/requests/leave/${requestId}`, request);
@@ -396,8 +401,9 @@ export const requestsAPI = {
       throw error;
     }
   },
-  createShiftRequest: async (request: ShiftRequest): Promise<void> => {
-    await api.post('/api/requests/shift', request);
+  createShiftRequest: async (request: ShiftRequest): Promise<any> => {
+    const response = await api.post('/api/requests/shift', request);
+    return response.data; // Returns {message, request: {request_id, ...}}
   },
   updateShiftRequest: async (requestId: string, request: ShiftRequest): Promise<void> => {
     await api.put(`/api/requests/shift/${requestId}`, request);

@@ -77,12 +77,28 @@ const generateCalendarMatrix = (baseDate: Date): CalendarDay[][] => {
 const getStatusBadgeClass = (status: string) => {
   switch (status) {
     case 'Approved':
-      return 'bg-green-50 text-green-700 border border-green-200';
+      return 'bg-green-100 text-gray-900 border border-green-300';
     case 'Rejected':
-      return 'bg-red-50 text-red-700 border border-red-200';
+      return 'bg-red-100 text-gray-900 border border-red-300';
     default:
-      return 'bg-amber-50 text-amber-700 border border-amber-200';
+      return 'bg-yellow-100 text-gray-900 border border-yellow-300';
   }
+};
+
+// Helper function to parse YYYY-MM-DD dates as local dates (avoid timezone issues)
+const parseLocalDate = (dateStr: string): Date => {
+  if (!dateStr) {
+    return new Date(NaN);
+  }
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) {
+    return new Date(NaN);
+  }
+  const [year, month, day] = parts.map(Number);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) {
+    return new Date(NaN);
+  }
+  return new Date(year, month - 1, day);
 };
 
 const buildCalendarEntries = (requests: any[], type: 'Leave' | 'Shift'): CalendarEntry[] => {
@@ -93,16 +109,52 @@ const buildCalendarEntries = (requests: any[], type: 'Leave' | 'Shift'): Calenda
   });
 
   const entries: CalendarEntry[] = [];
+  
+  // Debug: log total requests being processed
+  console.log(`Building calendar entries for ${type}: ${sortedRequests.length} total requests`);
 
   sortedRequests.forEach((req) => {
     if (!req?.from_date) {
+      console.warn(`Missing from_date in request ${req.request_id}`, req);
       return;
     }
 
-    const startDate = new Date(req.from_date);
-    const endDate = new Date(req.to_date || req.from_date);
+    const startDate = parseLocalDate(req.from_date);
+    const endDate = parseLocalDate(req.to_date || req.from_date);
 
     if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      console.warn(`Invalid date in request ${req.request_id}: from_date=${req.from_date}, to_date=${req.to_date}`);
+      return;
+    }
+    
+    // Debug: log each request being processed
+    console.log(`Processing ${type} request:`, {
+      request_id: req.request_id,
+      employee: req.employee,
+      from_date: req.from_date,
+      to_date: req.to_date,
+      parsed_start: startDate.toISOString().split('T')[0],
+      parsed_end: endDate.toISOString().split('T')[0],
+    });
+
+    // Ensure endDate is not before startDate
+    if (endDate < startDate) {
+      console.warn(`End date before start date in request ${req.request_id}: from_date=${req.from_date}, to_date=${req.to_date}`);
+      // Use startDate as endDate if endDate is invalid
+      const correctedEndDate = startDate;
+      const entry: CalendarEntry = {
+        requestId: req.request_id,
+        employee: req.employee || 'Unknown',
+        status: req.status || 'Pending',
+        submittedAt: req.submitted_at,
+        primaryLabel: type === 'Leave' ? req.leave_type : req.shift,
+        secondaryLabel: type === 'Leave' ? undefined : req.force ? 'Must' : 'Cannot',
+        requestType: type,
+        startDate,
+        endDate: correctedEndDate,
+        raw: req,
+      };
+      entries.push(entry);
       return;
     }
 
@@ -122,6 +174,9 @@ const buildCalendarEntries = (requests: any[], type: 'Leave' | 'Shift'): Calenda
     entries.push(entry);
   });
 
+  // Debug: log how many entries were created
+  console.log(`Created ${entries.length} calendar entries for ${type} (from ${sortedRequests.length} requests)`);
+  
   return entries;
 };
 
@@ -188,9 +243,22 @@ const CalendarView: React.FC<{
         const entryStart = startOfDay(entry.startDate);
         const entryEnd = startOfDay(entry.endDate);
 
+        // Show entries that overlap with this week (even if they start before or end after)
+        // This ensures all requests are visible in the schedule view
+        // Overlap check: entry overlaps if entryStart <= weekEnd AND entryEnd >= weekStart
         if (entryEnd < weekStart || entryStart > weekEnd) {
-          return;
+          return; // No overlap with this week
         }
+        
+        // Debug: log entries being processed for this week
+        console.log(`Entry overlaps with week:`, {
+          employee: entry.employee,
+          requestType: entry.requestType,
+          entryStart: entryStart.toISOString().split('T')[0],
+          entryEnd: entryEnd.toISOString().split('T')[0],
+          weekStart: weekStart.toISOString().split('T')[0],
+          weekEnd: weekEnd.toISOString().split('T')[0],
+        });
 
         const segmentStart = entryStart < weekStart ? weekStart : entryStart;
         const segmentEnd = entryEnd > weekEnd ? weekEnd : entryEnd;
@@ -234,13 +302,19 @@ const CalendarView: React.FC<{
         }
         occupancy[rowIndex] = endCol;
 
+        // Determine if this segment is the actual start/end of the entry
+        // isSegmentStart: true if this segment starts at the entry's actual start date
+        // isSegmentEnd: true if this segment ends at the entry's actual end date
+        const isActualStart = segmentStart.getTime() === entryStart.getTime();
+        const isActualEnd = segmentEnd.getTime() === entryEnd.getTime();
+        
         segments.push({
           entry,
           colStart: startCol,
           colSpan: endCol - startCol + 1,
           row: rowIndex,
-          isSegmentStart: segmentStart.getTime() === entryStart.getTime(),
-          isSegmentEnd: segmentEnd.getTime() === entryEnd.getTime(),
+          isSegmentStart: isActualStart,
+          isSegmentEnd: isActualEnd,
         });
         }
       });
@@ -256,27 +330,27 @@ const CalendarView: React.FC<{
   });
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white">
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+    <div className="rounded-lg border border-gray-300 bg-white shadow">
+      <div className="flex items-center justify-between border-b border-gray-300 bg-gray-50 px-4 py-3">
         <button
           type="button"
           onClick={onPrev}
-          className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
         >
           ← Prev
         </button>
-        <div className="text-sm font-semibold text-gray-900">{monthLabel}</div>
+        <div className="text-base font-semibold text-gray-900">{monthLabel}</div>
         <button
           type="button"
           onClick={onNext}
-          className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
         >
           Next →
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-px bg-gray-200 text-xs font-semibold uppercase tracking-wide text-gray-600">
+      <div className="grid grid-cols-7 border-b border-gray-300 bg-gray-50">
         {dayLabels.map((day) => (
-          <div key={day} className="bg-gray-50 px-2 py-2 text-center">
+          <div key={day} className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase tracking-wide border-r border-gray-300 last:border-r-0">
             {day}
           </div>
         ))}
@@ -285,21 +359,23 @@ const CalendarView: React.FC<{
         {calendarMatrix.map((week, idx) => {
           const { segments } = weekSegments[idx];
           return (
-            <div key={week[0].date.toISOString()} className="border-b border-gray-200 overflow-hidden">
-              <div className="grid grid-cols-7 border-t border-gray-200">
+            <div key={week[0].date.toISOString()} className="border-b border-gray-200 last:border-b-0">
+              <div className="grid grid-cols-7">
                 {week.map((day, colIdx) => {
                   const dateKey = formatDateKey(day.date);
                   const count = requestCounts.get(dateKey) || 0;
                   return (
                     <div
                       key={dateKey}
-                      className={`flex min-h-[84px] flex-col px-2 py-2 overflow-hidden ${
+                      className={`flex min-h-[70px] flex-col px-3 py-1.5 overflow-hidden ${
                         day.inCurrentMonth ? 'bg-white text-gray-900' : 'bg-gray-50 text-gray-400'
-                      } border-r border-gray-200 ${colIdx === 6 ? 'border-r-0' : ''}`}
+                      } border-r border-gray-200 last:border-r-0`}
                     >
-                      <div className="mb-1 text-xs font-semibold">{day.date.getDate()}</div>
+                      <div className={`mb-1 text-sm font-semibold ${day.inCurrentMonth ? 'text-gray-900' : 'text-gray-400'}`}>
+                        {day.date.getDate()}
+                      </div>
                       {count > 0 && (
-                        <span className="text-[11px] font-medium text-gray-500">
+                        <span className={`text-[11px] font-medium ${day.inCurrentMonth ? 'text-gray-600' : 'text-gray-400'}`}>
                           {count} request{count > 1 ? 's' : ''}
                         </span>
                       )}
@@ -308,12 +384,12 @@ const CalendarView: React.FC<{
                 })}
               </div>
               {segments.length > 0 && (
-                <div className="relative overflow-hidden">
+                <div className="relative overflow-hidden bg-white">
                   <div className="pointer-events-none absolute inset-0 z-30 grid grid-cols-7">
                     {week.map((_, colIdx) => (
                       <div
                         key={`divider-${week[0].date.toISOString()}-${colIdx}`}
-                        className={`border-r border-gray-200 ${colIdx === 6 ? 'border-r-0' : ''}`}
+                        className={`border-r border-gray-200 last:border-r-0`}
                       />
                     ))}
                   </div>
@@ -329,9 +405,17 @@ const CalendarView: React.FC<{
                     {segments.map(({ entry, colStart, colSpan, row, isSegmentStart, isSegmentEnd }) => {
                       const key = `${entry.requestType}-${entry.requestId}`;
                       const isSelected = selectedEntryId === key;
+                      // For single-day segments: only use rounded-full if it's both start AND end
+                      // If it continues to next week, use rounded left only (straight right edge)
                       const radiusClass =
                         colSpan === 1
-                          ? 'rounded-full'
+                          ? (isSegmentStart && isSegmentEnd)
+                            ? 'rounded-full'
+                            : isSegmentStart
+                            ? 'rounded-l-full'
+                            : isSegmentEnd
+                            ? 'rounded-r-full'
+                            : 'rounded-none'
                           : [
                               'rounded-none',
                               isSegmentStart ? 'rounded-l-full' : '',
@@ -359,22 +443,10 @@ const CalendarView: React.FC<{
                       const needsLeftFade = !isSegmentStart;
                       const needsRightFade = !isSegmentEnd;
 
-                      // Highlight uses same color as unhighlighted outline (amber-200) but thicker
-                      // amber-200 in RGB is rgb(253, 230, 138)
+                      // Selected state: use a subtle shadow and slightly darker border
                       if (isSelected) {
                         segmentStyle.zIndex = 50;
-                        if (isSegmentStart) {
-                          segmentStyle.borderLeft = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
-                        } else {
-                          segmentStyle.borderLeft = 'none';
-                        }
-                        if (isSegmentEnd) {
-                          segmentStyle.borderRight = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
-                        } else {
-                          segmentStyle.borderRight = 'none';
-                        }
-                        segmentStyle.borderTop = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
-                        segmentStyle.borderBottom = '3px solid rgb(253, 230, 138)'; // amber-200, thicker
+                        segmentStyle.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
                       } else {
                         if (!isSegmentStart) {
                           segmentStyle.borderLeft = 'none';
@@ -396,7 +468,7 @@ const CalendarView: React.FC<{
                               onSelectEntry(entry);
                             }
                           }}
-                          className={`flex flex-col gap-0.5 px-2 py-1 text-left text-[11px] font-semibold text-gray-900 shadow-sm transition ${
+                          className={`flex flex-col gap-0.5 px-2.5 py-1.5 text-center items-center justify-center text-sm font-semibold text-gray-900 transition-all overflow-hidden ${
                             getStatusBadgeClass(entry.status)
                           } ${radiusClass} ${
                             !isSegmentStart ? 'border-l-0' : ''
@@ -404,49 +476,53 @@ const CalendarView: React.FC<{
                             !isSegmentEnd ? 'border-r-0' : ''
                           } ${
                             isSelected
-                              ? ''
+                              ? entry.status === 'Pending'
+                                ? 'shadow-lg border-yellow-500 ring-2 ring-yellow-400'
+                                : entry.status === 'Approved'
+                                  ? 'shadow-lg border-green-500 ring-2 ring-green-400'
+                                  : 'shadow-lg border-red-500 ring-2 ring-red-400'
                               : selectedEntryId
                                 ? 'opacity-40'
-                                : ''
+                                : 'shadow-sm hover:shadow-md'
                           }`}
                           style={segmentStyle}
                           title={`${entry.employee} • ${entry.primaryLabel}${
                             entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''
                           } (${entry.requestType})`}
                         >
-                          {/* Fade overlays for segments that continue across week rows */}
+                          {/* Fade overlays for segments that continue across week rows - smoother gradient */}
                           {needsLeftFade && (
                             <div
-                              className="absolute inset-y-0 left-0 w-6 pointer-events-none z-10"
+                              className="absolute inset-y-0 left-0 w-8 pointer-events-none z-10"
                               style={{
-                                background: 'linear-gradient(to right, rgb(255, 255, 255) 0%, rgba(255, 255, 255, 0.8) 30%, transparent 100%)',
+                                background: 'linear-gradient(to right, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.6) 40%, rgba(255, 255, 255, 0.2) 70%, transparent 100%)',
                                 border: 'none',
                               }}
                             />
                           )}
                           {needsRightFade && (
                             <div
-                              className="absolute inset-y-0 right-0 w-6 pointer-events-none z-10"
+                              className="absolute inset-y-0 right-0 w-8 pointer-events-none z-10"
                               style={{
-                                background: 'linear-gradient(to left, rgb(255, 255, 255) 0%, rgba(255, 255, 255, 0.8) 30%, transparent 100%)',
+                                background: 'linear-gradient(to left, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.6) 40%, rgba(255, 255, 255, 0.2) 70%, transparent 100%)',
                                 border: 'none',
                               }}
                             />
                           )}
-                          <div className="flex items-center justify-between gap-1 relative z-0">
-                            <span className="text-xs font-semibold text-amber-900">
+                          <div className="flex items-center justify-center gap-1 relative z-0 min-h-[20px] w-full">
+                            <span className="text-sm font-semibold text-gray-900 leading-tight text-center">
                               {entry.employee}
                             </span>
                           </div>
-                          <div className="flex items-center justify-between gap-1 relative z-0">
-                            <span className="text-[10px] font-medium text-gray-600 capitalize truncate">
+                          <div className="flex items-center justify-between gap-1 relative z-0 w-full mt-0.5">
+                            <span className="text-xs font-medium text-gray-800 capitalize truncate text-center leading-tight flex-1">
                               {entry.requestType === 'Leave'
                                 ? entry.primaryLabel
                                 : `${entry.primaryLabel}${entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''}`}
                             </span>
                             {isSelected && entry.status === 'Pending' && (
                               <div
-                                className="flex gap-2"
+                                className="flex gap-1 flex-shrink-0 ml-1"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 {actions?.approve && (
@@ -457,11 +533,11 @@ const CalendarView: React.FC<{
                                       actions.approve?.(entry);
                                     }}
                                     disabled={processingRequestId === entry.requestId}
-                                    className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60"
+                                    className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
                                     title="Approve request"
                                     aria-label="Approve request"
                                   >
-                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
                                       <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                     </svg>
                                   </button>
@@ -474,11 +550,11 @@ const CalendarView: React.FC<{
                                       actions.reject?.(entry);
                                     }}
                                     disabled={processingRequestId === entry.requestId}
-                                    className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60"
+                                    className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
                                     title="Reject request"
                                     aria-label="Reject request"
                                   >
-                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
                                       <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                     </svg>
                                   </button>
@@ -491,15 +567,13 @@ const CalendarView: React.FC<{
                                       actions.remove?.(entry);
                                     }}
                                     disabled={processingRequestId === entry.requestId}
-                                    className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60"
+                                    className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
                                     title="Remove request"
                                     aria-label="Remove request"
                                   >
-                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
                                       <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                      <path d="M8.3335 6V4.33333C8.3335 3.8731 8.52663 3.43172 8.8692 3.11915C9.21178 2.80659 9.67607 2.65039 10.1566 2.6927L11.8233 2.83444C12.2818 2.8749 12.709 3.0683 13.0216 3.38087C13.3342 3.69344 13.5276 4.12063 13.5681 4.57911L13.6668 5.66666M12.5 8.33333V14.1667" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                      <path d="M9.1665 8.33333V14.1667" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                      <path d="M4.99984 5.66666H5.6665L6.33317 16.6667C6.33317 17.1087 6.50877 17.5326 6.82133 17.8452C7.1339 18.1577 7.55781 18.3333 7.99984 18.3333H12.3332C12.7752 18.3333 13.1991 18.1577 13.5117 17.8452C13.8242 17.5326 13.9998 17.1087 13.9998 16.6667L14.6665 5.66666" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                     </svg>
                                   </button>
                                 )}
@@ -517,8 +591,9 @@ const CalendarView: React.FC<{
         })}
       </div>
       {entries.length === 0 && (
-        <div className="border-t border-gray-200 px-4 py-3 text-sm text-gray-500">
-          {emptyMessage || 'No requests to display.'}
+        <div className="border-t border-gray-300 px-4 py-8 text-center bg-white">
+          <p className="text-gray-500 text-sm">{emptyMessage || 'No requests to display.'}</p>
+          <p className="text-gray-400 text-xs mt-2">Try navigating to a different month or check if there are any requests in the table above.</p>
         </div>
       )}
     </div>
@@ -1079,17 +1154,12 @@ export const UserManagement: React.FC = () => {
       {activeTab === 'leave' && isManager && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-              <span>🏖️ Leave Requests</span>
-              {pendingLeaveCount > 0 && (
-                <span className="inline-flex items-center justify-center h-7 min-w-[1.75rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
-                  {pendingLeaveCount}
-                </span>
-              )}
+            <h3 className="text-xl font-bold text-gray-900">
+              Leave Requests
             </h3>
             {pendingLeaveCount > 0 && (
               <span className="text-sm text-gray-500">
-                Pending approval
+                {pendingLeaveCount} pending approval{pendingLeaveCount > 1 ? 's' : ''}
               </span>
             )}
           </div>
@@ -1101,7 +1171,7 @@ export const UserManagement: React.FC = () => {
               placeholder="Search leave requests by employee, type, reason, or status..."
             />
             <div className="overflow-x-auto">
-              <table ref={leaveTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'fixed', width: '100%' }}>
+              <table ref={leaveTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th key="employee" style={{ width: `${leaveWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
@@ -1271,24 +1341,19 @@ export const UserManagement: React.FC = () => {
       {activeTab === 'shift' && isManager && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-              <span>🔒 Shift Requests</span>
-              {pendingShiftCount > 0 && (
-                <span className="inline-flex items-center justify-center h-7 min-w-[1.75rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
-                  {pendingShiftCount}
-                </span>
-              )}
+            <h3 className="text-xl font-bold text-gray-900">
+              Shift Requests
             </h3>
             {pendingShiftCount > 0 && (
               <span className="text-sm text-gray-500">
-                Pending approval
+                {pendingShiftCount} pending approval{pendingShiftCount > 1 ? 's' : ''}
               </span>
             )}
           </div>
           {shiftRequests.length > 0 ? (
             <>
             <div className="overflow-x-auto">
-              <table ref={shiftTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'fixed', width: '100%' }}>
+              <table ref={shiftTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th key="employee" style={{ width: `${shiftWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
@@ -1440,61 +1505,69 @@ export const UserManagement: React.FC = () => {
             placeholder="Search users by username, employee name, or type..."
           />
           <div className="overflow-x-auto">
-            <table ref={usersTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'fixed', width: '100%' }}>
+            <table ref={usersTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th key="username" style={{ width: `${usersWidths.username || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
-                    <div className="flex items-center space-x-1">
-                      <span>Username</span>
-                      <button onClick={() => handleUsersSort('username')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by username">
+                  <th key="username" style={{ width: `${usersWidths.username || 200}px`, maxWidth: `${usersWidths.username || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="flex items-center space-x-1 truncate">
+                      <span className="truncate">Username</span>
+                      <button onClick={() => handleUsersSort('username')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by username">
                         {usersSortConfig?.key === 'username' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
                       </button>
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'username')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="employee_name" style={{ width: `${usersWidths.employee_name || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
-                    <div className="flex items-center space-x-1">
-                      <span>Employee Name</span>
-                      <button onClick={() => handleUsersSort('employee_name')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee name">
+                  <th key="employee_name" style={{ width: `${usersWidths.employee_name || 200}px`, maxWidth: `${usersWidths.employee_name || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="flex items-center space-x-1 truncate">
+                      <span className="truncate">Employee Name</span>
+                      <button onClick={() => handleUsersSort('employee_name')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by employee name">
                         {usersSortConfig?.key === 'employee_name' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
                       </button>
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_name')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="employee_type" style={{ width: `${usersWidths.employee_type || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
-                    <div className="flex items-center space-x-1">
-                      <span>Employee Type</span>
-                      <button onClick={() => handleUsersSort('employee_type')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee type">
+                  <th key="employee_type" style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="flex items-center space-x-1 truncate">
+                      <span className="truncate">Employee Type</span>
+                      <button onClick={() => handleUsersSort('employee_type')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by employee type">
                         {usersSortConfig?.key === 'employee_type' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
                       </button>
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="password" style={{ width: `${usersWidths.password || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
-                    Password
+                  <th key="password" style={{ width: `${usersWidths.password || 200}px`, maxWidth: `${usersWidths.password || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="truncate">Password</div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'password')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="actions" style={{ width: `${usersWidths.actions || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50">
-                    Actions
+                  <th key="actions" style={{ width: `${usersWidths.actions || 150}px`, maxWidth: `${usersWidths.actions || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="truncate">Actions</div>
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                   {paginatedUsers.map((user, index) => (
                   <tr key={index} className="hover:bg-gray-50">
-                    <td style={{ width: `${usersWidths.username || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-300">
-                      {user.username}
+                    <td style={{ width: `${usersWidths.username || 200}px`, maxWidth: `${usersWidths.username || 200}px` }} className="px-6 py-4 text-sm font-medium text-gray-900 border border-gray-300 overflow-hidden">
+                      <div className="truncate" title={user.username}>
+                        {user.username}
+                      </div>
                     </td>
-                    <td style={{ width: `${usersWidths.employee_name || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                      {user.employee_name}
+                    <td style={{ width: `${usersWidths.employee_name || 200}px`, maxWidth: `${usersWidths.employee_name || 200}px` }} className="px-6 py-4 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                      <div className="truncate" title={user.employee_name}>
+                        {user.employee_name}
+                      </div>
                     </td>
-                    <td style={{ width: `${usersWidths.employee_type || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                      {user.employee_type}
+                    <td style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px` }} className="px-6 py-4 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                      <div className="truncate" title={user.employee_type}>
+                        {user.employee_type}
+                      </div>
                     </td>
-                    <td style={{ width: `${usersWidths.password || 200}px` }} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                      {user.password_hidden}
+                    <td style={{ width: `${usersWidths.password || 200}px`, maxWidth: `${usersWidths.password || 200}px` }} className="px-6 py-4 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                      <div className="truncate" title={user.password_hidden}>
+                        {user.password_hidden ? (user.password_hidden.length > 8 ? '*'.repeat(8) : user.password_hidden) : '-'}
+                      </div>
                     </td>
-                    <td style={{ width: `${usersWidths.actions || 150}px` }} className="px-6 py-4 whitespace-nowrap text-sm border border-gray-300">
+                    <td style={{ width: `${usersWidths.actions || 150}px`, maxWidth: `${usersWidths.actions || 150}px` }} className="px-6 py-4 text-sm border border-gray-300 overflow-hidden">
                       <button
                         onClick={() => handleDeleteUser(user.username, user.employee_name)}
                         disabled={deleting === user.username || user.username === currentUser?.username}

@@ -267,24 +267,71 @@ def add_sequencing_constraints(
     model: cp_model.CpModel,
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
     employees: List[str],
-    dates: List[date]
+    dates: List[date],
+    time_off: Dict[Tuple[str, date], str] = None,
+    leave_codes: Set[str] = None
 ) -> None:
     """Add sequencing constraints for shift patterns."""
     # Only use O for rest days after shifts (DO is only assigned when requested in time off)
     rest_code = "O"
     
+    # Working shifts that are not leave codes
+    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    
+    # Determine leave codes (exclude working shifts and O)
+    if leave_codes:
+        leave_only_codes = leave_codes - working_shifts - {rest_code}
+    else:
+        leave_only_codes = set()
+    
     for emp in employees:
         for i, day in enumerate(dates):
-            # Rule 1: After Night (N) → rest day (O) next day
             if i < len(dates) - 1:  # Not the last day
                 next_day = dates[i + 1]
                 
-                # If working Night today, must be off tomorrow (O only, not DO)
-                if (emp, day, "N") in x and (emp, next_day, rest_code) in x:
-                    # Create constraint: N_today <= O_tomorrow
-                    model.Add(x[(emp, day, "N")] <= x[(emp, next_day, rest_code)])
+                # Check if employee already has a leave type assigned for next day
+                # A leave type is any code in time_off that is not a working shift
+                has_leave_next_day = False
+                if time_off and (emp, next_day) in time_off:
+                    leave_code = time_off[(emp, next_day)]
+                    # If the code is not a working shift, it's a leave type
+                    if leave_code not in working_shifts and leave_code != rest_code:
+                        has_leave_next_day = True
+                
+                # Rule 1: After Night (N) → two rest days (O) next two days (unless leave type already assigned)
+                # First O day (day after N)
+                if not has_leave_next_day:
+                    if (emp, day, "N") in x and (emp, next_day, rest_code) in x:
+                        # Create constraint: N_today <= O_tomorrow
+                        model.Add(x[(emp, day, "N")] <= x[(emp, next_day, rest_code)])
+                
+                # Second O day (two days after N)
+                if i < len(dates) - 2:  # Not the last two days
+                    day_after_next = dates[i + 2]
+                    has_leave_day_after_next = False
+                    if time_off and (emp, day_after_next) in time_off:
+                        leave_code = time_off[(emp, day_after_next)]
+                        if leave_code not in working_shifts and leave_code != rest_code:
+                            has_leave_day_after_next = True
+                    
+                    if not has_leave_day_after_next:
+                        if (emp, day, "N") in x and (emp, day_after_next, rest_code) in x:
+                            # Create constraint: N_today <= O_day_after_tomorrow
+                            model.Add(x[(emp, day, "N")] <= x[(emp, day_after_next, rest_code)])
+                
+                # Rule 2: After M4 → rest day (O) next day (unless leave type already assigned)
+                if not has_leave_next_day:
+                    if (emp, day, "M4") in x and (emp, next_day, rest_code) in x:
+                        # Create constraint: M4_today <= O_tomorrow
+                        model.Add(x[(emp, day, "M4")] <= x[(emp, next_day, rest_code)])
+                
+                # Rule 3: After A → rest day (O) next day (unless leave type already assigned)
+                if not has_leave_next_day:
+                    if (emp, day, "A") in x and (emp, next_day, rest_code) in x:
+                        # Create constraint: A_today <= O_tomorrow
+                        model.Add(x[(emp, day, "A")] <= x[(emp, next_day, rest_code)])
             
-            # Rule 2: No back-to-back N shifts
+            # Rule 4: No back-to-back N shifts
             if i < len(dates) - 1:  # Not the last day
                 next_day = dates[i + 1]
                 
@@ -307,7 +354,8 @@ def add_all_constraints(
     min_days_off: Dict[str, int],
     rest_codes: Set[str],
     forbidden_pairs: List[Tuple[str, str]],
-    weekly_rest_minimum: int = 1
+    weekly_rest_minimum: int = 1,
+    leave_codes: Set[str] = None
 ) -> None:
     """Add all constraints to the model."""
     
@@ -328,8 +376,8 @@ def add_all_constraints(
     # Adjacency rules
     add_adjacency_constraints(model, x, employees, dates, forbidden_pairs)
     
-    # Sequencing rules
-    add_sequencing_constraints(model, x, employees, dates)
+    # Sequencing rules (pass time_off and leave_codes to check for existing leave types)
+    add_sequencing_constraints(model, x, employees, dates, time_off, leave_codes)
     
     # CL availability constraint
     add_cl_availability_constraints(model, x, employees, dates, time_off)

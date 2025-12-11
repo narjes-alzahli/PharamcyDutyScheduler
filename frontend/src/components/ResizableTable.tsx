@@ -91,7 +91,7 @@ export const ResizableTable: React.FC<ResizableTableProps> = ({
   });
 
   return (
-    <table ref={tableRef} className={className} style={{ tableLayout: 'fixed', width: '100%' }}>
+    <table ref={tableRef} className={className} style={{ tableLayout: 'auto', width: '100%' }}>
       {enhancedChildren}
     </table>
   );

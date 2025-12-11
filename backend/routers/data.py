@@ -577,9 +577,64 @@ async def update_time_off(
     total_created = created_leave_count + created_shift_count
     logger.info(f"Committed {created_leave_count} leave requests and {created_shift_count} shift requests (total: {total_created})")
     
+    # Reload created requests to get their IDs and return them
+    created_leave_requests = []
+    created_shift_requests = []
+    
+    if created_leave_count > 0:
+        # Get the most recently created leave requests (last N created)
+        recent_leaves = db.query(LeaveRequest).filter(
+            LeaveRequest.reason == 'Added via Roster Generator',
+            LeaveRequest.status == RequestStatus.APPROVED
+        ).order_by(LeaveRequest.id.desc()).limit(created_leave_count).all()
+        
+        for leave in recent_leaves:
+            # Check if this leave matches any of the entries we just created
+            for entry in leave_entries:
+                if (leave.user.employee_name == entry.employee and
+                    leave.leave_type.code == entry.code and
+                    leave.from_date.isoformat() == entry.from_date and
+                    leave.to_date.isoformat() == entry.to_date):
+                    created_leave_requests.append({
+                        'request_id': f"LR_{leave.id}",
+                        'employee': leave.user.employee_name,
+                        'from_date': leave.from_date.isoformat(),
+                        'to_date': leave.to_date.isoformat(),
+                        'code': leave.leave_type.code,
+                        'reason': leave.reason or '',
+                    })
+                    break
+    
+    if created_shift_count > 0:
+        # Get the most recently created shift requests (last N created)
+        recent_shifts = db.query(ShiftRequest).filter(
+            ShiftRequest.reason == 'Added via Roster Generator',
+            ShiftRequest.status == RequestStatus.APPROVED
+        ).order_by(ShiftRequest.id.desc()).limit(created_shift_count).all()
+        
+        for shift in recent_shifts:
+            # Check if this shift matches any of the entries we just created
+            for entry in shift_entries:
+                if (shift.user.employee_name == entry.employee and
+                    shift.shift_type.code == entry.code and
+                    shift.from_date.isoformat() == entry.from_date and
+                    shift.to_date.isoformat() == entry.to_date):
+                    created_shift_requests.append({
+                        'request_id': f"SR_{shift.id}",
+                        'employee': shift.user.employee_name,
+                        'from_date': shift.from_date.isoformat(),
+                        'to_date': shift.to_date.isoformat(),
+                        'shift': shift.shift_type.code,
+                        'force': shift.force,
+                        'reason': shift.reason or '',
+                    })
+                    break
+    
     return {
         "message": f"Time off saved ({created_leave_count} leave, {created_shift_count} shift requests)",
-        "created": total_created
+        "created": total_created,
+        "created_leave_requests": created_leave_requests,
+        "created_shift_requests": created_shift_requests
     }
 
 
@@ -718,9 +773,39 @@ async def update_locks(
     db.commit()
     logger.info(f"Committed {created_count} new shift requests")
     
+    # Reload created requests to get their IDs and return them
+    created_requests = []
+    
+    if created_count > 0:
+        # Get the most recently created shift requests (last N created)
+        recent_shifts = db.query(ShiftRequest).filter(
+            ShiftRequest.reason == 'Added via Roster Generator',
+            ShiftRequest.status == RequestStatus.APPROVED
+        ).order_by(ShiftRequest.id.desc()).limit(created_count).all()
+        
+        for shift in recent_shifts:
+            # Check if this shift matches any of the entries we just created
+            for entry in entries:
+                if (shift.user.employee_name == entry.employee and
+                    shift.shift_type.code == entry.shift and
+                    shift.from_date.isoformat() == entry.from_date and
+                    shift.to_date.isoformat() == entry.to_date and
+                    shift.force == entry.force):
+                    created_requests.append({
+                        'request_id': f"SR_{shift.id}",
+                        'employee': shift.user.employee_name,
+                        'from_date': shift.from_date.isoformat(),
+                        'to_date': shift.to_date.isoformat(),
+                        'shift': shift.shift_type.code,
+                        'force': shift.force,
+                        'reason': shift.reason or '',
+                    })
+                    break
+    
     return {
         "message": f"Shift locks saved as shift requests ({created_count} created)",
-        "created": created_count
+        "created": created_count,
+        "created_requests": created_requests
     }
 
 

@@ -86,24 +86,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     };
   }, [addingShift]);
 
-  // Balanced color palette - medium saturation, pleasant and readable
-  const harmoniousColors: Record<string, string> = {
-    'M': '#7DD3FC',   // Sky blue
-    'IP': '#38BDF8',   // Light blue
-    'A': '#FB923C',   // Orange
-    'N': '#FACC15',   // Yellow
-    'M3': '#4ADE80',   // Green
-    'M4': '#34D399',   // Emerald
-    'H': '#F472B6',   // Pink
-    'CL': '#A78BFA',   // Violet
-  };
-
-  // Get shift color from database or fallback to harmonious palette
+  // Get shift color from database or fallback to default colors
   const getShiftColor = (shiftCode: string): string => {
-    // Use harmonious colors for better visual appeal
-    if (harmoniousColors[shiftCode]) {
-      return harmoniousColors[shiftCode];
-    }
     const shiftType = shiftTypes.find(st => st.code === shiftCode);
     if (shiftType) {
       return shiftType.color_hex || defaultShiftColors[shiftCode] || '#FFFFFF';
@@ -543,27 +527,19 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h3 className="text-xl font-bold text-gray-900">📋 Staffing Needs</h3>
-          <p className="text-gray-600">Set how many staff members are needed for each shift type on each day</p>
-        </div>
-        <button
-          onClick={handleResetDefaults}
-          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-        >
-          🔄 Reset to Defaults
-        </button>
+      <div className="mb-4">
+        <h3 className="text-xl font-bold text-gray-900">📋 Staffing Needs</h3>
+        <p className="text-gray-600">Set how many staff members are needed for each shift type on each day</p>
       </div>
 
       {monthDemands.length > 0 ? (
         <>
           {/* Calendar View */}
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
-            <div className="grid grid-cols-7 gap-2">
+          <div className="bg-white rounded-lg border border-gray-200 p-3 mb-6">
+            <div className="grid grid-cols-7 gap-1">
               {/* Day Headers */}
               {dayLabels.map(day => (
-                <div key={day} className="text-center text-sm font-semibold text-gray-700 py-2">
+                <div key={day} className="text-center text-xs font-medium text-gray-600 py-1.5">
                   {day}
                 </div>
               ))}
@@ -573,7 +549,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                 <React.Fragment key={weekIdx}>
                   {week.map((dayData, dayIdx) => {
                     if (!dayData) {
-                      return <div key={`empty-${dayIdx}`} className="min-h-[120px]"></div>;
+                      return <div key={`empty-${dayIdx}`} className="min-h-[80px]"></div>;
                     }
 
                     const { day, date, demand } = dayData;
@@ -583,18 +559,18 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                     return (
                       <div
                         key={date}
-                        className={`min-h-[140px] border border-gray-200 rounded-lg p-2.5 ${
-                          isWeekend ? 'bg-gray-50/50' : 'bg-white'
-                        } ${isToday ? 'ring-2 ring-primary-400 ring-opacity-50' : ''}`}
+                        className={`min-h-[100px] border border-gray-300 rounded p-1.5 ${
+                          isWeekend ? 'bg-gray-50' : 'bg-white'
+                        } ${isToday ? 'ring-1 ring-blue-400' : ''}`}
                       >
                         {/* Date and Holiday */}
-                        <div className="flex items-center justify-between mb-2">
-                          <span className={`text-sm font-semibold ${isToday ? 'text-primary-600' : 'text-gray-900'}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-xs font-medium ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>
                             {day}
                           </span>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-0.5">
                             {demand?.holiday && (
-                              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">
+                              <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded">
                                 {demand.holiday}
                               </span>
                             )}
@@ -603,7 +579,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                                 setEditingHoliday(date);
                                 setHolidayInput(demand?.holiday || '');
                               }}
-                              className="text-xs text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100"
+                              className="text-[10px] text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100"
                               title="Add/Edit Holiday"
                             >
                               {demand?.holiday ? '✏️' : '➕'}
@@ -613,7 +589,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
 
                         {/* Holiday Input */}
                         {editingHoliday === date && (
-                          <div className="mb-2 flex gap-1">
+                          <div className="mb-1 flex gap-0.5">
                             <input
                               type="text"
                               value={holidayInput}
@@ -629,8 +605,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                                   setHolidayInput('');
                                 }
                               }}
-                              placeholder="Holiday name"
-                              className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded"
+                              placeholder="Holiday"
+                              className="flex-1 text-[10px] px-1 py-0.5 border border-gray-300 rounded"
                               autoFocus
                             />
                             <button
@@ -638,7 +614,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                                 handleHolidayChange(date, '');
                                 setHolidayInput('');
                               }}
-                              className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                              className="text-[10px] px-1 py-0.5 bg-red-100 text-red-700 rounded hover:bg-red-200"
                             >
                               ✕
                             </button>
@@ -646,7 +622,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                         )}
 
                         {/* Shift Needs Pills */}
-                        <div className="flex flex-wrap gap-1.5 mb-1">
+                        <div className="flex flex-wrap gap-1 mb-1">
                           {SHIFT_CODES.map(shiftCode => {
                             const needKey = `need_${shiftCode}` as keyof typeof demand;
                             const count = demand?.[needKey] as number || 0;
@@ -657,7 +633,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
 
                             // Always use black text for better readability
                             const textColor = '#000000';
-                            // Make color semi-transparent (60% opacity) with softer, more appealing colors
+                            // Make color semi-transparent (60% opacity)
                             // Convert hex to rgba for proper transparency
                             const hexToRgba = (hex: string, alpha: number) => {
                               const r = parseInt(hex.slice(1, 3), 16);
@@ -670,10 +646,9 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                             return (
                               <div
                                 key={shiftCode}
-                                className="flex items-center gap-0 rounded-md shadow-sm hover:shadow transition-shadow overflow-hidden"
+                                className="flex items-center gap-0 rounded text-[10px] shadow-sm hover:shadow transition-shadow overflow-hidden border border-gray-400"
                                 style={{
                                   backgroundColor: transparentColor,
-                                  border: `1px solid ${color}`,
                                 }}
                               >
                                 <button
@@ -682,20 +657,20 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                                     const newValue = Math.max(0, count - 1);
                                     handleDemandChange(date, shiftCode, newValue);
                                   }}
-                                  className="px-1.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80"
+                                  className="px-1 py-0.5 font-medium transition-opacity hover:opacity-80"
                                   style={{ color: textColor }}
                                   title="Decrease"
                                 >
                                   −
                                 </button>
                                 <div
-                                  className="px-2 py-0.5 text-xs font-semibold"
+                                  className="px-1 py-0.5 font-semibold"
                                   style={{
                                     color: textColor,
                                   }}
                                   title={description}
                                 >
-                                  {shiftCode} {count}
+                                  {count} {shiftCode}
                                 </div>
                                 <button
                                   onClick={(e) => {
@@ -705,7 +680,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                                       handleDemandChange(date, shiftCode, newValue);
                                     }
                                   }}
-                                  className="px-1.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80"
+                                  className="px-1 py-0.5 font-medium transition-opacity hover:opacity-80"
                                   style={{ color: textColor }}
                                   title="Increase"
                                 >
@@ -721,17 +696,17 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                           const needKey = `need_${shiftCode}` as keyof typeof demand;
                           return (demand?.[needKey] as number || 0) === 0;
                         }) && (
-                          <div className="relative shift-dropdown-container">
+                          <div className="relative shift-dropdown-container mt-1">
                             <button
                               onClick={() => {
                                 setAddingShift(addingShift === date ? null : date);
                               }}
-                              className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded border border-dashed border-gray-300 hover:border-gray-400 w-full transition-colors"
+                              className="text-[10px] text-gray-400 hover:text-gray-600 px-1 py-0.5 rounded border border-dashed border-gray-300 hover:border-gray-400 w-full transition-colors"
                             >
-                              + Add shift
+                              + Add
                             </button>
                             {addingShift === date && (
-                              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-1 max-h-32 overflow-y-auto">
+                              <div className="absolute z-10 mt-0.5 w-full bg-white border border-gray-200 rounded shadow-lg p-1 max-h-32 overflow-y-auto">
                                 {SHIFT_CODES.filter(shiftCode => {
                                   const needKey = `need_${shiftCode}` as keyof typeof demand;
                                   return (demand?.[needKey] as number || 0) === 0;
@@ -745,10 +720,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                                         handleDemandChange(date, shiftCode, 1);
                                         setAddingShift(null);
                                       }}
-                                      className="w-full text-left px-2 py-1.5 text-xs hover:bg-gray-100 rounded flex items-center gap-2"
+                                      className="w-full text-left px-1.5 py-1 text-[10px] hover:bg-gray-100 rounded flex items-center gap-1.5"
                                     >
                                       <div
-                                        className="w-3 h-3 rounded border"
+                                        className="w-2.5 h-2.5 rounded border"
                                         style={{ backgroundColor: `${color}80`, borderColor: color }}
                                       />
                                       <span className="font-medium">{shiftCode}</span>
@@ -772,136 +747,153 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
           <div className="mt-8 border-t border-gray-200 pt-6">
             <h4 className="text-lg font-bold text-gray-900 mb-4">Shift Requirements</h4>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="space-y-6 mb-6">
               {/* Each Weekday */}
               <div>
-                <h5 className="font-semibold text-gray-700 mb-2">Each Weekday</h5>
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Shift</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {weekdayConfig.map((row, idx) => {
-                        const shiftColor = getShiftColor(row.Shift);
-                        const hexToRgba = (hex: string, alpha: number) => {
-                          const r = parseInt(hex.slice(1, 3), 16);
-                          const g = parseInt(hex.slice(3, 5), 16);
-                          const b = parseInt(hex.slice(5, 7), 16);
-                          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                        };
-                        return (
-                          <tr key={idx} className="border-b border-gray-100">
-                            <td className="px-3 py-2 text-sm font-medium" style={{ backgroundColor: hexToRgba(shiftColor, 0.2) }}>
-                              {row.Shift}
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={row.Count}
-                                onChange={(e) => {
-                                  const newConfig = [...weekdayConfig];
-                                  newConfig[idx] = { ...newConfig[idx], Count: parseInt(e.target.value) || 0 };
-                                  setWeekdayConfig(newConfig);
-                                }}
-                                min={0}
-                                max={20}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center"
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <h5 className="font-semibold text-gray-700 mb-3">Each Weekday</h5>
+                <div className="flex flex-wrap gap-2">
+                  {weekdayConfig.map((row, idx) => {
+                    const shiftColor = getShiftColor(row.Shift);
+                    const description = getShiftDescription(row.Shift);
+                    return (
+                      <div
+                        key={idx}
+                        className="flex flex-col items-center gap-1.5"
+                      >
+                        <div
+                          className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-black font-semibold text-xs border border-gray-400 transition-transform hover:scale-105"
+                          style={{ backgroundColor: shiftColor }}
+                          title={description}
+                        >
+                          {row.Shift}
+                        </div>
+                        <div className="flex items-center gap-1 bg-white rounded-md border border-gray-200 px-1 py-0.5 shadow-sm">
+                          <button
+                            onClick={() => {
+                              const newConfig = [...weekdayConfig];
+                              newConfig[idx] = { ...newConfig[idx], Count: Math.max(0, row.Count - 1) };
+                              setWeekdayConfig(newConfig);
+                            }}
+                            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-[10px]"
+                            title="Decrease"
+                          >
+                            −
+                          </button>
+                          <span className="text-[10px] font-semibold text-gray-900 min-w-[1.25rem] text-center">
+                            {row.Count}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const newConfig = [...weekdayConfig];
+                              newConfig[idx] = { ...newConfig[idx], Count: Math.min(20, row.Count + 1) };
+                              setWeekdayConfig(newConfig);
+                            }}
+                            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-[10px]"
+                            title="Increase"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Each Weekend Day */}
               <div>
-                <h5 className="font-semibold text-gray-700 mb-2">Each Weekend Day</h5>
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Shift</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {weekendConfig.map((row, idx) => {
-                        const shiftColor = getShiftColor(row.Shift);
-                        const hexToRgba = (hex: string, alpha: number) => {
-                          const r = parseInt(hex.slice(1, 3), 16);
-                          const g = parseInt(hex.slice(3, 5), 16);
-                          const b = parseInt(hex.slice(5, 7), 16);
-                          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                        };
-                        return (
-                          <tr key={idx} className="border-b border-gray-100">
-                            <td className="px-3 py-2 text-sm font-medium" style={{ backgroundColor: hexToRgba(shiftColor, 0.2) }}>
-                              {row.Shift}
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={row.Count}
-                                onChange={(e) => {
-                                  const newConfig = [...weekendConfig];
-                                  newConfig[idx] = { ...newConfig[idx], Count: parseInt(e.target.value) || 0 };
-                                  setWeekendConfig(newConfig);
-                                }}
-                                min={0}
-                                max={20}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center"
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <h5 className="font-semibold text-gray-700 mb-3">Each Weekend Day</h5>
+                <div className="flex flex-wrap gap-2">
+                  {weekendConfig.map((row, idx) => {
+                    const shiftColor = getShiftColor(row.Shift);
+                    const description = getShiftDescription(row.Shift);
+                    return (
+                      <div
+                        key={idx}
+                        className="flex flex-col items-center gap-1.5"
+                      >
+                        <div
+                          className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-black font-semibold text-xs border border-gray-400 transition-transform hover:scale-105"
+                          style={{ backgroundColor: shiftColor }}
+                          title={description}
+                        >
+                          {row.Shift}
+                        </div>
+                        <div className="flex items-center gap-1 bg-white rounded-md border border-gray-200 px-1 py-0.5 shadow-sm">
+                          <button
+                            onClick={() => {
+                              const newConfig = [...weekendConfig];
+                              newConfig[idx] = { ...newConfig[idx], Count: Math.max(0, row.Count - 1) };
+                              setWeekendConfig(newConfig);
+                            }}
+                            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-[10px]"
+                            title="Decrease"
+                          >
+                            −
+                          </button>
+                          <span className="text-[10px] font-semibold text-gray-900 min-w-[1.25rem] text-center">
+                            {row.Count}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const newConfig = [...weekendConfig];
+                              newConfig[idx] = { ...newConfig[idx], Count: Math.min(20, row.Count + 1) };
+                              setWeekendConfig(newConfig);
+                            }}
+                            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-[10px]"
+                            title="Increase"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* H Shifts (Fixed) */}
               <div>
-                <h5 className="font-semibold text-gray-700 mb-2">H Shifts (Fixed)</h5>
-                <p className="text-xs text-gray-500 mb-2">
-                  H shifts are fixed: 1 shift on Monday, 1 shift on Wednesday (not configurable)
-                </p>
-                <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Day</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-gray-100">
-                        <td className="px-3 py-2 text-sm font-medium" style={{ backgroundColor: 'rgba(244, 114, 182, 0.2)' }}>
-                          Monday
-                        </td>
-                        <td className="px-3 py-2 text-sm text-gray-600">1</td>
-                      </tr>
-                      <tr className="border-b border-gray-100">
-                        <td className="px-3 py-2 text-sm font-medium" style={{ backgroundColor: 'rgba(244, 114, 182, 0.2)' }}>
-                          Wednesday
-                        </td>
-                        <td className="px-3 py-2 text-sm text-gray-600">1</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <h5 className="font-semibold text-gray-700 mb-3">H Shifts (Fixed)</h5>
+                <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <div
+                      className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-black font-semibold text-xs border border-gray-400"
+                      style={{ backgroundColor: getShiftColor('H') }}
+                      title="H Shift - Monday"
+                    >
+                      H
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-gray-50 rounded-md border border-gray-200 px-1.5 py-0.5">
+                      <span className="text-xs text-gray-500">Mon</span>
+                      <span className="text-xs font-semibold text-gray-600">1</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center gap-1.5">
+                    <div
+                      className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-black font-semibold text-xs border border-gray-400"
+                      style={{ backgroundColor: getShiftColor('H') }}
+                      title="H Shift - Wednesday"
+                    >
+                      H
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-gray-50 rounded-md border border-gray-200 px-1.5 py-0.5">
+                      <span className="text-xs text-gray-500">Wed</span>
+                      <span className="text-xs font-semibold text-gray-600">1</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Regenerate Button */}
-            <div className="flex justify-start">
+            {/* Regenerate and Reset Buttons */}
+            <div className="flex justify-start gap-3 mt-6">
+              <button
+                onClick={handleResetDefaults}
+                className="px-6 py-3 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300"
+              >
+                Reset to Defaults
+              </button>
               <button
                 onClick={handleRegenerate}
                 disabled={regenerating}

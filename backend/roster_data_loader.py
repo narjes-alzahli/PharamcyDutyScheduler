@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, Any
 from datetime import date, timedelta
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus
 
@@ -29,16 +29,22 @@ def load_roster_data_from_db(db: Session) -> Dict[str, pd.DataFrame]:
         ])
     
     # Load time_off from database (approved leave requests)
+    # Use joinedload to ensure relationships are loaded (prevents N+1 queries and missing data)
     time_off_records = []
     approved_leaves = db.query(LeaveRequest).filter(
         LeaveRequest.status == RequestStatus.APPROVED
+    ).options(
+        joinedload(LeaveRequest.user),
+        joinedload(LeaveRequest.leave_type)
     ).all()
     
     for leave in approved_leaves:
         # Skip if user or leave_type is None (shouldn't happen, but be defensive)
         if not leave.user or not leave.leave_type:
+            print(f"WARNING: LeaveRequest {leave.id} has missing user or leave_type, skipping")
             continue
         if not leave.from_date or not leave.to_date:
+            print(f"WARNING: LeaveRequest {leave.id} has missing dates, skipping")
             continue
             
         current_date = leave.from_date
@@ -75,11 +81,15 @@ def load_roster_data_from_db(db: Session) -> Dict[str, pd.DataFrame]:
     
     approved_shifts = db.query(ShiftRequest).filter(
         ShiftRequest.status == RequestStatus.APPROVED
+    ).options(
+        joinedload(ShiftRequest.user),
+        joinedload(ShiftRequest.shift_type)
     ).all()
     
     for shift in approved_shifts:
         # Skip if user or shift_type is None, or dates are missing
         if not shift.user or not shift.shift_type:
+            print(f"WARNING: ShiftRequest {shift.id} has missing user or shift_type, skipping")
             continue
         if not shift.from_date or not shift.to_date:
             continue
@@ -111,13 +121,16 @@ def load_roster_data_from_db(db: Session) -> Dict[str, pd.DataFrame]:
             })
             
             # Also add to time_off for solver (treated as direct assignment)
+            # IMPORTANT: Include request_id so these can be edited/updated
             current_date = shift.from_date
             while current_date <= shift.to_date:
                 non_standard_shift_records.append({
                     'employee': shift.user.employee_name,
                     'from_date': current_date,
                     'to_date': current_date,
-                    'code': shift_code
+                    'code': shift_code,
+                    'request_id': f"SR_{shift.id}",  # Include request_id to identify employee-requested shifts
+                    'reason': shift.reason or ''  # Include reason to identify "Added via Roster Generator"
                 })
                 current_date += timedelta(days=1)
         else:
