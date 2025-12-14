@@ -209,6 +209,7 @@ const CalendarView: React.FC<{
   actions?: CalendarActionHandlers;
   processingRequestId?: string | null;
 }> = ({ monthDate, onPrev, onNext, entries, emptyMessage, selectedEntryId, onSelectEntry, actions, processingRequestId }) => {
+  const [hoveredEntryId, setHoveredEntryId] = useState<string | null>(null);
   const calendarMatrix = useMemo(() => generateCalendarMatrix(monthDate), [monthDate]);
   const requestCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -237,7 +238,9 @@ const CalendarView: React.FC<{
         isSegmentStart: boolean;
         isSegmentEnd: boolean;
       }> = [];
-      const occupancy: number[] = [];
+      // Track occupancy per column (not just a single array)
+      // occupancy[col][row] = true means that position is taken
+      const occupancy: boolean[][] = Array(7).fill(null).map(() => []);
 
       entries.forEach((entry) => {
         const entryStart = startOfDay(entry.startDate);
@@ -270,57 +273,70 @@ const CalendarView: React.FC<{
         // Leave requests: create continuous segments
         if (entry.requestType === 'Shift') {
           // Create separate segments for each day
+          // For shift requests, align pills within each column independently
           for (let dayCol = startCol; dayCol <= endCol; dayCol += 1) {
+            // Find the first available row in this specific column
             let rowIndex = 0;
-            while (
-              rowIndex < occupancy.length &&
-              occupancy[rowIndex] !== undefined &&
-              occupancy[rowIndex] >= dayCol
-            ) {
+            while (rowIndex < occupancy[dayCol].length && occupancy[dayCol][rowIndex]) {
               rowIndex += 1;
             }
-            occupancy[rowIndex] = dayCol;
+            // Mark this position as occupied
+            occupancy[dayCol][rowIndex] = true;
 
             segments.push({
               entry,
               colStart: dayCol,
               colSpan: 1, // Each day is its own segment
-              row: rowIndex,
+              row: rowIndex, // Row within this column
               isSegmentStart: true, // Each day has rounded left end
               isSegmentEnd: true, // Each day has rounded right end
             });
           }
         } else {
           // Leave requests: create continuous segments
-        let rowIndex = 0;
-        while (
-          rowIndex < occupancy.length &&
-          occupancy[rowIndex] !== undefined &&
-          occupancy[rowIndex] >= startCol
-        ) {
-          rowIndex += 1;
-        }
-        occupancy[rowIndex] = endCol;
+          // For leave requests, find the first row where ALL columns in the span are free
+          let rowIndex = 0;
+          let found = false;
+          while (!found) {
+            // Check if all columns from startCol to endCol are free at this row
+            let allFree = true;
+            for (let col = startCol; col <= endCol; col++) {
+              if (rowIndex < occupancy[col].length && occupancy[col][rowIndex]) {
+                allFree = false;
+                break;
+              }
+            }
+            if (allFree) {
+              found = true;
+            } else {
+              rowIndex += 1;
+            }
+          }
+          // Mark all positions in the span as occupied
+          for (let col = startCol; col <= endCol; col++) {
+            occupancy[col][rowIndex] = true;
+          }
 
-        // Determine if this segment is the actual start/end of the entry
-        // isSegmentStart: true if this segment starts at the entry's actual start date
-        // isSegmentEnd: true if this segment ends at the entry's actual end date
-        const isActualStart = segmentStart.getTime() === entryStart.getTime();
-        const isActualEnd = segmentEnd.getTime() === entryEnd.getTime();
-        
-        segments.push({
-          entry,
-          colStart: startCol,
-          colSpan: endCol - startCol + 1,
-          row: rowIndex,
-          isSegmentStart: isActualStart,
-          isSegmentEnd: isActualEnd,
-        });
+          // Determine if this segment is the actual start/end of the entry
+          // isSegmentStart: true if this segment starts at the entry's actual start date
+          // isSegmentEnd: true if this segment ends at the entry's actual end date
+          const isActualStart = segmentStart.getTime() === entryStart.getTime();
+          const isActualEnd = segmentEnd.getTime() === entryEnd.getTime();
+          
+          segments.push({
+            entry,
+            colStart: startCol,
+            colSpan: endCol - startCol + 1,
+            row: rowIndex,
+            isSegmentStart: isActualStart,
+            isSegmentEnd: isActualEnd,
+          });
         }
       });
 
-      const rowsUsed = occupancy.length;
-      return { segments, rowsUsed };
+      // Calculate max rows used across all columns
+      const maxRows = Math.max(...occupancy.map(col => col.length), 0);
+      return { segments, rowsUsed: maxRows };
     });
   }, [calendarMatrix, entries]);
 
@@ -367,18 +383,21 @@ const CalendarView: React.FC<{
                   return (
                     <div
                       key={dateKey}
-                      className={`flex min-h-[70px] flex-col px-3 py-1.5 overflow-hidden ${
+                      className={`flex min-h-[70px] flex-col px-3 pt-1 pb-1.5 overflow-hidden ${
                         day.inCurrentMonth ? 'bg-white text-gray-900' : 'bg-gray-50 text-gray-400'
                       } border-r border-gray-200 last:border-r-0`}
                     >
-                      <div className={`mb-1 text-sm font-semibold ${day.inCurrentMonth ? 'text-gray-900' : 'text-gray-400'}`}>
-                        {day.date.getDate()}
+                      <div className={`mb-0.5 text-sm font-semibold ${day.inCurrentMonth ? 'text-gray-900' : 'text-gray-400'} flex items-center justify-between`}>
+                        <span>{day.date.getDate()}</span>
+                        {count > 0 && (
+                          <span className={`text-[11px] font-medium ${day.inCurrentMonth ? 'text-gray-600' : 'text-gray-400'}`}>
+                            ({count} request{count > 1 ? 's' : ''})
+                          </span>
+                        )}
                       </div>
-                      {count > 0 && (
-                        <span className={`text-[11px] font-medium ${day.inCurrentMonth ? 'text-gray-600' : 'text-gray-400'}`}>
-                          {count} request{count > 1 ? 's' : ''}
-                        </span>
-                      )}
+                      <div className="min-h-[2px]">
+                        {/* Reserved space for pills */}
+                      </div>
                     </div>
                   );
                 })}
@@ -394,7 +413,7 @@ const CalendarView: React.FC<{
                     ))}
                   </div>
                   <div
-                    className="relative z-20 grid gap-y-2 gap-x-0 px-2 py-3"
+                    className="relative z-20 grid gap-y-2 gap-x-0 px-2 pt-0 pb-3"
                     style={{
                       gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
                       gridAutoRows: 'minmax(24px, auto)',
@@ -443,19 +462,28 @@ const CalendarView: React.FC<{
                       const needsLeftFade = !isSegmentStart;
                       const needsRightFade = !isSegmentEnd;
 
+                      // Make all pills float above calendar grid lines (z-30)
+                      segmentStyle.zIndex = isSelected ? 50 : 40;
+                      
                       // Selected state: use a subtle shadow and slightly darker border
                       if (isSelected) {
-                        segmentStyle.zIndex = 50;
                         segmentStyle.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
                       } else {
+                        // Only remove side borders for connecting segments (not rounded ends)
+                        // Keep borders on rounded ends to show the circular outline
+                        // The className already handles this with border-l-0/border-r-0 conditionally
+                        // We only need to remove borders in inline style for non-rounded ends
                         if (!isSegmentStart) {
                           segmentStyle.borderLeft = 'none';
                         }
                         if (!isSegmentEnd) {
                           segmentStyle.borderRight = 'none';
                         }
+                        // For rounded ends, don't set inline style - let CSS class handle the border
                       }
 
+                      const isHovered = hoveredEntryId === key;
+                      
                       return (
                         <button
                           key={`${key}-${colStart}-${row}`}
@@ -468,7 +496,9 @@ const CalendarView: React.FC<{
                               onSelectEntry(entry);
                             }
                           }}
-                          className={`flex flex-col gap-0.5 px-2.5 py-1.5 text-center items-center justify-center text-sm font-semibold text-gray-900 transition-all overflow-hidden ${
+                          onMouseEnter={() => setHoveredEntryId(key)}
+                          onMouseLeave={() => setHoveredEntryId(null)}
+                          className={`flex flex-col gap-0.5 px-2 py-1 text-center items-center justify-center text-xs font-semibold text-gray-900 transition-all overflow-visible ${
                             getStatusBadgeClass(entry.status)
                           } ${radiusClass} ${
                             !isSegmentStart ? 'border-l-0' : ''
@@ -481,105 +511,232 @@ const CalendarView: React.FC<{
                                 : entry.status === 'Approved'
                                   ? 'shadow-lg border-green-500 ring-2 ring-green-400'
                                   : 'shadow-lg border-red-500 ring-2 ring-red-400'
-                              : selectedEntryId
-                                ? 'opacity-40'
-                                : 'shadow-sm hover:shadow-md'
+                              : hoveredEntryId && !isHovered
+                                ? 'opacity-50'
+                                : selectedEntryId
+                                  ? 'opacity-40'
+                                  : isHovered
+                                    ? 'shadow-xl scale-[1.02]'
+                                    : 'shadow-sm'
                           }`}
                           style={segmentStyle}
                           title={`${entry.employee} • ${entry.primaryLabel}${
                             entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''
                           } (${entry.requestType})`}
                         >
-                          {/* Fade overlays for segments that continue across week rows - smoother gradient */}
-                          {needsLeftFade && (
-                            <div
-                              className="absolute inset-y-0 left-0 w-8 pointer-events-none z-10"
-                              style={{
-                                background: 'linear-gradient(to right, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.6) 40%, rgba(255, 255, 255, 0.2) 70%, transparent 100%)',
-                                border: 'none',
-                              }}
-                            />
-                          )}
-                          {needsRightFade && (
-                            <div
-                              className="absolute inset-y-0 right-0 w-8 pointer-events-none z-10"
-                              style={{
-                                background: 'linear-gradient(to left, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.6) 40%, rgba(255, 255, 255, 0.2) 70%, transparent 100%)',
-                                border: 'none',
-                              }}
-                            />
-                          )}
-                          <div className="flex items-center justify-center gap-1 relative z-0 min-h-[20px] w-full">
-                            <span className="text-sm font-semibold text-gray-900 leading-tight text-center">
-                              {entry.employee}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-1 relative z-0 w-full mt-0.5">
-                            <span className="text-xs font-medium text-gray-800 capitalize truncate text-center leading-tight flex-1">
-                              {entry.requestType === 'Leave'
-                                ? entry.primaryLabel
-                                : `${entry.primaryLabel}${entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''}`}
-                            </span>
-                            {isSelected && entry.status === 'Pending' && (
-                              <div
-                                className="flex gap-1 flex-shrink-0 ml-1"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {actions?.approve && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      actions.approve?.(entry);
+                          {/* Get status color for border fading */}
+                          {(() => {
+                            const getStatusColor = (status: string) => {
+                              switch (status) {
+                                case 'Approved':
+                                  return { bg: 'rgba(134, 239, 172, 0.95)', border: 'rgba(34, 197, 94, 0.8)' }; // green-300
+                                case 'Rejected':
+                                  return { bg: 'rgba(252, 165, 165, 0.95)', border: 'rgba(239, 68, 68, 0.8)' }; // red-300
+                                default:
+                                  return { bg: 'rgba(254, 240, 138, 0.95)', border: 'rgba(234, 179, 8, 0.8)' }; // yellow-300
+                              }
+                            };
+                            const statusColor = getStatusColor(entry.status);
+                            
+                            return (
+                              <>
+                                {/* Fade overlays for segments that continue across week rows - smoother gradient with status color */}
+                                {needsLeftFade && (
+                                  <div
+                                    className="absolute inset-y-0 left-0 w-8 pointer-events-none z-10"
+                                    style={{
+                                      background: `linear-gradient(to right, ${statusColor.bg} 0%, ${statusColor.bg.replace('0.95', '0.6')} 40%, ${statusColor.bg.replace('0.95', '0.2')} 70%, transparent 100%)`,
+                                      border: 'none',
                                     }}
-                                    disabled={processingRequestId === entry.requestId}
-                                    className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
-                                    title="Approve request"
-                                    aria-label="Approve request"
-                                  >
-                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
-                                      <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  </button>
+                                  />
                                 )}
-                                {actions?.reject && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      actions.reject?.(entry);
+                                {needsRightFade && (
+                                  <div
+                                    className="absolute inset-y-0 right-0 w-8 pointer-events-none z-10"
+                                    style={{
+                                      background: `linear-gradient(to left, ${statusColor.bg} 0%, ${statusColor.bg.replace('0.95', '0.6')} 40%, ${statusColor.bg.replace('0.95', '0.2')} 70%, transparent 100%)`,
+                                      border: 'none',
                                     }}
-                                    disabled={processingRequestId === entry.requestId}
-                                    className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
-                                    title="Reject request"
-                                    aria-label="Reject request"
-                                  >
-                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
-                                      <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  </button>
+                                  />
                                 )}
-                                {actions?.remove && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      actions.remove?.(entry);
+                                {/* Top and bottom border fading that matches status color - applies to all pills */}
+                                <div
+                                  className="absolute inset-x-0 top-0 h-4 pointer-events-none z-10"
+                                  style={{
+                                    background: `linear-gradient(to bottom, ${statusColor.border} 0%, ${statusColor.border.replace('0.8', '0.4')} 50%, transparent 100%)`,
+                                    borderTop: `1px solid ${statusColor.border}`,
+                                  }}
+                                />
+                                <div
+                                  className="absolute inset-x-0 bottom-0 h-4 pointer-events-none z-10"
+                                  style={{
+                                    background: `linear-gradient(to top, ${statusColor.border} 0%, ${statusColor.border.replace('0.8', '0.4')} 50%, transparent 100%)`,
+                                    borderBottom: `1px solid ${statusColor.border}`,
+                                  }}
+                                />
+                                {/* Left border fading for rounded start (circular outline) */}
+                                {isSegmentStart && (
+                                  <div
+                                    className="absolute inset-y-0 left-0 w-4 pointer-events-none z-10"
+                                    style={{
+                                      background: `linear-gradient(to right, ${statusColor.border} 0%, ${statusColor.border.replace('0.8', '0.4')} 50%, transparent 100%)`,
+                                      borderLeft: `1px solid ${statusColor.border}`,
                                     }}
-                                    disabled={processingRequestId === entry.requestId}
-                                    className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
-                                    title="Remove request"
-                                    aria-label="Remove request"
+                                  />
+                                )}
+                                {/* Right border fading for rounded end (circular outline) */}
+                                {isSegmentEnd && (
+                                  <div
+                                    className="absolute inset-y-0 right-0 w-4 pointer-events-none z-10"
+                                    style={{
+                                      background: `linear-gradient(to left, ${statusColor.border} 0%, ${statusColor.border.replace('0.8', '0.4')} 50%, transparent 100%)`,
+                                      borderRight: `1px solid ${statusColor.border}`,
+                                    }}
+                                  />
+                                )}
+                              </>
+                            );
+                          })()}
+                          {entry.requestType === 'Leave' ? (
+                            // Compact single-line format for Leave requests: "Name • Code"
+                            <div className="flex items-center justify-center gap-1.5 relative z-50 w-full min-h-[18px]">
+                              <span className="text-xs font-bold text-gray-900 leading-tight text-center truncate flex-1 min-w-0">
+                                {entry.employee} • {entry.primaryLabel}
+                              </span>
+                              {isSelected && entry.status === 'Pending' && (
+                                <div
+                                  className="flex gap-1 flex-shrink-0 relative z-50"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {actions?.approve && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        actions.approve?.(entry);
+                                      }}
+                                      disabled={processingRequestId === entry.requestId}
+                                      className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
+                                      title="Approve request"
+                                      aria-label="Approve request"
+                                    >
+                                      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                        <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  {actions?.reject && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        actions.reject?.(entry);
+                                      }}
+                                      disabled={processingRequestId === entry.requestId}
+                                      className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
+                                      title="Reject request"
+                                      aria-label="Reject request"
+                                    >
+                                      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                        <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  {actions?.remove && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        actions.remove?.(entry);
+                                      }}
+                                      disabled={processingRequestId === entry.requestId}
+                                      className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                                      title="Remove request"
+                                      aria-label="Remove request"
+                                    >
+                                      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                        <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                        <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            // Keep shift requests as they were (two-line format)
+                            <>
+                              <div className="flex items-center justify-center gap-1 relative z-50 min-h-[16px] w-full">
+                                <span className="text-xs font-bold text-gray-900 leading-tight text-center">
+                                  {entry.employee}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-center gap-1 relative z-50 w-full mt-0.5">
+                                <span className="text-[11px] font-medium text-gray-800 capitalize truncate text-center leading-tight">
+                                  {`${entry.primaryLabel}${entry.secondaryLabel ? ` · ${entry.secondaryLabel}` : ''}`}
+                                </span>
+                                {isSelected && entry.status === 'Pending' && (
+                                  <div
+                                    className="flex gap-1 flex-shrink-0 relative z-50"
+                                    onClick={(e) => e.stopPropagation()}
                                   >
-                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
-                                      <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                      <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  </button>
+                                    {actions?.approve && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          actions.approve?.(entry);
+                                        }}
+                                        disabled={processingRequestId === entry.requestId}
+                                        className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
+                                        title="Approve request"
+                                        aria-label="Approve request"
+                                      >
+                                        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                          <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                    {actions?.reject && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          actions.reject?.(entry);
+                                        }}
+                                        disabled={processingRequestId === entry.requestId}
+                                        className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
+                                        title="Reject request"
+                                        aria-label="Reject request"
+                                      >
+                                        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                          <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                    {actions?.remove && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          actions.remove?.(entry);
+                                        }}
+                                        disabled={processingRequestId === entry.requestId}
+                                        className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                                        title="Remove request"
+                                        aria-label="Remove request"
+                                      >
+                                        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                          <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
                               </div>
-                            )}
-                          </div>
+                            </>
+                          )}
                         </button>
                       );
                     })}
@@ -632,17 +789,12 @@ export const UserManagement: React.FC = () => {
   const usersTableColumns = ['username', 'employee_name', 'employee_type', 'password', 'actions'];
   const { columnWidths: usersWidths, handleMouseDown: usersHandleMouseDown, tableRef: usersTableRef, isResizing: usersResizing } = useResizableColumns(usersTableColumns, 200);
   
-  // Search and sort for leave requests
-  const { searchTerm: leaveSearchTerm, setSearchTerm: setLeaveSearchTerm, filteredData: searchedLeaveRequests } = useTableSearch(leaveRequests, ['employee', 'leave_type', 'reason', 'status']);
-  const { sortedData: sortedLeaveRequests, sortConfig: leaveSortConfig, handleSort: handleLeaveSort } = useTableSort(searchedLeaveRequests);
-  
-  // Search and sort for shift requests
-  const { searchTerm: shiftSearchTerm, setSearchTerm: setShiftSearchTerm, filteredData: searchedShiftRequests } = useTableSearch(shiftRequests, ['employee', 'shift', 'reason', 'status']);
-  const { sortedData: sortedShiftRequests, sortConfig: shiftSortConfig, handleSort: handleShiftSort } = useTableSort(searchedShiftRequests);
   
   // Search and sort for users
   const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(users, ['username', 'employee_name', 'employee_type']);
   const { sortedData: sortedUsers, sortConfig: usersSortConfig, handleSort: handleUsersSort } = useTableSort(searchedUsers);
+  
+  // Calendar and table filter dates (must be declared before useMemo hooks)
   const [leaveCalendarDate, setLeaveCalendarDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -651,6 +803,9 @@ export const UserManagement: React.FC = () => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
+  // Year/month filter for table views - start as null (no selection)
+  const [leaveTableFilterDate, setLeaveTableFilterDate] = useState<Date | null>(null);
+  const [shiftTableFilterDate, setShiftTableFilterDate] = useState<Date | null>(null);
   const [selectedCalendarEntryId, setSelectedCalendarEntryId] = useState<string | null>(null);
   
   // Pagination state
@@ -661,6 +816,74 @@ export const UserManagement: React.FC = () => {
 
   const pendingLeaveCount = leaveRequests.filter((req) => req.status === 'Pending').length;
   const pendingShiftCount = shiftRequests.filter((req) => req.status === 'Pending').length;
+  
+  // Get available month/year combinations from requests
+  const availableLeaveMonthYears = useMemo(() => {
+    const monthYearSet = new Set<string>();
+    leaveRequests.forEach((req: any) => {
+      const reqDate = new Date(req.from_date);
+      const year = reqDate.getFullYear();
+      const month = reqDate.getMonth() + 1; // 1-12
+      monthYearSet.add(`${year}-${month}`);
+    });
+    return Array.from(monthYearSet)
+      .map(key => {
+        const [year, month] = key.split('-').map(Number);
+        return { year, month, value: key, label: `${new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}` };
+      })
+      .sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return a.month - b.month;
+      });
+  }, [leaveRequests]);
+
+  const availableShiftMonthYears = useMemo(() => {
+    const monthYearSet = new Set<string>();
+    shiftRequests.forEach((req: any) => {
+      const reqDate = new Date(req.from_date);
+      const year = reqDate.getFullYear();
+      const month = reqDate.getMonth() + 1; // 1-12
+      monthYearSet.add(`${year}-${month}`);
+    });
+    return Array.from(monthYearSet)
+      .map(key => {
+        const [year, month] = key.split('-').map(Number);
+        return { year, month, value: key, label: `${new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}` };
+      })
+      .sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return a.month - b.month;
+      });
+  }, [shiftRequests]);
+
+  // Filter requests by year/month for table view (must be after state declarations)
+  const filteredLeaveRequestsByDate = useMemo(() => {
+    if (!leaveTableFilterDate) return [];
+    const filterYear = leaveTableFilterDate.getFullYear();
+    const filterMonth = leaveTableFilterDate.getMonth();
+    return leaveRequests.filter((req: any) => {
+      const reqDate = new Date(req.from_date);
+      return reqDate.getFullYear() === filterYear && reqDate.getMonth() === filterMonth;
+    });
+  }, [leaveRequests, leaveTableFilterDate]);
+  
+  const filteredShiftRequestsByDate = useMemo(() => {
+    if (!shiftTableFilterDate) return [];
+    const filterYear = shiftTableFilterDate.getFullYear();
+    const filterMonth = shiftTableFilterDate.getMonth();
+    return shiftRequests.filter((req: any) => {
+      const reqDate = new Date(req.from_date);
+      return reqDate.getFullYear() === filterYear && reqDate.getMonth() === filterMonth;
+    });
+  }, [shiftRequests, shiftTableFilterDate]);
+  
+  // Search and sort for leave requests (after date filtering)
+  const { searchTerm: leaveSearchTerm, setSearchTerm: setLeaveSearchTerm, filteredData: searchedLeaveRequests } = useTableSearch(filteredLeaveRequestsByDate, ['employee', 'leave_type', 'reason', 'status']);
+  const { sortedData: sortedLeaveRequests, sortConfig: leaveSortConfig, handleSort: handleLeaveSort } = useTableSort(searchedLeaveRequests);
+  
+  // Search and sort for shift requests (after date filtering)
+  const { searchTerm: shiftSearchTerm, setSearchTerm: setShiftSearchTerm, filteredData: searchedShiftRequests } = useTableSearch(filteredShiftRequestsByDate, ['employee', 'shift', 'reason', 'status']);
+  const { sortedData: sortedShiftRequests, sortConfig: shiftSortConfig, handleSort: handleShiftSort } = useTableSort(searchedShiftRequests);
 
   const loadRequests = useCallback(async () => {
     // MAJOR RESTRUCTURE: Only make API calls if auth guard confirms we're ready
@@ -922,13 +1145,15 @@ export const UserManagement: React.FC = () => {
   };
 
   const formatDate = (dateStr: string) => {
-    // Use DD-MM-YYYY format
+    // Use Day, DD-MM-YYYY format
     if (!dateStr) return '';
     const dateOnly = dateStr.split('T')[0]; // Get YYYY-MM-DD part
     const parts = dateOnly.split('-');
     if (parts.length === 3) {
       const [year, month, day] = parts;
-      return `${day}-${month}-${year}`;
+      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      return `${dayName}, ${day}-${month}-${year}`;
     }
     // Fallback to original if parsing fails
     return dateStr;
@@ -1152,18 +1377,53 @@ export const UserManagement: React.FC = () => {
 
       {/* Leave Requests Tab */}
       {activeTab === 'leave' && isManager && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-900">
-              Leave Requests
-            </h3>
-            {pendingLeaveCount > 0 && (
-              <span className="text-sm text-gray-500">
-                {pendingLeaveCount} pending approval{pendingLeaveCount > 1 ? 's' : ''}
-              </span>
-            )}
+        <div className="space-y-6">
+          {/* Month/Year Selector at top - shared for table and schedule */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <label className="text-sm font-medium text-gray-700">Select Month/Year:</label>
+                <select
+                  value={leaveTableFilterDate ? `${leaveTableFilterDate.getFullYear()}-${leaveTableFilterDate.getMonth() + 1}` : ''}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const [year, month] = e.target.value.split('-').map(Number);
+                      const newDate = new Date(year, month - 1, 1);
+                      setLeaveTableFilterDate(newDate);
+                      setLeaveCalendarDate(newDate); // Sync calendar view
+                    } else {
+                      setLeaveTableFilterDate(null);
+                    }
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-[200px]"
+                >
+                  <option value="">Select Month & Year...</option>
+                  {availableLeaveMonthYears.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              {pendingLeaveCount > 0 && (
+                <span className="text-sm text-gray-500">
+                  {pendingLeaveCount} pending approval{pendingLeaveCount > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
           </div>
-          {leaveRequests.length > 0 ? (
+          
+          {!leaveTableFilterDate ? (
+            <div className="bg-white rounded-lg shadow p-6 mb-6">
+              <p className="text-gray-600 text-center py-8">Please select a month and year.</p>
+            </div>
+          ) : (
+          <>
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900">
+                Leave Requests
+              </h3>
+            </div>
+            {filteredLeaveRequestsByDate.length > 0 ? (
             <>
             <SearchBar
               searchTerm={leaveSearchTerm}
@@ -1308,49 +1568,95 @@ export const UserManagement: React.FC = () => {
               )}
             </>
           ) : (
-            <p className="text-gray-600">No leave requests found.</p>
+            <p className="text-gray-600">No leave requests found for the selected month.</p>
           )}
-          <div className="mt-8 max-w-8xl pr-6 space-y-3">
-            <h4 className="text-lg font-semibold text-gray-900">Schedule View</h4>
-            <CalendarView
-              monthDate={leaveCalendarDate}
-              onPrev={() =>
-                setLeaveCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
-              }
-              onNext={() =>
-                setLeaveCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
-              }
-              entries={leaveCalendarEntries}
-              emptyMessage="No leave requests for the selected month."
-              selectedEntryId={selectedCalendarEntryId}
-              onSelectEntry={(entry) =>
-                setSelectedCalendarEntryId(entry ? `${entry.requestType}-${entry.requestId}` : null)
-              }
-              actions={{
-                approve: (entry) => handleCalendarEntryAction(entry, 'approve'),
-                reject: (entry) => handleCalendarEntryAction(entry, 'reject'),
-                remove: (entry) => handleCalendarEntryAction(entry, 'remove'),
-              }}
-              processingRequestId={processingRequest}
-            />
-          </div>
+            </div>
+            <div className="mt-8 max-w-8xl pr-6 space-y-3">
+              <h4 className="text-lg font-semibold text-gray-900">Schedule View</h4>
+              <CalendarView
+                monthDate={leaveTableFilterDate!}
+                onPrev={() => {
+                  if (leaveTableFilterDate) {
+                    const newDate = new Date(leaveTableFilterDate.getFullYear(), leaveTableFilterDate.getMonth() - 1, 1);
+                    setLeaveTableFilterDate(newDate);
+                    setLeaveCalendarDate(newDate);
+                  }
+                }}
+                onNext={() => {
+                  if (leaveTableFilterDate) {
+                    const newDate = new Date(leaveTableFilterDate.getFullYear(), leaveTableFilterDate.getMonth() + 1, 1);
+                    setLeaveTableFilterDate(newDate);
+                    setLeaveCalendarDate(newDate);
+                  }
+                }}
+                entries={leaveCalendarEntries}
+                emptyMessage="No leave requests for the selected month."
+                selectedEntryId={selectedCalendarEntryId}
+                onSelectEntry={(entry) =>
+                  setSelectedCalendarEntryId(entry ? `${entry.requestType}-${entry.requestId}` : null)
+                }
+                actions={{
+                  approve: (entry) => handleCalendarEntryAction(entry, 'approve'),
+                  reject: (entry) => handleCalendarEntryAction(entry, 'reject'),
+                  remove: (entry) => handleCalendarEntryAction(entry, 'remove'),
+                }}
+                processingRequestId={processingRequest}
+              />
+            </div>
+          </>
+          )}
         </div>
       )}
 
       {/* Shift Requests Tab */}
       {activeTab === 'shift' && isManager && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-900">
-              Shift Requests
-            </h3>
-            {pendingShiftCount > 0 && (
-              <span className="text-sm text-gray-500">
-                {pendingShiftCount} pending approval{pendingShiftCount > 1 ? 's' : ''}
-              </span>
-            )}
+        <div className="space-y-6">
+          {/* Month/Year Selector at top - shared for table and schedule */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <label className="text-sm font-medium text-gray-700">Select Month/Year:</label>
+                <select
+                  value={shiftTableFilterDate ? `${shiftTableFilterDate.getFullYear()}-${shiftTableFilterDate.getMonth() + 1}` : ''}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const [year, month] = e.target.value.split('-').map(Number);
+                      const newDate = new Date(year, month - 1, 1);
+                      setShiftTableFilterDate(newDate);
+                      setShiftCalendarDate(newDate); // Sync calendar view
+                    } else {
+                      setShiftTableFilterDate(null);
+                    }
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-[200px]"
+                >
+                  <option value="">Select Month & Year...</option>
+                  {availableShiftMonthYears.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              {pendingShiftCount > 0 && (
+                <span className="text-sm text-gray-500">
+                  {pendingShiftCount} pending approval{pendingShiftCount > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
           </div>
-          {shiftRequests.length > 0 ? (
+          
+          {!shiftTableFilterDate ? (
+            <div className="bg-white rounded-lg shadow p-6 mb-6">
+              <p className="text-gray-600 text-center py-8">Please select a month and year.</p>
+            </div>
+          ) : (
+          <>
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900">
+                Shift Requests
+              </h3>
+            </div>
+            {filteredShiftRequestsByDate.length > 0 ? (
             <>
             <div className="overflow-x-auto">
               <table ref={shiftTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
@@ -1462,32 +1768,43 @@ export const UserManagement: React.FC = () => {
               )}
             </>
           ) : (
-            <p className="text-gray-600">No shift requests found.</p>
+            <p className="text-gray-600">No shift requests found for the selected month.</p>
           )}
-          <div className="mt-8 max-w-8xl pr-6 space-y-3">
-            <h4 className="text-lg font-semibold text-gray-900">Schedule View</h4>
-            <CalendarView
-              monthDate={shiftCalendarDate}
-              onPrev={() =>
-                setShiftCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
-              }
-              onNext={() =>
-                setShiftCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
-              }
-              entries={shiftCalendarEntries}
-              emptyMessage="No shift requests for the selected month."
-              selectedEntryId={selectedCalendarEntryId}
-              onSelectEntry={(entry) =>
-                setSelectedCalendarEntryId(entry ? `${entry.requestType}-${entry.requestId}` : null)
-              }
-              actions={{
-                approve: (entry) => handleCalendarEntryAction(entry, 'approve'),
-                reject: (entry) => handleCalendarEntryAction(entry, 'reject'),
-                remove: (entry) => handleCalendarEntryAction(entry, 'remove'),
-              }}
-              processingRequestId={processingRequest}
-            />
-          </div>
+            </div>
+            <div className="mt-8 max-w-8xl pr-6 space-y-3">
+              <h4 className="text-lg font-semibold text-gray-900">Schedule View</h4>
+              <CalendarView
+                monthDate={shiftTableFilterDate!}
+                onPrev={() => {
+                  if (shiftTableFilterDate) {
+                    const newDate = new Date(shiftTableFilterDate.getFullYear(), shiftTableFilterDate.getMonth() - 1, 1);
+                    setShiftTableFilterDate(newDate);
+                    setShiftCalendarDate(newDate);
+                  }
+                }}
+                onNext={() => {
+                  if (shiftTableFilterDate) {
+                    const newDate = new Date(shiftTableFilterDate.getFullYear(), shiftTableFilterDate.getMonth() + 1, 1);
+                    setShiftTableFilterDate(newDate);
+                    setShiftCalendarDate(newDate);
+                  }
+                }}
+                entries={shiftCalendarEntries}
+                emptyMessage="No shift requests for the selected month."
+                selectedEntryId={selectedCalendarEntryId}
+                onSelectEntry={(entry) =>
+                  setSelectedCalendarEntryId(entry ? `${entry.requestType}-${entry.requestId}` : null)
+                }
+                actions={{
+                  approve: (entry) => handleCalendarEntryAction(entry, 'approve'),
+                  reject: (entry) => handleCalendarEntryAction(entry, 'reject'),
+                  remove: (entry) => handleCalendarEntryAction(entry, 'remove'),
+                }}
+                processingRequestId={processingRequest}
+              />
+            </div>
+          </>
+          )}
         </div>
       )}
 

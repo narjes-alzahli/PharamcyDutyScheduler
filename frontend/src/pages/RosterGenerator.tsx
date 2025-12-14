@@ -2070,7 +2070,7 @@ export const RosterGenerator: React.FC = () => {
                           from_date: isoFromDate || item.from_date,
                           to_date: isoToDate || item.to_date,
                           shift: item.shift,
-                          force: item.force === 'Force (Must)',
+                      force: item.force === 'Force (Must)',
                           reason: reason,
                           request_id: forcedRequestId,
                         };
@@ -2336,12 +2336,12 @@ const AddTimeOffForm: React.FC<{
           {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
         </select>
         <CalendarDatePicker
-          value={fromDate}
+          value={fromDate} 
           onChange={setFromDate}
           className="px-3 py-2"
         />
         <CalendarDatePicker
-          value={toDate}
+          value={toDate} 
           onChange={setToDate}
           className="px-3 py-2"
           min={fromDate || undefined}
@@ -2403,12 +2403,12 @@ const AddLockForm: React.FC<{
           {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
         </select>
         <CalendarDatePicker
-          value={fromDate}
+          value={fromDate} 
           onChange={setFromDate}
           className="px-3 py-2"
         />
         <CalendarDatePicker
-          value={toDate}
+          value={toDate} 
           onChange={setToDate}
           className="px-3 py-2"
           min={fromDate || undefined}

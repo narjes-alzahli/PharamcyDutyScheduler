@@ -261,9 +261,9 @@ async def update_leave_request(
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
     # Update leave type if changed
-    leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
-    if not leave_type:
-        raise HTTPException(status_code=400, detail=f"Leave type '{update.leave_type}' not found")
+        leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
+        if not leave_type:
+            raise HTTPException(status_code=400, detail=f"Leave type '{update.leave_type}' not found")
 
     # Update employee/user if provided and user is a manager (for "Added via Roster Generator" requests)
     is_manager = current_user['employee_type'] == 'Manager'
@@ -273,7 +273,7 @@ async def update_leave_request(
         if not new_user:
             raise HTTPException(status_code=400, detail=f"Employee '{update.employee}' not found")
         req.user_id = new_user.id
-
+    
     req.from_date = from_date
     req.to_date = to_date
     req.leave_type_id = leave_type.id
@@ -504,7 +504,7 @@ async def update_shift_request(
         if not new_user:
             raise HTTPException(status_code=400, detail=f"Employee '{update.employee}' not found")
         req.user_id = new_user.id
-    
+
     req.from_date = from_date
     req.to_date = to_date
     req.shift_type_id = shift_type.id

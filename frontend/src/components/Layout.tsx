@@ -170,7 +170,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               >
                 <span className="text-lg">☰</span>
               </button>
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 whitespace-nowrap">📅 Staff Rostering System</h1>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 whitespace-nowrap flex-shrink-0">📅 Staff Rostering System</h1>
             </div>
             <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
               <span className="hidden text-sm text-gray-600 sm:inline">
