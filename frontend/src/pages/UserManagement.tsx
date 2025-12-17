@@ -776,6 +776,7 @@ export const UserManagement: React.FC = () => {
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+  const hasInitialDataLoaded = useRef(false);
   
   // Resizable columns for leave requests table
   const leaveTableColumns = ['employee', 'from_date', 'to_date', 'type', 'reason', 'status', 'submitted', 'actions'];
@@ -885,13 +886,17 @@ export const UserManagement: React.FC = () => {
   const { searchTerm: shiftSearchTerm, setSearchTerm: setShiftSearchTerm, filteredData: searchedShiftRequests } = useTableSearch(filteredShiftRequestsByDate, ['employee', 'shift', 'reason', 'status']);
   const { sortedData: sortedShiftRequests, sortConfig: shiftSortConfig, handleSort: handleShiftSort } = useTableSort(searchedShiftRequests);
 
-  const loadRequests = useCallback(async () => {
+  const loadRequests = useCallback(async (isRefresh = false) => {
     // MAJOR RESTRUCTURE: Only make API calls if auth guard confirms we're ready
     // This eliminates all race conditions - we KNOW user is Manager if authReady is true
+    // isRefresh=true means this is a refresh after an action, so preserve existing data on auth failures
     if (!authReady || !isManager || !currentUser) {
       // Auth not ready or user not confirmed Manager - don't make any calls
-      setLeaveRequests([]);
-      setShiftRequests([]);
+      // Only clear on initial load, not on refresh - preserve existing data
+      if (!hasInitialDataLoaded.current && !isRefresh) {
+        setLeaveRequests([]);
+        setShiftRequests([]);
+      }
       return;
     }
 
@@ -900,9 +905,12 @@ export const UserManagement: React.FC = () => {
     const token = localStorage.getItem('access_token');
     if (!token || isTokenExpired(token)) {
       // Token expired between guard check and API call - wait for refresh
-      console.warn('⚠️ Token expired between guard check and API call - skipping request');
-      setLeaveRequests([]);
-      setShiftRequests([]);
+      // Don't clear existing data on refresh - might be temporary token refresh
+      if (!hasInitialDataLoaded.current && !isRefresh) {
+        console.warn('⚠️ Token expired between guard check and API call - skipping request');
+        setLeaveRequests([]);
+        setShiftRequests([]);
+      }
       return;
     }
 
@@ -922,6 +930,7 @@ export const UserManagement: React.FC = () => {
       const filteredShiftRequests = shiftRes.filter((req: any) => req.reason !== 'Added via Roster Generator');
       setLeaveRequests(filteredLeaveRequests);
       setShiftRequests(filteredShiftRequests);
+      hasInitialDataLoaded.current = true; // Mark that we've successfully loaded data
       const pendingCount =
         leaveRes.filter((req: any) => req.status === 'Pending').length +
         shiftRes.filter((req: any) => req.status === 'Pending').length;
@@ -937,14 +946,20 @@ export const UserManagement: React.FC = () => {
           isManager,
           userType: currentUser?.employee_type
         });
-        setLeaveRequests([]);
-        setShiftRequests([]);
+        // Only clear on initial load, not on refresh - preserve existing data
+        if (!hasInitialDataLoaded.current && !isRefresh) {
+          setLeaveRequests([]);
+          setShiftRequests([]);
+        }
         return;
       }
       // Log other errors
       console.error('Failed to load requests:', error);
-      setLeaveRequests([]);
-      setShiftRequests([]);
+      // Only clear on initial load, not on refresh - preserve existing data
+      if (!hasInitialDataLoaded.current && !isRefresh) {
+        setLeaveRequests([]);
+        setShiftRequests([]);
+      }
     }
   }, [authReady, isManager, currentUser]);
 
@@ -1048,7 +1063,8 @@ export const UserManagement: React.FC = () => {
       await requestsAPI.approveLeaveRequest(requestId);
       setNotification({ message: '✅ Leave request approved successfully! It has been added to the roster.', type: 'success' });
       setTimeout(() => setNotification(null), 3000);
-      await loadRequests();
+      // Use isRefresh=true to prevent clearing data during refresh
+      await loadRequests(true);
     } catch (error: any) {
       setNotification({ message: error.response?.data?.detail || 'Failed to approve leave request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
@@ -1066,7 +1082,8 @@ export const UserManagement: React.FC = () => {
       await requestsAPI.rejectLeaveRequest(requestId);
       setNotification({ message: 'Leave request rejected', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
-      await loadRequests();
+      // Use isRefresh=true to prevent clearing data during refresh
+      await loadRequests(true);
     } catch (error: any) {
       setNotification({ message: error.response?.data?.detail || 'Failed to reject leave request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
@@ -1081,7 +1098,8 @@ export const UserManagement: React.FC = () => {
       await requestsAPI.approveShiftRequest(requestId);
       setNotification({ message: '✅ Shift request approved successfully! It has been added to the roster.', type: 'success' });
       setTimeout(() => setNotification(null), 3000);
-      await loadRequests();
+      // Use isRefresh=true to prevent clearing data during refresh
+      await loadRequests(true);
     } catch (error: any) {
       setNotification({ message: error.response?.data?.detail || 'Failed to approve shift request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
@@ -1099,7 +1117,8 @@ export const UserManagement: React.FC = () => {
       await requestsAPI.rejectShiftRequest(requestId);
       setNotification({ message: 'Shift request rejected', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
-      await loadRequests();
+      // Use isRefresh=true to prevent clearing data during refresh
+      await loadRequests(true);
     } catch (error: any) {
       setNotification({ message: error.response?.data?.detail || 'Failed to reject shift request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
@@ -1117,7 +1136,8 @@ export const UserManagement: React.FC = () => {
       await requestsAPI.deleteLeaveRequest(requestId);
       setNotification({ message: 'Leave request removed.', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
-      await loadRequests();
+      // Use isRefresh=true to prevent clearing data during refresh
+      await loadRequests(true);
     } catch (error: any) {
       setNotification({ message: error.response?.data?.detail || 'Failed to remove leave request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
@@ -1135,7 +1155,8 @@ export const UserManagement: React.FC = () => {
       await requestsAPI.deleteShiftRequest(requestId);
       setNotification({ message: 'Shift request removed.', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
-      await loadRequests();
+      // Use isRefresh=true to prevent clearing data during refresh
+      await loadRequests(true);
     } catch (error: any) {
       setNotification({ message: error.response?.data?.detail || 'Failed to remove shift request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
@@ -1204,7 +1225,7 @@ export const UserManagement: React.FC = () => {
         }
       }
     },
-    []
+    [handleApproveLeave, handleRejectLeave, handleDeleteLeave, handleApproveShift, handleRejectShift, handleDeleteShift]
   );
 
   useEffect(() => {

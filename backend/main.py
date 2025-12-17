@@ -35,7 +35,7 @@ api_request_counts = defaultdict(list)
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Apply rate limiting to all API routes (100 requests per minute per IP)."""
+    """Apply rate limiting to all API routes (1000 requests per minute per IP)."""
     try:
         if request.url.path.startswith("/api/"):
             # Safely get client IP
@@ -59,11 +59,11 @@ async def rate_limit_middleware(request: Request, call_next):
                 if (now - req_time) < timedelta(minutes=1)
             ]
             
-            # Check if limit exceeded (100 requests per minute)
-            if len(api_request_counts[client_ip]) >= 100:
+            # Check if limit exceeded (1000 requests per minute)
+            if len(api_request_counts[client_ip]) >= 1000:
                 return JSONResponse(
                     status_code=429,
-                    content={"detail": "Rate limit exceeded. Maximum 100 requests per minute."}
+                    content={"detail": "Rate limit exceeded. Maximum 1000 requests per minute."}
                 )
             
             # Record this request
@@ -123,14 +123,14 @@ app.include_router(shift_types.router, prefix="/api/shift-types", tags=["shift-t
 
 
 @app.get("/")
-@limiter.limit("100/minute")
+@limiter.limit("1000/minute")
 async def root(request: Request):
     """Root endpoint."""
     return {"message": "Staff Rostering API", "version": "1.0.0"}
 
 
 @app.get("/api/health")
-@limiter.limit("100/minute")
+@limiter.limit("1000/minute")
 async def health_check(request: Request):
     """Health check endpoint."""
     return {"status": "healthy"}

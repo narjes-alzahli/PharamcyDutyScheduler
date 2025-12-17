@@ -295,7 +295,8 @@ async def solve_schedule(
     # Load roster data from database
     db = next(get_db())
     try:
-        roster_data = load_roster_data_from_db(db)
+            # Expand ranges into individual days for solver
+            roster_data = load_roster_data_from_db(db, expand_ranges=True)
     finally:
         db.close()
     

@@ -319,7 +319,8 @@ async def get_roster_data(
 ):
     """Get all roster data (employees, demands, time_off, locks)."""
     try:
-        roster_data = load_roster_data_from_db(db)
+        # Don't expand ranges for frontend - keep as ranges
+        roster_data = load_roster_data_from_db(db, expand_ranges=False)
         
         # Load demands from CSV (no database model yet)
         from pathlib import Path
@@ -383,35 +384,8 @@ async def update_time_off(
     logger = logging.getLogger(__name__)
     logger.info(f"Received {len(entries)} time-off entries to save")
     
-    # Delete ALL existing "Added via Roster Generator" leave requests
-    leave_deleted = db.query(LeaveRequest).filter(
-        LeaveRequest.reason == 'Added via Roster Generator'
-    ).delete(synchronize_session=False)
-    
-    # Delete only non-standard shift requests (those that appear in time_off)
-    # Do NOT delete standard shift requests (M, IP, A, N, etc.) as those come from locks
-    STANDARD_WORKING_SHIFTS = {'M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'}
-    standard_shift_type_ids = [
-        st.id for st in db.query(ShiftType).filter(ShiftType.code.in_(STANDARD_WORKING_SHIFTS)).all()
-    ]
-    
-    # Only delete shift requests that are NOT standard working shifts
-    # (i.e., non-standard shifts that appear in time_off)
-    if standard_shift_type_ids:
-        shift_deleted = db.query(ShiftRequest).filter(
-            ShiftRequest.reason == 'Added via Roster Generator',
-            ShiftRequest.force == True,
-            not_(ShiftRequest.shift_type_id.in_(standard_shift_type_ids))
-        ).delete(synchronize_session=False)
-    else:
-        # If no standard shifts found, delete all force=True shift requests (fallback)
-        shift_deleted = db.query(ShiftRequest).filter(
-            ShiftRequest.reason == 'Added via Roster Generator',
-            ShiftRequest.force == True
-        ).delete(synchronize_session=False)
-    
-    db.commit()  # Commit the deletions before creating new ones
-    logger.info(f"Deleted {leave_deleted} leave requests and {shift_deleted} shift requests")
+    # Use upsert pattern: update existing requests or create new ones
+    # This is more efficient than deleting all and recreating
     
     # Separate entries into leave types and shift types
     # (STANDARD_WORKING_SHIFTS already defined above)
@@ -433,16 +407,11 @@ async def update_time_off(
         else:
             logger.warning(f"Code '{entry.code}' not found as shift or leave type, skipping")
     
-    # Process leave entries
-    processed_leave = set()
+    # Process leave entries - use upsert pattern (update if exists, create if not)
     created_leave_count = 0
+    updated_leave_count = 0
     
     for entry in leave_entries:
-        key = (entry.employee, entry.from_date, entry.to_date, entry.code)
-        if key in processed_leave:
-            continue
-        processed_leave.add(key)
-        
         user = db.query(User).filter(User.employee_name == entry.employee).first()
         if not user:
             continue
@@ -490,28 +459,42 @@ async def update_time_off(
                     detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
                 )
         
-        new_request = LeaveRequest(
-            user_id=user.id,
-            leave_type_id=leave_type.id,
-            from_date=from_date,
-            to_date=to_date,
-            reason='Added via Roster Generator',
-            status=RequestStatus.APPROVED
-        )
-        db.add(new_request)
-        created_leave_count += 1
-        logger.info(f"Created leave request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code}")
+        # Check if request already exists (same employee, leave type, dates, and reason)
+        existing_request = db.query(LeaveRequest).filter(
+            LeaveRequest.user_id == user.id,
+            LeaveRequest.leave_type_id == leave_type.id,
+            LeaveRequest.from_date == from_date,
+            LeaveRequest.to_date == to_date,
+            LeaveRequest.reason == 'Added via Roster Generator',
+            LeaveRequest.status == RequestStatus.APPROVED
+        ).first()
+        
+        if existing_request:
+            # Update existing request (dates might have changed)
+            existing_request.from_date = from_date
+            existing_request.to_date = to_date
+            updated_leave_count += 1
+            logger.info(f"Updated leave request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code}")
+        else:
+            # Create new request
+            new_request = LeaveRequest(
+                user_id=user.id,
+                leave_type_id=leave_type.id,
+                from_date=from_date,
+                to_date=to_date,
+                reason='Added via Roster Generator',
+                status=RequestStatus.APPROVED
+            )
+            db.add(new_request)
+            created_leave_count += 1
+            logger.info(f"Created leave request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code}")
     
     # Process shift entries (non-standard shifts with force=True)
-    processed_shift = set()
+    # Allow multiple requests - don't deduplicate, just create/update each one
     created_shift_count = 0
+    updated_shift_count = 0
     
     for entry in shift_entries:
-        key = (entry.employee, entry.from_date, entry.to_date, entry.code)
-        if key in processed_shift:
-            continue
-        processed_shift.add(key)
-        
         user = db.query(User).filter(User.employee_name == entry.employee).first()
         if not user:
             continue
@@ -559,23 +542,42 @@ async def update_time_off(
                     detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
                 )
         
-        # Create shift request with force=True (for non-standard shifts that appear in time_off)
-        new_request = ShiftRequest(
-            user_id=user.id,
-            shift_type_id=shift_type.id,
-            from_date=from_date,
-            to_date=to_date,
-            force=True,  # force=True means "must have this shift"
-            reason='Added via Roster Generator',
-            status=RequestStatus.APPROVED
-        )
-        db.add(new_request)
-        created_shift_count += 1
-        logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
+        # Check if request already exists (same employee, shift type, dates, force, and reason)
+        existing_request = db.query(ShiftRequest).filter(
+            ShiftRequest.user_id == user.id,
+            ShiftRequest.shift_type_id == shift_type.id,
+            ShiftRequest.from_date == from_date,
+            ShiftRequest.to_date == to_date,
+            ShiftRequest.force == True,
+            ShiftRequest.reason == 'Added via Roster Generator',
+            ShiftRequest.status == RequestStatus.APPROVED
+        ).first()
+        
+        if existing_request:
+            # Update existing request (dates might have changed)
+            existing_request.from_date = from_date
+            existing_request.to_date = to_date
+            updated_shift_count += 1
+            logger.info(f"Updated shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
+        else:
+            # Create new shift request with force=True (for non-standard shifts that appear in time_off)
+            new_request = ShiftRequest(
+                user_id=user.id,
+                shift_type_id=shift_type.id,
+                from_date=from_date,
+                to_date=to_date,
+                force=True,  # force=True means "must have this shift"
+                reason='Added via Roster Generator',
+                status=RequestStatus.APPROVED
+            )
+            db.add(new_request)
+            created_shift_count += 1
+            logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
     
     db.commit()
     total_created = created_leave_count + created_shift_count
-    logger.info(f"Committed {created_leave_count} leave requests and {created_shift_count} shift requests (total: {total_created})")
+    total_updated = updated_leave_count + updated_shift_count
+    logger.info(f"Committed {created_leave_count} leave requests created, {updated_leave_count} updated; {created_shift_count} shift requests created, {updated_shift_count} updated (total: {total_created} created, {total_updated} updated)")
     
     # Reload created requests to get their IDs and return them
     created_leave_requests = []
@@ -653,38 +655,13 @@ async def update_locks(
     
     logger.info(f"Received {len(entries)} shift lock entries to save")
     
-    # Delete only standard shift requests (those that come from locks)
-    # Do NOT delete non-standard shift requests (MS, C, etc.) as those come from time_off
-    STANDARD_WORKING_SHIFTS = {'M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'}
-    standard_shift_type_ids = [
-        st.id for st in db.query(ShiftType).filter(ShiftType.code.in_(STANDARD_WORKING_SHIFTS)).all()
-    ]
-    
-    # Only delete shift requests that ARE standard working shifts
-    # (i.e., locks, not non-standard shifts from time_off)
-    if standard_shift_type_ids:
-        all_deleted = db.query(ShiftRequest).filter(
-            ShiftRequest.reason == 'Added via Roster Generator',
-            ShiftRequest.shift_type_id.in_(standard_shift_type_ids)
-        ).delete(synchronize_session=False)
-    else:
-        # If no standard shifts found, don't delete anything (safety fallback)
-        all_deleted = 0
-    db.commit()  # Commit the deletion before creating new ones
-    logger.info(f"Deleted {all_deleted} existing roster generator shift requests (standard shifts only)")
-    
-    # Group entries by employee, from_date, to_date, shift, and force to create shift requests
-    # Each unique combination should be one shift request
-    processed = set()
+    # Use upsert pattern: update existing requests or create new ones
+    # This is more efficient than deleting all and recreating
+    # Allow multiple shift requests - don't prevent duplicates
     created_count = 0
+    updated_count = 0
     
     for entry in entries:
-        # Create a unique key for this entry
-        key = (entry.employee, entry.from_date, entry.to_date, entry.shift, entry.force)
-        if key in processed:
-            continue
-        processed.add(key)
-        
         # Find user by employee_name
         user = db.query(User).filter(User.employee_name == entry.employee).first()
         if not user:
@@ -739,8 +716,7 @@ async def update_locks(
                 detail=f"Shift type '{entry.shift}' not found for employee {entry.employee}"
             )
         
-        # Check if a duplicate shift request already exists (same employee, dates, shift, force, and reason)
-        # This prevents duplicates when the same lock is added multiple times
+        # Check if request already exists (same employee, shift type, dates, force, and reason)
         existing_request = db.query(ShiftRequest).filter(
             ShiftRequest.user_id == user.id,
             ShiftRequest.shift_type_id == shift_type.id,
@@ -752,26 +728,29 @@ async def update_locks(
         ).first()
         
         if existing_request:
-            # Skip if duplicate already exists
-            logger.info(f"Skipping duplicate shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
-            continue
-        
-        # Create new shift request (auto-approved for managers adding via Roster Generator)
-        new_request = ShiftRequest(
-            user_id=user.id,
-            shift_type_id=shift_type.id,
-            from_date=from_date,
-            to_date=to_date,
-            force=entry.force,
-            reason='Added via Roster Generator',
-            status=RequestStatus.APPROVED  # Auto-approve when manager adds via Roster Generator
-        )
-        db.add(new_request)
-        created_count += 1
-        logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
+            # Update existing request (dates might have changed)
+            existing_request.from_date = from_date
+            existing_request.to_date = to_date
+            existing_request.force = entry.force
+            updated_count += 1
+            logger.info(f"Updated shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
+        else:
+            # Create new shift request (auto-approved for managers adding via Roster Generator)
+            new_request = ShiftRequest(
+                user_id=user.id,
+                shift_type_id=shift_type.id,
+                from_date=from_date,
+                to_date=to_date,
+                force=entry.force,
+                reason='Added via Roster Generator',
+                status=RequestStatus.APPROVED  # Auto-approve when manager adds via Roster Generator
+            )
+            db.add(new_request)
+            created_count += 1
+            logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
     
     db.commit()
-    logger.info(f"Committed {created_count} new shift requests")
+    logger.info(f"Committed {created_count} new shift requests, {updated_count} updated")
     
     # Reload created requests to get their IDs and return them
     created_requests = []

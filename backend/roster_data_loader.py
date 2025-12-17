@@ -9,10 +9,15 @@ from sqlalchemy.orm import Session, joinedload
 from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus
 
 
-def load_roster_data_from_db(db: Session) -> Dict[str, pd.DataFrame]:
+def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[str, pd.DataFrame]:
     """
     Load roster data from database and CSV files.
     Returns dict with 'employees', 'time_off', 'locks' DataFrames.
+    
+    Args:
+        db: Database session
+        expand_ranges: If True, expand date ranges into individual days (for solver).
+                      If False, keep ranges as-is (for frontend UI).
     """
     project_root = Path(__file__).parent.parent
     
@@ -46,18 +51,30 @@ def load_roster_data_from_db(db: Session) -> Dict[str, pd.DataFrame]:
         if not leave.from_date or not leave.to_date:
             print(f"WARNING: LeaveRequest {leave.id} has missing dates, skipping")
             continue
-            
-        current_date = leave.from_date
-        while current_date <= leave.to_date:
+        
+        if expand_ranges:
+            # Expand range into individual days (for solver)
+            current_date = leave.from_date
+            while current_date <= leave.to_date:
+                time_off_records.append({
+                    'employee': leave.user.employee_name,
+                    'from_date': current_date,
+                    'to_date': current_date,
+                    'code': leave.leave_type.code,
+                    'request_id': f"LR_{leave.id}",  # Include request_id to identify employee-requested leaves
+                    'reason': leave.reason or ''  # Include reason to identify "Added via Roster Generator"
+                })
+                current_date += timedelta(days=1)
+        else:
+            # Keep as range (for frontend UI)
             time_off_records.append({
                 'employee': leave.user.employee_name,
-                'from_date': current_date,
-                'to_date': current_date,
+                'from_date': leave.from_date,
+                'to_date': leave.to_date,
                 'code': leave.leave_type.code,
                 'request_id': f"LR_{leave.id}",  # Include request_id to identify employee-requested leaves
                 'reason': leave.reason or ''  # Include reason to identify "Added via Roster Generator"
             })
-            current_date += timedelta(days=1)
     
     time_off_df = pd.DataFrame(time_off_records)
     if time_off_df.empty:
@@ -122,17 +139,29 @@ def load_roster_data_from_db(db: Session) -> Dict[str, pd.DataFrame]:
             
             # Also add to time_off for solver (treated as direct assignment)
             # IMPORTANT: Include request_id so these can be edited/updated
-            current_date = shift.from_date
-            while current_date <= shift.to_date:
+            if expand_ranges:
+                # Expand range into individual days (for solver)
+                current_date = shift.from_date
+                while current_date <= shift.to_date:
+                    non_standard_shift_records.append({
+                        'employee': shift.user.employee_name,
+                        'from_date': current_date,
+                        'to_date': current_date,
+                        'code': shift_code,
+                        'request_id': f"SR_{shift.id}",  # Include request_id to identify employee-requested shifts
+                        'reason': shift.reason or ''  # Include reason to identify "Added via Roster Generator"
+                    })
+                    current_date += timedelta(days=1)
+            else:
+                # Keep as range (for frontend UI)
                 non_standard_shift_records.append({
                     'employee': shift.user.employee_name,
-                    'from_date': current_date,
-                    'to_date': current_date,
+                    'from_date': shift.from_date,
+                    'to_date': shift.to_date,
                     'code': shift_code,
                     'request_id': f"SR_{shift.id}",  # Include request_id to identify employee-requested shifts
                     'reason': shift.reason or ''  # Include reason to identify "Added via Roster Generator"
                 })
-                current_date += timedelta(days=1)
         else:
             # Standard shifts go to locks only (force/forbid constraints)
             locks_records.append({

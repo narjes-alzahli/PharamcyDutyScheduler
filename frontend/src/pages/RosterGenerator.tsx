@@ -237,6 +237,7 @@ export const RosterGenerator: React.FC = () => {
   const initialEmployeesRef = React.useRef<any[] | null>(null);
   const timeOffSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const locksSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isSavingTimeOffRef = React.useRef<boolean>(false);
   const [saveNotification, setSaveNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Store initial employees data when it's loaded
@@ -343,6 +344,12 @@ export const RosterGenerator: React.FC = () => {
   };
 
   const handleTimeOffChange = async (newData: any[]) => {
+    // Prevent save loop - if we're already saving, skip
+    if (isSavingTimeOffRef.current) {
+      console.log('⏭️ Skipping save - already saving time off');
+      return;
+    }
+    
     console.log('handleTimeOffChange called with', newData.length, 'items:', newData);
     clearGeneratedResults();
     setRosterData((prev: any) => (prev ? { ...prev, time_off: newData } : prev));
@@ -352,6 +359,7 @@ export const RosterGenerator: React.FC = () => {
     }
 
     timeOffSaveTimeoutRef.current = setTimeout(async () => {
+      isSavingTimeOffRef.current = true;
       try {
         // Normalize dates to ensure YYYY-MM-DD format before saving
         const normalizedData = newData.map((item: any) => {
@@ -384,11 +392,13 @@ export const RosterGenerator: React.FC = () => {
             return;
           }
           
+          // Check if this is a range (from_date != to_date) - these are already grouped correctly
+          const isRange = item.from_date !== item.to_date;
+          
           // Check if this is an edit (has request_id and reason is 'Added via Roster Generator')
-          // Also check if request_id is in format LR_xxx or just a number/string
+          // For leave requests, only accept LR_ prefix (not SR_ which is for shift requests)
           const hasRequestId = item.request_id && (
-            item.request_id.toString().startsWith('LR_') || 
-            item.request_id.toString().startsWith('SR_') ||
+            item.request_id.toString().startsWith('LR_') ||
             item.request_id.toString().trim() !== ''
           );
           
@@ -396,22 +406,29 @@ export const RosterGenerator: React.FC = () => {
           const isRosterGeneratorRequest = item.reason === 'Added via Roster Generator' || !item.reason;
           
           if (hasRequestId && isRosterGeneratorRequest) {
-            // Group by request_id - multiple days with same request_id belong to one request
-            // IMPORTANT: When we have a range (from_date != to_date), this represents ONE request
-            // All expanded days from this range share the same request_id
-            // We should use the range's from_date and to_date directly, not recalculate from expanded days
+            // This is an existing request - if it's a range, use it directly
+            // If it's a single day, we might need to group with other days (from old expanded data)
             const reqId = item.request_id.toString();
-            if (!leaveRequestsByRequestId.has(reqId)) {
-              leaveRequestsByRequestId.set(reqId, []);
+            
+            if (isRange) {
+              // Range - this is already one request, use it directly
+              if (!leaveRequestsByRequestId.has(reqId)) {
+                leaveRequestsByRequestId.set(reqId, []);
+              }
+              leaveRequestsByRequestId.get(reqId)!.push(item);
+              console.log(`📌 Range leave request for update: ${reqId}`, {
+                employee: item.employee,
+                code: item.code,
+                from_date: item.from_date,
+                to_date: item.to_date,
+              });
+            } else {
+              // Single day - might be from old expanded data, group by request_id
+              if (!leaveRequestsByRequestId.has(reqId)) {
+                leaveRequestsByRequestId.set(reqId, []);
+              }
+              leaveRequestsByRequestId.get(reqId)!.push(item);
             }
-            leaveRequestsByRequestId.get(reqId)!.push(item);
-            console.log(`📌 Grouping leave request for update: ${reqId}`, {
-              employee: item.employee,
-              code: item.code,
-              from_date: item.from_date,
-              to_date: item.to_date,
-              isRange: item.from_date !== item.to_date,
-            });
           } else if (item.request_ids && Array.isArray(item.request_ids) && item.request_ids.length > 0) {
             // If we have multiple request_ids, group by each one
             item.request_ids.forEach((reqId: string) => {
@@ -426,12 +443,13 @@ export const RosterGenerator: React.FC = () => {
               }
             });
           } else {
-            // New request (no request_id) - will be created
+            // New request (no request_id) - will be created as a range
             console.log(`➕ Creating new leave request (no request_id):`, {
               employee: item.employee,
               code: item.code,
               from_date: item.from_date,
               to_date: item.to_date,
+              isRange: isRange,
               reason: item.reason,
             });
             leaveRequestsToCreate.push(item);
@@ -456,12 +474,12 @@ export const RosterGenerator: React.FC = () => {
                   };
                 });
                 
-                // CRITICAL: All items with the same request_id came from the same original request
-                // When user edits a range's dates, we should use the range's from_date and to_date directly
-                // NOT recalculate from expanded individual days
+                // CRITICAL: Since we now pass ranges directly (not expanded days), 
+                // each item in normalizedItems should already be a range or single day
+                // If we have a range, use it directly. If we have single days, find min/max.
                 
                 // Strategy: If we have a range (from_date != to_date), use it directly
-                // Otherwise, if all items are single days, find min/max
+                // Otherwise, if all items are single days, find min/max (from old expanded data)
                 const hasRange = normalizedItems.some((item: any) => item.from_date !== item.to_date);
                 
                 let minFromDate: string;
@@ -485,9 +503,9 @@ export const RosterGenerator: React.FC = () => {
                   
                   minFromDate = widestRange.from_date;
                   maxToDate = widestRange.to_date;
-                  console.log(`📅 Using range dates directly (user edited): ${minFromDate} to ${maxToDate}`);
+                  console.log(`📅 Using range dates directly: ${minFromDate} to ${maxToDate}`);
                 } else {
-                  // All items are single days - find min/max across all days
+                  // All items are single days (from old expanded data) - find min/max across all days
                   const fromDates = normalizedItems.map((item: any) => item.from_date).filter(Boolean).sort();
                   const toDates = normalizedItems.map((item: any) => item.to_date).filter(Boolean).sort();
                   
@@ -497,7 +515,6 @@ export const RosterGenerator: React.FC = () => {
                   
                   minFromDate = fromDates[0];
                   maxToDate = toDates[toDates.length - 1];
-                  console.log(`📅 Calculated min/max dates from ${normalizedItems.length} single-day items: ${minFromDate} to ${maxToDate}`);
                 }
                 
                 // Validate: from_date must be <= to_date
@@ -506,13 +523,6 @@ export const RosterGenerator: React.FC = () => {
                 }
                 
                 const firstItem = normalizedItems[0];
-                
-                console.log(`📝 Updating leave request ${requestId}:`, {
-                  from_date: minFromDate,
-                  to_date: maxToDate,
-                  leave_type: firstItem.code,
-                  employee: firstItem.employee,
-                });
                 
                 await requestsAPI.updateLeaveRequest(requestId, {
                   from_date: minFromDate,
@@ -546,17 +556,42 @@ export const RosterGenerator: React.FC = () => {
         if (leaveRequestsToCreateClean.length > 0) {
           console.log('Creating new leave requests:', leaveRequestsToCreateClean.length);
           const createResponse = await dataAPI.updateTimeOff(leaveRequestsToCreateClean);
-          console.log('✅ Created leave requests with request_ids:', createResponse.created_leave_requests || []);
+          const createdRequests = createResponse.created_leave_requests || [];
+          console.log('✅ Created leave requests with request_ids:', createdRequests);
+          
+          // Update local state with new request_ids immediately
+          if (createdRequests.length > 0) {
+            setRosterData((prev: any) => {
+              if (!prev || !prev.time_off) return prev;
+              
+              const updatedTimeOff = prev.time_off.map((item: any) => {
+                // Match created requests by employee, dates, and code
+                const matched = createdRequests.find((cr: any) => 
+                  cr.employee === item.employee &&
+                  cr.from_date === item.from_date &&
+                  cr.to_date === item.to_date &&
+                  cr.code === item.code &&
+                  !item.request_id // Only update items without request_id
+                );
+                
+                if (matched) {
+                  return { ...item, request_id: matched.request_id };
+                }
+                return item;
+              });
+              
+              return { ...prev, time_off: updatedTimeOff };
+            });
+          }
         }
         
         console.log('Successfully saved time-off data');
         setSaveNotification({ message: '✅ Leave data saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
         
-        // Reload data to get updated request_ids - CRITICAL for future edits
-        console.log('🔄 Reloading roster data to get new request_ids...');
-        await loadRosterData();
-        console.log('✅ Roster data reloaded, request_ids should now be available');
+        // Don't reload after successful save - we already updated state with request_ids above
+        // Reloading would trigger onDataChange again and cause infinite loops
+        // Only reload on error to sync with server state
       } catch (error: any) {
         console.error('Failed to save time off:', error);
         setSaveNotification({
@@ -566,6 +601,8 @@ export const RosterGenerator: React.FC = () => {
         setTimeout(() => setSaveNotification(null), 4000);
         // Reload on error to get correct state from server
         await loadRosterData();
+      } finally {
+        isSavingTimeOffRef.current = false;
       }
     }, 800);
   };
@@ -674,7 +711,6 @@ export const RosterGenerator: React.FC = () => {
                   
                   minFromDate = widestRange.from_date;
                   maxToDate = widestRange.to_date;
-                  console.log(`📅 Using range dates directly (user edited): ${minFromDate} to ${maxToDate}`);
                 } else {
                   // All items are single days - find min/max across all days
                   const fromDates = normalizedLocks.map((lock: any) => lock.from_date).filter(Boolean).sort();
@@ -686,7 +722,6 @@ export const RosterGenerator: React.FC = () => {
                   
                   minFromDate = fromDates[0];
                   maxToDate = toDates[toDates.length - 1];
-                  console.log(`📅 Calculated min/max dates from ${normalizedLocks.length} single-day items: ${minFromDate} to ${maxToDate}`);
                 }
                 
                 // Validate: from_date must be <= to_date
@@ -695,14 +730,6 @@ export const RosterGenerator: React.FC = () => {
                 }
                 
                 const firstLock = normalizedLocks[0];
-                
-                console.log(`📝 Updating shift request ${requestId}:`, {
-                  from_date: minFromDate,
-                  to_date: maxToDate,
-                  shift: firstLock.shift,
-                  force: firstLock.force,
-                  employee: firstLock.employee,
-                });
                 
                 await requestsAPI.updateShiftRequest(requestId, {
                   from_date: minFromDate,
@@ -809,7 +836,7 @@ export const RosterGenerator: React.FC = () => {
     await handleEmployeesChange(newData);
   };
 
-  const addTimeOff = (employee: string, fromDate: string, toDate: string, code: string) => {
+  const addTimeOff = async (employee: string, fromDate: string, toDate: string, code: string) => {
     // Date inputs already return YYYY-MM-DD format, but handle both formats for safety
     const isoFromDate = fromDate.match(/^\d{4}-\d{2}-\d{2}$/) ? fromDate : parseDateToISO(fromDate);
     const isoToDate = toDate.match(/^\d{4}-\d{2}-\d{2}$/) ? toDate : parseDateToISO(toDate);
@@ -820,16 +847,34 @@ export const RosterGenerator: React.FC = () => {
       return;
     }
     
-    const newTimeOff = {
-      employee,
-      from_date: isoFromDate,
-      to_date: isoToDate,
-      code,
-    };
-    console.log('Adding time off:', newTimeOff);
-    const newData = [...(rosterData?.time_off || []), newTimeOff];
-    handleTimeOffChange(newData);
-    setShowAddTimeOff(false);
+    try {
+      setShowAddTimeOff(false);
+      setSaveNotification({ message: '💾 Saving leave request...', type: 'success' });
+      
+      // Save directly via API (like shift requests do)
+      const newTimeOff = {
+        employee,
+        from_date: isoFromDate,
+        to_date: isoToDate,
+        code,
+      };
+      
+      console.log('Adding time off directly via API:', newTimeOff);
+      const createResponse = await dataAPI.updateTimeOff([newTimeOff]);
+      
+      setSaveNotification({ message: '✅ Leave request added successfully!', type: 'success' });
+      setTimeout(() => setSaveNotification(null), 2000);
+      
+      // Reload data to get the new request_id
+      await loadRosterData();
+    } catch (error: any) {
+      console.error('Failed to add leave request:', error);
+      setSaveNotification({
+        message: `❌ ${error.response?.data?.detail || 'Failed to add leave request'}`,
+        type: 'error',
+      });
+      setTimeout(() => setSaveNotification(null), 4000);
+    }
   };
 
   const addLock = (employee: string, fromDate: string, toDate: string, shift: string, force: boolean) => {
@@ -902,178 +947,10 @@ export const RosterGenerator: React.FC = () => {
   };
 
   // Group consecutive days with same employee and code into continuous ranges
-  const groupTimeOffIntoRanges = (timeOffData: any[]): any[] => {
-    if (!timeOffData || timeOffData.length === 0) return [];
 
-    // Normalize dates to ISO strings (YYYY-MM-DD)
-    const normalizeDate = (d: any): string => {
-      if (!d) return '';
-      if (typeof d === 'string') {
-        return d.split('T')[0];
-      }
-      if (d instanceof Date) {
-        if (isNaN(d.getTime())) return '';
-        return d.toISOString().split('T')[0];
-      }
-      return String(d);
-    };
-
-    // Filter out invalid entries
-    const validData = timeOffData.filter(item => {
-      if (!item || !item.employee || !item.code) return false;
-      const fromDate = normalizeDate(item.from_date);
-      const toDate = normalizeDate(item.to_date);
-      if (!fromDate || !toDate) return false;
-      // Check if date is valid
-      const dateObj = new Date(fromDate);
-      return !isNaN(dateObj.getTime());
-    });
-
-    if (validData.length === 0) return [];
-
-    // Sort by employee, code, and date
-    const sorted = [...validData].sort((a, b) => {
-      const empCompare = (a.employee || '').localeCompare(b.employee || '');
-      if (empCompare !== 0) return empCompare;
-      const codeCompare = (a.code || '').localeCompare(b.code || '');
-      if (codeCompare !== 0) return codeCompare;
-      const dateA = normalizeDate(a.from_date);
-      const dateB = normalizeDate(b.from_date);
-      return dateA.localeCompare(dateB);
-    });
-
-    const ranges: any[] = [];
-    let currentRange: any = null;
-
-    for (const item of sorted) {
-      const fromDate = normalizeDate(item.from_date);
-      const toDate = normalizeDate(item.to_date);
-      
-      try {
-        const itemDate = new Date(fromDate);
-        if (isNaN(itemDate.getTime())) continue;
-        const itemDateStr = itemDate.toISOString().split('T')[0];
-
-        if (!currentRange) {
-          // Start a new range - preserve request_id and reason if they exist
-          currentRange = {
-            employee: item.employee,
-            code: item.code,
-            from_date: fromDate,
-            to_date: toDate,
-            request_id: item.request_id || null,  // Preserve request_id for grouped ranges
-            reason: item.reason || null,  // Preserve reason for grouped ranges
-            request_ids: item.request_id ? [item.request_id] : [],  // Track all request_ids in this range
-          };
-        } else if (
-          currentRange.employee === item.employee &&
-          currentRange.code === item.code
-        ) {
-          // Check if this date is consecutive to the current range
-          const currentToDate = new Date(normalizeDate(currentRange.to_date));
-          if (isNaN(currentToDate.getTime())) {
-            // Invalid date in current range, save it and start new one
-            ranges.push(currentRange);
-            currentRange = {
-              employee: item.employee,
-              code: item.code,
-              from_date: fromDate,
-              to_date: toDate,
-              request_id: item.request_id || null,
-              reason: item.reason || null,
-              request_ids: item.request_id ? [item.request_id] : [],
-            };
-            continue;
-          }
-          
-          const currentToDateStr = normalizeDate(currentRange.to_date);
-          
-          // Calculate the next day after current range's to_date
-          const nextDay = new Date(currentToDate);
-          nextDay.setDate(nextDay.getDate() + 1);
-          const nextDayStr = nextDay.toISOString().split('T')[0];
-
-          // Check if item's from_date is consecutive (exactly the next day) or overlaps
-          // Since data is sorted, itemDateStr should be >= currentRange.from_date
-          // If itemDateStr <= currentToDateStr, it overlaps with current range
-          // If itemDateStr === nextDayStr, it's consecutive (next day)
-          if (itemDateStr === nextDayStr || itemDateStr <= currentToDateStr) {
-            // This date is consecutive or overlaps, extend the range
-            // Use the later of the two to_date values
-            const itemToDateObj = new Date(toDate);
-            const currentToDateObj = new Date(currentToDateStr);
-            if (itemToDateObj > currentToDateObj) {
-            currentRange.to_date = toDate;
-            }
-            // Track request_id if it exists and is different
-            // Ensure request_ids array exists
-            if (!currentRange.request_ids) {
-              currentRange.request_ids = currentRange.request_id ? [currentRange.request_id] : [];
-            }
-            if (item.request_id && !currentRange.request_ids.includes(item.request_id)) {
-              currentRange.request_ids.push(item.request_id);
-            }
-            // If reason differs, we might have mixed sources - mark as mixed
-            if (item.reason && currentRange.reason && item.reason !== currentRange.reason) {
-              currentRange.reason = 'Mixed sources';  // Indicate mixed sources
-            } else if (item.reason && !currentRange.reason) {
-              currentRange.reason = item.reason;
-            }
-            // If item's to_date is earlier, keep current to_date (already set)
-          } else {
-            // Not consecutive and doesn't overlap, save current range and start a new one
-            ranges.push(currentRange);
-            currentRange = {
-              employee: item.employee,
-              code: item.code,
-              from_date: fromDate,
-              to_date: toDate,
-              request_id: item.request_id || null,
-              reason: item.reason || null,
-              request_ids: item.request_id ? [item.request_id] : [],
-            };
-          }
-        } else {
-          // Different employee or code, save current range and start new one
-          ranges.push(currentRange);
-          currentRange = {
-            employee: item.employee,
-            code: item.code,
-            from_date: fromDate,
-            to_date: toDate,
-            request_id: item.request_id || null,
-            reason: item.reason || null,
-            request_ids: item.request_id ? [item.request_id] : [],
-          };
-        }
-      } catch (error) {
-        console.error('Error processing time off item:', item, error);
-        // Skip invalid items
-        continue;
-      }
-    }
-
-    // Don't forget the last range
-    if (currentRange) {
-      ranges.push(currentRange);
-    }
-
-    // Clean up request_ids array - if all request_ids are the same, use that as the main request_id
-    ranges.forEach(range => {
-      if (range.request_ids && range.request_ids.length > 0) {
-        const uniqueIds = Array.from(new Set(range.request_ids));
-        if (uniqueIds.length === 1) {
-          // All days have the same request_id, use it as the main request_id
-          range.request_id = uniqueIds[0];
-        }
-        // Keep request_ids array for cases where multiple different requests are grouped
-      }
-    });
-
-    return ranges;
-  };
-
-  // Expand ranges back into individual days (for saving to backend)
+  // Expand ranges back into individual days (ONLY for solver - backend handles this automatically)
+  // NOTE: We now save ranges directly to database, not expanded days
+  // This function is kept for potential future use but is NOT called when saving
   const expandRangesToDays = (ranges: any[]): any[] => {
     const days: any[] = [];
 
@@ -1410,17 +1287,11 @@ export const RosterGenerator: React.FC = () => {
                     console.warn(`⚠️ Found ${entriesWithoutIds.length} leave entries without request_id:`, entriesWithoutIds);
                   }
                   
-                  // Get month data
+                  // Get month data - use ranges directly as they come from backend
                   const monthData = getMonthData(filteredTimeOff, 'from_date');
-                  // Group consecutive days into ranges
-                  const grouped = groupTimeOffIntoRanges(monthData);
-                  
-                  // Log grouped ranges
-                  const rangesWithIds = grouped.filter((r: any) => r.request_id);
-                  console.log(`📋 Leave ranges: ${rangesWithIds.length}/${grouped.length} have request_id`);
                   
                   // Preserve original values for matching during edits
-                  return grouped.map((range: any) => ({
+                  return monthData.map((range: any) => ({
                     ...range,
                     _originalRequestId: range.request_id,
                     _originalRequestIds: range.request_ids || (range.request_id ? [range.request_id] : []),
@@ -1452,11 +1323,10 @@ export const RosterGenerator: React.FC = () => {
                       leaveTypes.some(lt => lt.code === item.code)
                     );
                     const monthData = getMonthData(filteredTimeOff, 'from_date');
-                    const originalGrouped = groupTimeOffIntoRanges(monthData);
                     
                     // Create a map of original ranges by their unique key for faster lookup
                     const originalMap = new Map<string, any>();
-                    originalGrouped.forEach((orig: any, idx: number) => {
+                    monthData.forEach((orig: any, idx: number) => {
                       // Use multiple keys for matching: by index, by original values, and by request_id
                       if (orig.request_id) {
                         originalMap.set(`req_${orig.request_id}`, orig);
@@ -1623,9 +1493,9 @@ export const RosterGenerator: React.FC = () => {
                       request_id: r.request_id,
                     })));
                     
-                    // Expand grouped ranges back to individual days
-                    const expandedDays = expandRangesToDays(normalizedGroupedData);
-                    console.log('📆 Expanded to', expandedDays.length, 'individual days');
+                    // IMPORTANT: Keep ranges as ranges when saving - don't expand to individual days
+                    // Expansion only happens when generating schedule (for solver)
+                    // This prevents requests from being split into multiple database entries
                     
                     // Get all time_off data (including shift codes for solver)
                     const allTimeOff = rosterData?.time_off || [];
@@ -1646,12 +1516,12 @@ export const RosterGenerator: React.FC = () => {
                       }
                       const inMonth = itemDate.getFullYear() === selectedYear && 
                                      itemDate.getMonth() + 1 === selectedMonth;
-                      // Remove leave types that are in this month (we'll replace them with expandedDays)
+                      // Remove leave types that are in this month (we'll replace them with ranges)
                       return !inMonth;
                     });
                     
-                    // Combine with expanded days
-                    const newData = [...otherTimeOff, ...expandedDays];
+                    // Combine with ranges (NOT expanded days) - backend will handle ranges correctly
+                    const newData = [...otherTimeOff, ...normalizedGroupedData];
                     handleTimeOffChange(newData);
                   }}
                   onDeleteRow={async (index) => {
@@ -1660,10 +1530,9 @@ export const RosterGenerator: React.FC = () => {
                       leaveTypes.some(lt => lt.code === item.code)
                     );
                     const monthData = getMonthData(filteredTimeOff, 'from_date');
-                    const groupedData = groupTimeOffIntoRanges(monthData);
                     
-                    if (index >= 0 && index < groupedData.length) {
-                      const rangeToDelete = groupedData[index];
+                    if (index >= 0 && index < monthData.length) {
+                      const rangeToDelete = monthData[index];
                       console.log('🗑️ Deleting time-off range:', rangeToDelete);
                       
                       // Normalize dates to ISO strings (YYYY-MM-DD) for comparison
