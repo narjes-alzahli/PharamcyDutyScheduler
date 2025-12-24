@@ -217,6 +217,7 @@ export interface TimeOffEntry {
   from_date: string;
   to_date: string;
   code: string;
+  request_id?: string;  // If provided, update this specific request; if undefined, always create new
 }
 
 export interface LockEntry {

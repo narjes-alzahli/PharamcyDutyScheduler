@@ -58,6 +58,7 @@ class TimeOffEntry(BaseModel):
     from_date: str
     to_date: str
     code: str
+    request_id: Optional[str] = None  # If provided, update this specific request; if None, always create new
 
 
 class LockEntry(BaseModel):
@@ -460,24 +461,32 @@ async def update_time_off(
                     detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
                 )
         
-        # Check if request already exists (same employee, leave type, dates, and reason)
-        existing_request = db.query(LeaveRequest).filter(
-            LeaveRequest.user_id == user.id,
-            LeaveRequest.leave_type_id == leave_type.id,
-            LeaveRequest.from_date == from_date,
-            LeaveRequest.to_date == to_date,
-            LeaveRequest.reason == 'Added via Roster Generator',
-            LeaveRequest.status == RequestStatus.APPROVED
-        ).first()
+        # IMPORTANT: Only update if entry has a request_id (indicating it's an edit)
+        # If no request_id, always create a new request (even if one exists with same dates)
+        existing_request = None
+        if entry.request_id:
+            # Try to parse request_id to get the database ID
+            request_id_str = str(entry.request_id)
+            if request_id_str.startswith('LR_'):
+                try:
+                    request_db_id = int(request_id_str.split('_')[1])
+                    existing_request = db.query(LeaveRequest).filter(
+                        LeaveRequest.id == request_db_id,
+                        LeaveRequest.user_id == user.id,
+                        LeaveRequest.leave_type_id == leave_type.id,
+                        LeaveRequest.reason == 'Added via Roster Generator'
+                    ).first()
+                except (ValueError, IndexError):
+                    pass  # Invalid request_id format, treat as new
         
         if existing_request:
-            # Update existing request (dates might have changed)
+            # Update existing request (explicit edit via request_id)
             existing_request.from_date = from_date
             existing_request.to_date = to_date
             updated_leave_count += 1
             logger.info(f"Updated leave request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code}")
         else:
-            # Create new request
+            # Always create new request if no request_id (new entry)
             new_request = LeaveRequest(
                 user_id=user.id,
                 leave_type_id=leave_type.id,
@@ -543,25 +552,32 @@ async def update_time_off(
                     detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
                 )
         
-        # Check if request already exists (same employee, shift type, dates, force, and reason)
-        existing_request = db.query(ShiftRequest).filter(
-            ShiftRequest.user_id == user.id,
-            ShiftRequest.shift_type_id == shift_type.id,
-            ShiftRequest.from_date == from_date,
-            ShiftRequest.to_date == to_date,
-            ShiftRequest.force == True,
-            ShiftRequest.reason == 'Added via Roster Generator',
-            ShiftRequest.status == RequestStatus.APPROVED
-        ).first()
+        # IMPORTANT: Only update if entry has a request_id (indicating it's an edit)
+        # If no request_id, always create a new request (even if one exists with same dates)
+        existing_request = None
+        if entry.request_id:
+            # Try to parse request_id to get the database ID
+            request_id_str = str(entry.request_id)
+            if request_id_str.startswith('SR_'):
+                try:
+                    request_db_id = int(request_id_str.split('_')[1])
+                    existing_request = db.query(ShiftRequest).filter(
+                        ShiftRequest.id == request_db_id,
+                        ShiftRequest.user_id == user.id,
+                        ShiftRequest.shift_type_id == shift_type.id,
+                        ShiftRequest.reason == 'Added via Roster Generator'
+                    ).first()
+                except (ValueError, IndexError):
+                    pass  # Invalid request_id format, treat as new
         
         if existing_request:
-            # Update existing request (dates might have changed)
+            # Update existing request (explicit edit via request_id)
             existing_request.from_date = from_date
             existing_request.to_date = to_date
             updated_shift_count += 1
             logger.info(f"Updated shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
         else:
-            # Create new shift request with force=True (for non-standard shifts that appear in time_off)
+            # Always create new request if no request_id (new entry)
             new_request = ShiftRequest(
                 user_id=user.id,
                 shift_type_id=shift_type.id,

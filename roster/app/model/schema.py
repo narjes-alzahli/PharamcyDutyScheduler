@@ -130,7 +130,9 @@ class RosterData:
         self.daily_requirements = [DailyRequirement(**row) for row in records]
         
     def _load_leave(self) -> None:
-        """Load leave from CSV."""
+        """Load leave from CSV (if file exists)."""
+        # Note: CSV files are created dynamically by the backend solver from database data
+        # This method reads them when they exist in the data directory
         if (self.data_dir / "time_off.csv").exists():
             df = pd.read_csv(self.data_dir / "time_off.csv")
             # Clean data - remove rows with empty dates
@@ -140,9 +142,13 @@ class RosterData:
             # Remove any rows that still have NaT dates
             df = df.dropna(subset=['from_date', 'to_date'])
             self.leave = [Leave(**row) for row in df.to_dict("records")]
+        else:
+            self.leave = []
             
     def _load_special_requirements(self) -> None:
-        """Load special requirements from CSV."""
+        """Load special requirements from CSV (if file exists)."""
+        # Note: CSV files are created dynamically by the backend solver from database data
+        # This method reads them when they exist in the data directory
         if (self.data_dir / "locks.csv").exists():
             df = pd.read_csv(self.data_dir / "locks.csv")
             # Clean data - remove rows with empty dates
@@ -152,6 +158,8 @@ class RosterData:
             # Remove any rows that still have NaT dates
             df = df.dropna(subset=['from_date', 'to_date'])
             self.special_requirements = [SpecialRequirement(**row) for row in df.to_dict("records")]
+        else:
+            self.special_requirements = []
     
     def _load_holidays(self) -> None:
         """Load holidays from separate CSV file (for pending_off calculation only)."""

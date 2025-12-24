@@ -495,6 +495,6 @@ def add_cl_availability_constraints(
 ) -> None:
     """Ensure at most 1 CL person is on leave at any time."""
     # For now, this is handled by the data - we'll ensure only 1 CL person
-    # has leave requests at a time in the time_off.csv file
+    # has leave requests at a time in the database
     # This constraint can be expanded later if needed
     pass

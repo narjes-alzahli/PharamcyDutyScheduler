@@ -646,35 +646,6 @@ async def approve_leave_request(
             req.approved_at = datetime.now()
             db.commit()
     
-            # Add to time_off CSV (legacy integration)
-            try:
-                import pandas as pd
-                time_off_file = Path("roster/app/data/time_off.csv")
-                if time_off_file.exists():
-                    time_off_df = pd.read_csv(time_off_file)
-                else:
-                    time_off_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'code'])
-                
-                existing = time_off_df[
-                    (time_off_df['employee'] == req.user.employee_name) &
-                    (time_off_df['from_date'] == req.from_date.isoformat()) &
-                    (time_off_df['to_date'] == req.to_date.isoformat()) &
-                    (time_off_df['code'] == req.leave_type.code)
-                ]
-                
-                if existing.empty:
-                    new_entry = pd.DataFrame([{
-                        'employee': req.user.employee_name,
-                        'from_date': req.from_date.isoformat(),
-                        'to_date': req.to_date.isoformat(),
-                        'code': req.leave_type.code
-                    }])
-                    time_off_df = pd.concat([time_off_df, new_entry], ignore_index=True)
-                    time_off_file.parent.mkdir(parents=True, exist_ok=True)
-                    time_off_df.to_csv(time_off_file, index=False)
-            except Exception as e:
-                print(f"Warning: Failed to add approved leave to roster: {e}")
-    
             db.refresh(req)
             return {"message": "Leave request approved successfully", "request": leave_request_to_dict(req)}
     
@@ -735,38 +706,6 @@ async def approve_shift_request(
             req.approved_by = current_user['employee_name']
             req.approved_at = datetime.now()
             db.commit()
-    
-            # Add to locks CSV (legacy integration)
-            try:
-                import pandas as pd
-                locks_file = Path("roster/app/data/locks.csv")
-                if locks_file.exists():
-                    locks_df = pd.read_csv(locks_file)
-                else:
-                    locks_df = pd.DataFrame(columns=['employee', 'from_date', 'to_date', 'shift', 'force'])
-                
-                shift_code = req.shift_type.code if req.shift_type else 'UNKNOWN'
-                existing = locks_df[
-                    (locks_df['employee'] == req.user.employee_name) &
-                    (locks_df['from_date'] == req.from_date.isoformat()) &
-                    (locks_df['to_date'] == req.to_date.isoformat()) &
-                    (locks_df['shift'] == shift_code) &
-                    (locks_df['force'] == req.force)
-                ]
-                
-                if existing.empty:
-                    new_entry = pd.DataFrame([{
-                        'employee': req.user.employee_name,
-                        'from_date': req.from_date.isoformat(),
-                        'to_date': req.to_date.isoformat(),
-                        'shift': shift_code,
-                        'force': req.force
-                    }])
-                    locks_df = pd.concat([locks_df, new_entry], ignore_index=True)
-                    locks_file.parent.mkdir(parents=True, exist_ok=True)
-                    locks_df.to_csv(locks_file, index=False)
-            except Exception as e:
-                print(f"Warning: Failed to add approved shift to roster: {e}")
     
             db.refresh(req)
             return {"message": "Shift request approved successfully", "request": shift_request_to_dict(req)}
