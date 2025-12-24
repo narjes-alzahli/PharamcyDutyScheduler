@@ -157,73 +157,52 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-4">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <button
-                className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 md:hidden flex-shrink-0"
-                onClick={() => setIsMobileNavOpen(true)}
-                aria-label="Open navigation menu"
-              >
-                <span className="text-lg">☰</span>
-              </button>
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 whitespace-nowrap flex-shrink-0">📅 Staff Rostering System</h1>
-            </div>
-            <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
-              <span className="hidden text-sm text-gray-600 sm:inline">
-                Welcome, {user?.employee_name}
-              </span>
-              <button
-                onClick={handleLogout}
-                className="rounded-lg px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
+    <div className="min-h-screen bg-blue-50">
+      {/* Mobile menu button */}
+      <div className="md:hidden bg-white shadow-sm sticky top-0 z-30">
+        <div className="flex items-center justify-between px-4 py-3">
+          <button
+            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 flex-shrink-0"
+            onClick={() => setIsMobileNavOpen(true)}
+            aria-label="Open navigation menu"
+          >
+            <span className="text-lg">☰</span>
+          </button>
         </div>
-      </header>
+      </div>
 
       <div className="flex flex-col md:flex-row">
         {/* Sidebar */}
-        <aside className="hidden min-h-screen w-64 bg-white shadow-sm md:block">
-          <nav className="space-y-2 p-4">
-            {navigation.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setShowPasswordForm(false)}
-                className={`flex items-center justify-between rounded-lg px-4 py-2 transition-colors ${
-                  location.pathname === item.path
-                    ? 'bg-primary-100 font-medium text-primary-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                <span>{item.name}</span>
-                {item.path === '/users' && pendingRequestCount > 0 && (
-                  <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
-                    {pendingRequestCount}
-                  </span>
-                )}
-              </Link>
-            ))}
-            {user && (
-              <div className="mt-4 border-t border-gray-200 pt-4">
-                <button
-                  onClick={() => setShowPasswordForm(!showPasswordForm)}
-                  className="w-full rounded-lg px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+        <aside className="hidden h-screen w-64 bg-white shadow-sm md:block flex flex-col sticky top-0">
+          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+            <h1 className="text-3xl font-bold text-gray-900">Dawami Plus</h1>
+          </div>
+          <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+            <nav className="space-y-2 p-4 flex-1">
+              {navigation.map((item) => (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setShowPasswordForm(false)}
+                  className={`flex items-center justify-between rounded-lg px-4 py-2 transition-colors ${
+                    location.pathname === item.path
+                      ? 'bg-primary-100 font-medium text-primary-700'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
                 >
-                  Change Password
-                </button>
-              </div>
-            )}
-          </nav>
+                  <span>{item.name}</span>
+                  {item.path === '/users' && pendingRequestCount > 0 && (
+                    <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
+                      {pendingRequestCount}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </nav>
+          </div>
 
           {user && showPasswordForm && (
-            <div className="border-t border-gray-200 p-4">
+            <div className="border-t border-gray-200 p-4 bg-white flex-shrink-0">
               <form onSubmit={handlePasswordChange} className="space-y-3">
                 <input
                   type="password"
@@ -264,14 +243,31 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               </form>
             </div>
           )}
+
+          <div className="border-t border-gray-200 bg-white p-4 space-y-2 flex-shrink-0">
+            {user && (
+              <button
+                onClick={() => setShowPasswordForm(!showPasswordForm)}
+                className="w-full rounded-lg px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Change Password
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="w-full rounded-lg px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+            >
+              Logout
+            </button>
+          </div>
         </aside>
 
         {/* Mobile navigation drawer */}
         {isMobileNavOpen && (
           <div className="fixed inset-0 z-40 flex md:hidden">
-            <div className="h-full w-72 max-w-full overflow-y-auto bg-white shadow-xl">
-              <div className="flex items-center justify-between border-b border-gray-200 px-4 py-4">
-                <span className="text-base font-semibold text-gray-900">Menu</span>
+            <div className="h-full w-72 max-w-full bg-white shadow-xl flex flex-col">
+              <div className="flex items-center justify-between border-b border-gray-200 px-4 py-4 flex-shrink-0">
+                <h1 className="text-2xl font-bold text-gray-900">Dawami Plus</h1>
                 <button
                   onClick={() => setIsMobileNavOpen(false)}
                   className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
@@ -280,83 +276,96 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                   ✕
                 </button>
               </div>
-              <nav className="space-y-2 p-4">
-                {navigation.map((item) => (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    onClick={() => {
-                      setShowPasswordForm(false);
-                      setIsMobileNavOpen(false);
-                    }}
-                    className={`flex items-center justify-between rounded-lg px-4 py-2 text-sm transition-colors ${
-                      location.pathname === item.path
-                        ? 'bg-primary-100 font-medium text-primary-700'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <span>{item.name}</span>
-                    {item.path === '/users' && pendingRequestCount > 0 && (
-                      <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
-                        {pendingRequestCount}
-                      </span>
-                    )}
-                  </Link>
-                ))}
-              </nav>
-              {user && (
-                <div className="border-t border-gray-200 p-4">
+              <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+                <nav className="space-y-2 p-4 flex-1">
+                  {navigation.map((item) => (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => {
+                        setShowPasswordForm(false);
+                        setIsMobileNavOpen(false);
+                      }}
+                      className={`flex items-center justify-between rounded-lg px-4 py-2 text-sm transition-colors ${
+                        location.pathname === item.path
+                          ? 'bg-primary-100 font-medium text-primary-700'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <span>{item.name}</span>
+                      {item.path === '/users' && pendingRequestCount > 0 && (
+                        <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
+                          {pendingRequestCount}
+                        </span>
+                      )}
+                    </Link>
+                  ))}
+                </nav>
+              </div>
+              {user && showPasswordForm && (
+                <div className="border-t border-gray-200 p-4 bg-white flex-shrink-0">
+                  <form onSubmit={handlePasswordChange} className="space-y-3">
+                    <input
+                      type="password"
+                      placeholder="Current Password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <input
+                      type="password"
+                      placeholder="New Password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <input
+                      type="password"
+                      placeholder="Confirm Password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <div className="flex space-x-2">
+                      <button
+                        type="submit"
+                        className="flex-1 rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700"
+                      >
+                        Update
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPasswordForm(false);
+                          setIsMobileNavOpen(false);
+                        }}
+                        className="flex-1 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-300"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+              <div className="border-t border-gray-200 bg-white p-4 space-y-2 flex-shrink-0">
+                {user && (
                   <button
                     onClick={() => setShowPasswordForm((prev) => !prev)}
                     className="w-full rounded-lg px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
                   >
                     Change Password
                   </button>
-                  {showPasswordForm && (
-                    <form onSubmit={handlePasswordChange} className="mt-4 space-y-3">
-                      <input
-                        type="password"
-                        placeholder="Current Password"
-                        value={currentPassword}
-                        onChange={(e) => setCurrentPassword(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      />
-                      <input
-                        type="password"
-                        placeholder="New Password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      />
-                      <input
-                        type="password"
-                        placeholder="Confirm Password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      />
-                      <div className="flex space-x-2">
-                        <button
-                          type="submit"
-                          className="flex-1 rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700"
-                        >
-                          Update
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowPasswordForm(false);
-                            setIsMobileNavOpen(false);
-                          }}
-                          className="flex-1 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-300"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-              )}
+                )}
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setIsMobileNavOpen(false);
+                  }}
+                  className="w-full rounded-lg px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
             <div
               className="flex-1 bg-black/30"

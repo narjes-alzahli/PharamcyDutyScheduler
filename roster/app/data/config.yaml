@@ -4,20 +4,39 @@
 weights:
   unfilled_coverage: 1000.0  # High penalty for not meeting coverage
   fairness: 5.0             # Weight for fair distribution of shifts
-  area_switching: 1.0       # Penalty for switching between areas
+  area_switching: 0.0       # Penalty for switching between areas
   do_after_n: 1.0          # Reward for day off after night shift
 
 # Codes that count as rest days for weekly rest constraints
 rest_codes:
-  - "DO"  # Day off
-  - "O"   # Off
-  - "ML"  # Maternity leave
-  - "W"   # Weekend
+  - "DO"   # Day Off
+  - "AL"   # Annual Leave
+  - "ML"   # Maternity Leave
+  - "W"    # Workshop
+  - "UL"   # Unpaid Leave
+  - "APP"  # Appointment
+  - "STL"  # Study Leave
+  - "L"    # Leave
+  - "O"    # Off Duty
 
 # Forbidden shift sequences (from shift -> to shift)
 forbidden_adjacencies:
   - ["N", "M"]  # No main shift after night shift
   - ["A", "N"]  # No night shift after evening shift
+  - ["N", "N"]  # No back-to-back night shifts
 
 # Minimum rest days required per 7-day window
 weekly_rest_minimum: 1
+
+# Required rest days after specific shifts
+# Format: shift -> number of rest days -> rest code to use
+required_rest_after_shifts:
+  - shift: "N"    # Night shift
+    rest_days: 2  # Requires 2 rest days after
+    rest_code: "O"  # Use "O" (Off Duty) as rest code
+  - shift: "M4"   # M4 shift
+    rest_days: 1
+    rest_code: "O"
+  - shift: "A"    # Afternoon shift
+    rest_days: 1
+    rest_code: "O"

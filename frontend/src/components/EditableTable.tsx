@@ -199,12 +199,16 @@ export const EditableTable: React.FC<EditableTableProps> = ({
                 console.log(`📅 CalendarDatePicker: normalized to ISO format: ${isoDate}`);
                 
                 // Validate date range if editing from_date or to_date
+                // Use localData instead of data to get the current state
                 if (col.key === 'from_date' || col.key === 'to_date') {
-                  const currentRow = data[rowIndex];
+                  const currentRow = localData[rowIndex];
                   const otherDateKey = col.key === 'from_date' ? 'to_date' : 'from_date';
-                  const otherDate = parseDateToISO(currentRow[otherDateKey]);
+                  const otherDate = parseDateToISO(currentRow?.[otherDateKey]);
                   
-                  console.log(`📅 Date validation: ${col.key}=${isoDate}, ${otherDateKey}=${otherDate}`);
+                  console.log(`📅 Date validation: ${col.key}=${isoDate}, ${otherDateKey}=${otherDate}`, {
+                    currentRow,
+                    localDataLength: localData.length,
+                  });
                   
                   if (otherDate && isoDate) {
                     if (col.key === 'from_date' && isoDate > otherDate) {
@@ -345,8 +349,12 @@ export const EditableTable: React.FC<EditableTableProps> = ({
                   <button
                     onClick={() => onDeleteRow(originalIndex)}
                     className="text-red-600 hover:text-red-800"
+                    title="Delete"
+                    aria-label="Delete"
                   >
-                    Delete
+                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                      <path d="M3 6h14M8 6V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2m3 0v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM8 9v6M12 9v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                   </button>
                 </td>
               )}

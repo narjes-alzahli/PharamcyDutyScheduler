@@ -410,7 +410,7 @@ export const RosterRequests: React.FC = () => {
       <div className="pb-16">
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-2">
-            <h2 className="text-2xl font-bold text-gray-900 sm:text-3xl">Roster Requests</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Roster Requests</h2>
             <p className="text-sm text-gray-600 sm:text-base">
               Submit new leave or shift preferences and track existing requests in one place.
             </p>
@@ -457,7 +457,7 @@ export const RosterRequests: React.FC = () => {
                     : 'text-gray-500 hover:text-gray-700 sm:border-transparent sm:hover:border-gray-300'
               }`}
             >
-              🏖️ Leave Requests
+              Leave Requests
             </button>
             <button
               onClick={() => setActiveTab('shift')}
@@ -467,7 +467,7 @@ export const RosterRequests: React.FC = () => {
                     : 'text-gray-500 hover:text-gray-700 sm:border-transparent sm:hover:border-gray-300'
               }`}
             >
-              🔒 Shift Requests
+              Shift Requests
             </button>
           </nav>
         </div>
@@ -617,9 +617,14 @@ export const RosterRequests: React.FC = () => {
                             <button
                               onClick={() => handleDeleteLeave(req.request_id)}
                               disabled={processingRequestId === req.request_id}
-                              className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                              className="rounded-full bg-gray-700 p-1.5 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                              title="Remove request"
+                              aria-label="Remove request"
                             >
-                              {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                           </div>
                         )}
@@ -692,9 +697,14 @@ export const RosterRequests: React.FC = () => {
                                   <button
                                     onClick={() => handleDeleteLeave(req.request_id)}
                                     disabled={processingRequestId === req.request_id}
-                                    className="rounded-lg bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                                    className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                                    title="Remove request"
+                                    aria-label="Remove request"
                                   >
-                                    {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                      <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
                                   </button>
                                 </div>
                               ) : (
@@ -890,9 +900,14 @@ export const RosterRequests: React.FC = () => {
                             <button
                               onClick={() => handleDeleteShift(req.request_id)}
                               disabled={processingRequestId === req.request_id}
-                              className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                              className="rounded-full bg-gray-700 p-1.5 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                              title="Remove request"
+                              aria-label="Remove request"
                             >
-                              {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                           </div>
                         )}
@@ -971,9 +986,14 @@ export const RosterRequests: React.FC = () => {
                                   <button
                                     onClick={() => handleDeleteShift(req.request_id)}
                                     disabled={processingRequestId === req.request_id}
-                                    className="rounded-lg bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                                    className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                                    title="Remove request"
+                                    aria-label="Remove request"
                                   >
-                                    {processingRequestId === req.request_id ? 'Removing...' : 'Delete'}
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                      <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                      <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
                                   </button>
                                 </div>
                               ) : (

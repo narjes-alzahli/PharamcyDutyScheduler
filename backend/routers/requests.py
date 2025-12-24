@@ -198,17 +198,31 @@ async def update_leave_request(
     db: Session = Depends(get_db)
 ):
     """Update an existing leave request while it is pending."""
+    import logging
+    logger = logging.getLogger(__name__)
+    print(f"🔵 [backend] update_leave_request called: request_id={request_id}, update={update}")
+    logger.info(f"🔵 [backend] update_leave_request called: request_id={request_id}, update={update}")
+    
     db_id = parse_request_id(request_id)
+    print(f"📋 Parsed db_id: {db_id}")
     if not db_id:
         raise HTTPException(status_code=404, detail="Leave request not found")
     
-    req = db.query(LeaveRequestModel).filter(LeaveRequestModel.id == db_id).first()
+    print(f"🔍 Querying database for LeaveRequestModel.id={db_id}")
+    # Eagerly load relationships to avoid N+1 queries (like shift requests do)
+    req = db.query(LeaveRequestModel).options(
+        joinedload(LeaveRequestModel.user),
+        joinedload(LeaveRequestModel.leave_type)
+    ).filter(LeaveRequestModel.id == db_id).first()
+    print(f"📊 Query result: req={req is not None}")
     if not req:
         raise HTTPException(status_code=404, detail="Leave request not found")
 
     # Check authorization
+    print(f"🔐 Checking authorization: user_type={current_user.get('employee_type')}, req_user={req.user.employee_name if req.user else 'None'}")
     if current_user['employee_type'] != 'Manager' and req.user.employee_name != current_user['employee_name']:
         raise HTTPException(status_code=403, detail="Not authorized to modify this request")
+    print("✅ Authorization passed")
 
     # Allow managers to update "Added via Roster Generator" requests even if they're approved
     # Regular employee requests can only be updated while pending
@@ -261,9 +275,9 @@ async def update_leave_request(
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
     # Update leave type if changed
-        leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
-        if not leave_type:
-            raise HTTPException(status_code=400, detail=f"Leave type '{update.leave_type}' not found")
+    leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
+    if not leave_type:
+        raise HTTPException(status_code=400, detail=f"Leave type '{update.leave_type}' not found")
 
     # Update employee/user if provided and user is a manager (for "Added via Roster Generator" requests)
     is_manager = current_user['employee_type'] == 'Manager'
@@ -274,13 +288,22 @@ async def update_leave_request(
             raise HTTPException(status_code=400, detail=f"Employee '{update.employee}' not found")
         req.user_id = new_user.id
     
+    print(f"💾 Updating request: from_date={from_date}, to_date={to_date}, leave_type_id={leave_type.id}")
     req.from_date = from_date
     req.to_date = to_date
     req.leave_type_id = leave_type.id
     req.reason = update.reason or ''
+    
+    print("💾 Committing to database...")
     db.commit()
+    print("✅ Commit successful")
+    
+    # Use db.refresh like shift requests do (simpler and faster than full query reload)
     db.refresh(req)
+    print("✅ Refresh successful")
 
+    print(f"🟢 [backend] update_leave_request completed successfully: request_id={request_id}")
+    logger.info(f"🟢 [backend] update_leave_request completed successfully: request_id={request_id}")
     return {"message": "Leave request updated successfully", "request": leave_request_to_dict(req)}
 
 

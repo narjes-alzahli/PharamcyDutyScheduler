@@ -1,31 +1,41 @@
+# Docker images
+*.tar
+pharmacy-*.tar
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual Environment
 scheduler_env/
 venv/
-ENV/
 env/
+ENV/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Build artifacts
+frontend/build/
+frontend/build.zip
+*.zip
 
 # IDE
 .vscode/
@@ -38,49 +48,11 @@ env/
 .DS_Store
 Thumbs.db
 
-# React
-frontend/node_modules/
-frontend/build/
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
-
 # Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+*.log
+logs/
 
 # Testing
 .coverage
 .pytest_cache/
 htmlcov/
-
-# Data files (optional - uncomment if you want to ignore data)
-# roster/app/data/*.csv
-# roster/app/data/*.json
-
-# Environment files
-.env
-.env.local
-
-# Database files
-*.db
-roster.db
-*.sqlite
-*.sqlite3
-
-# Database backups (optional - uncomment if you want to ignore backups)
-database_backups/
-*.sql
-
-# Python cache (already ignored above, but explicit)
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Build artifacts
-*.egg-info/
-dist/
-build/
-

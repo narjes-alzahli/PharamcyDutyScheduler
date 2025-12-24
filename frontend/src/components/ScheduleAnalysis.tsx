@@ -195,7 +195,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
               {(() => {
                 return fairnessData.weekendData.length > 0 ? (
                   <div>
-                    <h4 className="font-semibold mb-2">📅 Weekend Shift Distribution</h4>
+                    <h4 className="font-semibold mb-2">Weekend Shift Distribution</h4>
                     <Plot
                       data={[
                         {
@@ -223,7 +223,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
               {(() => {
                 return fairnessData.workingData.length > 0 ? (
                   <div>
-                    <h4 className="font-semibold mb-2">📊 Total Working Days</h4>
+                    <h4 className="font-semibold mb-2">Total Working Days</h4>
                     <Plot
                       data={[
                         {

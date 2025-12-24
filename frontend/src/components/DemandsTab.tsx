@@ -528,7 +528,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   return (
     <div>
       <div className="mb-4">
-        <h3 className="text-xl font-bold text-gray-900">📋 Staffing Needs</h3>
+        <h3 className="text-xl font-bold text-gray-900">Staffing Needs</h3>
         <p className="text-gray-600">Set how many staff members are needed for each shift type on each day</p>
       </div>
 

@@ -344,21 +344,32 @@ export const RosterGenerator: React.FC = () => {
   };
 
   const handleTimeOffChange = async (newData: any[]) => {
-    // Prevent save loop - if we're already saving, skip
+    // Prevent concurrent API calls - if we're already in the middle of an API call, skip
+    // But allow new saves if we're just waiting for debounce timeout
     if (isSavingTimeOffRef.current) {
-      console.log('⏭️ Skipping save - already saving time off');
+      console.log('⏭️ Skipping save - API call in progress');
+      // Still update local state so UI reflects the change
+      setRosterData((prev: any) => (prev ? { ...prev, time_off: newData } : prev));
       return;
     }
     
     console.log('handleTimeOffChange called with', newData.length, 'items:', newData);
+    
+    // Store original data BEFORE updating state (needed for change detection)
+    const originalTimeOff = rosterData?.time_off || [];
+    
     clearGeneratedResults();
     setRosterData((prev: any) => (prev ? { ...prev, time_off: newData } : prev));
 
     if (timeOffSaveTimeoutRef.current) {
       clearTimeout(timeOffSaveTimeoutRef.current);
+      // If we cleared a timeout, that means we're starting a new save cycle
+      // The previous save never actually executed, so it's safe to proceed
     }
 
     timeOffSaveTimeoutRef.current = setTimeout(async () => {
+      console.log('⏰ setTimeout callback executing - starting save process...');
+      // Set flag at the start of actual API operations
       isSavingTimeOffRef.current = true;
       try {
         // Normalize dates to ensure YYYY-MM-DD format before saving
@@ -456,94 +467,221 @@ export const RosterGenerator: React.FC = () => {
           }
         });
         
-        // Update existing leave requests via API
+        // Update existing leave requests via API - ONLY if dates actually changed
         // For each request_id, find the min from_date and max to_date to update the single request
+        let hadSuccessfulUpdates = false;
         if (leaveRequestsByRequestId.size > 0) {
-          console.log('🔄 Updating existing leave requests:', leaveRequestsByRequestId.size, Array.from(leaveRequestsByRequestId.keys()));
-          await Promise.all(
-            Array.from(leaveRequestsByRequestId.entries()).map(async ([requestId, items]) => {
-              try {
-                // Normalize all dates to ISO format (YYYY-MM-DD) before finding min/max
-                const normalizedItems = items.map((item: any) => {
-                  const isoFrom = parseDateToISO(item.from_date);
-                  const isoTo = parseDateToISO(item.to_date);
-                  return {
-                    ...item,
-                    from_date: isoFrom || item.from_date,
-                    to_date: isoTo || item.to_date,
-                  };
-                });
-                
-                // CRITICAL: Since we now pass ranges directly (not expanded days), 
-                // each item in normalizedItems should already be a range or single day
-                // If we have a range, use it directly. If we have single days, find min/max.
-                
-                // Strategy: If we have a range (from_date != to_date), use it directly
-                // Otherwise, if all items are single days, find min/max (from old expanded data)
-                const hasRange = normalizedItems.some((item: any) => item.from_date !== item.to_date);
-                
-                let minFromDate: string;
-                let maxToDate: string;
-                
-                if (hasRange) {
-                  // We have at least one range - find the range with the widest span
-                  // This handles the case where user edited a range's dates
-                  let widestRange = normalizedItems[0];
-                  let widestSpan = 0;
-                  
-                  normalizedItems.forEach((item: any) => {
-                    const fromDate = new Date(item.from_date);
-                    const toDate = new Date(item.to_date);
-                    const span = toDate.getTime() - fromDate.getTime();
-                    if (span > widestSpan) {
-                      widestSpan = span;
-                      widestRange = item;
-                    }
+          // Get original data to compare against (use the stored original, not current state)
+          const filteredTimeOff = originalTimeOff.filter((item: any) => 
+            leaveTypes.some(lt => lt.code === item.code)
+          );
+          const originalMap = new Map<string, any>();
+          filteredTimeOff.forEach((item: any) => {
+            if (item.request_id) {
+              originalMap.set(item.request_id.toString(), item);
+            }
+          });
+          
+          console.log(`🔍 Comparing against ${originalMap.size} original leave requests for change detection`);
+          console.log(`📋 Found ${leaveRequestsByRequestId.size} leave request groups to check for changes`);
+          
+          const requestsToUpdate: Array<[string, any[]]> = [];
+          
+          // Only update requests where dates actually changed
+          Array.from(leaveRequestsByRequestId.entries()).forEach(([requestId, items]) => {
+            const originalItem = originalMap.get(requestId);
+            console.log(`🔍 Checking request ${requestId}:`, {
+              hasOriginal: !!originalItem,
+              originalDates: originalItem ? `${originalItem.from_date}/${originalItem.to_date}` : 'none',
+              itemsCount: items.length,
+            });
+            
+            if (!originalItem) {
+              // No original found, need to update
+              console.log(`⚠️ No original found for ${requestId}, will update`);
+              requestsToUpdate.push([requestId, items]);
+              return;
+            }
+            
+            // Normalize new dates
+            const normalizedItems = items.map((item: any) => ({
+              ...item,
+              from_date: parseDateToISO(item.from_date) || item.from_date,
+              to_date: parseDateToISO(item.to_date) || item.to_date,
+            }));
+            
+            const hasRange = normalizedItems.some((item: any) => item.from_date !== item.to_date);
+            let newFromDate: string;
+            let newToDate: string;
+            
+            if (hasRange) {
+              let widestRange = normalizedItems[0];
+              let widestSpan = 0;
+              normalizedItems.forEach((item: any) => {
+                const span = new Date(item.to_date).getTime() - new Date(item.from_date).getTime();
+                if (span > widestSpan) {
+                  widestSpan = span;
+                  widestRange = item;
+                }
+              });
+              newFromDate = widestRange.from_date;
+              newToDate = widestRange.to_date;
+            } else {
+              const fromDates = normalizedItems.map((item: any) => item.from_date).filter(Boolean).sort();
+              const toDates = normalizedItems.map((item: any) => item.to_date).filter(Boolean).sort();
+              newFromDate = fromDates[0];
+              newToDate = toDates[toDates.length - 1];
+            }
+            
+            // Compare with original
+            const origFrom = parseDateToISO(originalItem.from_date);
+            const origTo = parseDateToISO(originalItem.to_date);
+            
+            console.log(`📊 Comparing dates for ${requestId}:`, {
+              original: `${origFrom}/${origTo}`,
+              new: `${newFromDate}/${newToDate}`,
+              fromChanged: newFromDate !== origFrom,
+              toChanged: newToDate !== origTo,
+            });
+            
+            if (newFromDate !== origFrom || newToDate !== origTo) {
+              console.log(`✅ Request ${requestId} dates changed: ${origFrom}/${origTo} -> ${newFromDate}/${newToDate} - WILL UPDATE`);
+              requestsToUpdate.push([requestId, items]);
+            } else {
+              console.log(`⏭️ Skipping ${requestId} - dates unchanged`);
+            }
+          });
+          
+          console.log(`📊 Change detection complete: ${requestsToUpdate.length} requests need updating out of ${leaveRequestsByRequestId.size} total groups`);
+          
+          if (requestsToUpdate.length > 0) {
+            console.log(`🔄 Starting API update process for ${requestsToUpdate.length} leave requests`);
+            // Use Promise.allSettled to handle individual failures without stopping all updates
+            const updateResults = await Promise.allSettled(
+              requestsToUpdate.map(async ([requestId, items]) => {
+                try {
+                  // Normalize all dates to ISO format (YYYY-MM-DD) before finding min/max
+                  const normalizedItems = items.map((item: any) => {
+                    const isoFrom = parseDateToISO(item.from_date);
+                    const isoTo = parseDateToISO(item.to_date);
+                    return {
+                      ...item,
+                      from_date: isoFrom || item.from_date,
+                      to_date: isoTo || item.to_date,
+                    };
                   });
                   
-                  minFromDate = widestRange.from_date;
-                  maxToDate = widestRange.to_date;
-                  console.log(`📅 Using range dates directly: ${minFromDate} to ${maxToDate}`);
-                } else {
-                  // All items are single days (from old expanded data) - find min/max across all days
-                  const fromDates = normalizedItems.map((item: any) => item.from_date).filter(Boolean).sort();
-                  const toDates = normalizedItems.map((item: any) => item.to_date).filter(Boolean).sort();
+                  const hasRange = normalizedItems.some((item: any) => item.from_date !== item.to_date);
                   
-                  if (fromDates.length === 0 || toDates.length === 0) {
-                    throw new Error(`Invalid dates for request ${requestId}: fromDates=${fromDates.length}, toDates=${toDates.length}`);
+                  let minFromDate: string;
+                  let maxToDate: string;
+                  
+                  if (hasRange) {
+                    let widestRange = normalizedItems[0];
+                    let widestSpan = 0;
+                    normalizedItems.forEach((item: any) => {
+                      const span = new Date(item.to_date).getTime() - new Date(item.from_date).getTime();
+                      if (span > widestSpan) {
+                        widestSpan = span;
+                        widestRange = item;
+                      }
+                    });
+                    minFromDate = widestRange.from_date;
+                    maxToDate = widestRange.to_date;
+                  } else {
+                    const fromDates = normalizedItems.map((item: any) => item.from_date).filter(Boolean).sort();
+                    const toDates = normalizedItems.map((item: any) => item.to_date).filter(Boolean).sort();
+                    minFromDate = fromDates[0];
+                    maxToDate = toDates[toDates.length - 1];
                   }
                   
-                  minFromDate = fromDates[0];
-                  maxToDate = toDates[toDates.length - 1];
+                  if (minFromDate > maxToDate) {
+                    throw new Error(`Invalid date range for request ${requestId}: from_date (${minFromDate}) cannot be after to_date (${maxToDate})`);
+                  }
+                  
+                  const firstItem = normalizedItems[0];
+                  const updatePayload = {
+                    from_date: minFromDate,
+                    to_date: maxToDate,
+                    leave_type: firstItem.code,
+                    reason: firstItem.reason || 'Added via Roster Generator',
+                    employee: firstItem.employee,
+                  };
+                  
+                  console.log(`🔄 About to call API to update leave request ${requestId}`);
+                  console.log(`📤 API payload:`, JSON.stringify(updatePayload, null, 2));
+                  console.log(`🌐 API URL will be: PUT /api/requests/leave/${requestId}`);
+                  
+                  try {
+                    const startTime = Date.now();
+                    console.log(`⏳ Making API call now...`);
+                    
+                    // Add timeout wrapper to catch hanging requests (30 seconds should be enough)
+                    const timeoutPromise = new Promise((_, reject) => {
+                      setTimeout(() => reject(new Error('API call timeout after 30 seconds')), 30000);
+                    });
+                    
+                    console.log(`📡 Calling axios.put for /api/requests/leave/${requestId}`);
+                    const apiPromise = requestsAPI.updateLeaveRequest(requestId, updatePayload);
+                    console.log(`⏱️ Waiting for API response or timeout...`);
+                    const result = await Promise.race([apiPromise, timeoutPromise]);
+                    console.log(`📥 API promise resolved/rejected, result:`, result);
+                    
+                    const duration = Date.now() - startTime;
+                    console.log(`✅ API call completed! Updated leave request ${requestId} in database (took ${duration}ms)`, result);
+                    // Don't set hadSuccessfulUpdates here - we'll check results after Promise.allSettled
+                  } catch (apiError: any) {
+                    console.error(`❌ API call failed for ${requestId}:`, apiError);
+                    console.error('API error details:', {
+                      message: apiError.message,
+                      response: apiError.response?.data,
+                      status: apiError.response?.status,
+                      statusText: apiError.response?.statusText,
+                    });
+                    // IMPORTANT: Don't create a duplicate request when update fails!
+                    // If the update times out or fails, we should NOT add it to leaveRequestsToCreate
+                    // because:
+                    // 1. The update might have actually succeeded on the backend (slow response)
+                    // 2. Creating a duplicate would cause data integrity issues
+                    // Instead, we'll show an error and let the user retry
+                    console.warn(`⚠️ Update failed for ${requestId} - NOT creating duplicate. User should retry.`);
+                    // Don't add to leaveRequestsToCreate - this prevents duplicate creation
+                    throw apiError; // Re-throw to be caught by Promise.allSettled
+                  }
+                } catch (itemError: any) {
+                  // Handle errors in processing individual items (non-API errors like date validation)
+                  console.error(`❌ Error processing request ${requestId}:`, itemError);
+                  // Don't create duplicates for processing errors either - re-throw to be caught
+                  throw itemError;
                 }
-                
-                // Validate: from_date must be <= to_date
-                if (minFromDate > maxToDate) {
-                  throw new Error(`Invalid date range for request ${requestId}: from_date (${minFromDate}) cannot be after to_date (${maxToDate})`);
+              })
+            );
+            
+            // Check results and count successes/failures
+            const successfulUpdates = updateResults.filter(r => r.status === 'fulfilled').length;
+            const failedUpdates = updateResults.filter(r => r.status === 'rejected').length;
+            
+            if (failedUpdates > 0) {
+              console.error(`❌ ${failedUpdates} out of ${requestsToUpdate.length} update(s) failed`);
+              const errorMessages: string[] = [];
+              updateResults.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                  const [requestId] = requestsToUpdate[index];
+                  const reason = result.reason?.message || result.reason || 'Unknown error';
+                  console.error(`  - Failed: ${requestId} - ${reason}`);
+                  errorMessages.push(`${requestId}: ${reason}`);
                 }
-                
-                const firstItem = normalizedItems[0];
-                
-                await requestsAPI.updateLeaveRequest(requestId, {
-                  from_date: minFromDate,
-                  to_date: maxToDate,
-                  leave_type: firstItem.code,
-                  reason: firstItem.reason || 'Added via Roster Generator',
-                  employee: firstItem.employee, // Include employee so backend can update user_id if changed
-                });
-                
-                console.log(`✅ Successfully updated leave request ${requestId}`);
-              } catch (error: any) {
-                console.error(`❌ Failed to update leave request ${requestId}:`, error);
-                console.error('Error details:', error.response?.data);
-                // If update fails, add items to create list as fallback (but remove request_id)
-                items.forEach((item: any) => {
-                  const { request_id, request_ids, ...cleanItem } = item;
-                  leaveRequestsToCreate.push(cleanItem);
-                });
-              }
-            })
-          );
+              });
+              // Show error to user - don't create duplicates!
+              const errorMsg = `${failedUpdates} leave request update(s) failed:\n${errorMessages.join('\n')}\n\nPlease try again.`;
+              throw new Error(errorMsg);
+            }
+            
+            console.log(`✅ Finished processing ${successfulUpdates} update requests`);
+            hadSuccessfulUpdates = successfulUpdates > 0;
+          } else {
+            console.log('✅ No leave requests needed updating - all dates unchanged');
+          }
         }
         
         // Create new leave requests via updateTimeOff (which handles creation)
@@ -589,9 +727,15 @@ export const RosterGenerator: React.FC = () => {
         setSaveNotification({ message: '✅ Leave data saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
         
-        // Don't reload after successful save - we already updated state with request_ids above
-        // Reloading would trigger onDataChange again and cause infinite loops
-        // Only reload on error to sync with server state
+        // Only reload if we actually made updates (to avoid unnecessary reloads)
+        const hadUpdates = hadSuccessfulUpdates || leaveRequestsToCreateClean.length > 0;
+        if (hadUpdates) {
+          console.log('🔄 Reloading roster data to sync with server...');
+          await loadRosterData();
+          console.log('✅ Roster data reloaded, UI should now reflect saved dates');
+        } else {
+          console.log('⏭️ No updates made, skipping reload');
+        }
       } catch (error: any) {
         console.error('Failed to save time off:', error);
         setSaveNotification({
@@ -1051,7 +1195,7 @@ export const RosterGenerator: React.FC = () => {
   if (!selectedYear || !selectedMonth) {
     return (
       <div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-6">Roster Generator</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Generator</h2>
         {selectionControls}
       </div>
     );
@@ -1105,7 +1249,7 @@ export const RosterGenerator: React.FC = () => {
             <div>
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">👥 Employee Management</h3>
+                  <h3 className="text-xl font-bold text-gray-900">Employee Management</h3>
                   <p className="text-gray-600">Add, edit, or remove staff members and their skills</p>
                 </div>
                 <button
@@ -1179,6 +1323,34 @@ export const RosterGenerator: React.FC = () => {
               )}
               {rosterData?.employees && rosterData.employees.length > 0 ? (
                 <>
+                  {/* Info Cards */}
+                  <div className="grid grid-cols-4 gap-4 mb-6">
+                    <div className="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+                      <p className="text-sm text-gray-600 mb-1">Total Employees</p>
+                      <p className="text-2xl font-bold text-gray-900">{rosterData.employees.length}</p>
+                    </div>
+                    <div className="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+                      <p className="text-sm text-gray-600 mb-1">Can Work Nights</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {rosterData.employees.filter((e: any) => e.skill_N).length}
+                      </p>
+                    </div>
+                    <div className="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+                      <p className="text-sm text-gray-600 mb-1">Can Work Afternoons</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {rosterData.employees.filter((e: any) => e.skill_A).length}
+                      </p>
+                    </div>
+                    <div className="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+                      <p className="text-sm text-gray-600 mb-1">Can Work All Shifts</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {rosterData.employees.filter((e: any) => 
+                          e.skill_M && e.skill_IP && e.skill_A && e.skill_N && e.skill_M3 && e.skill_M4 && e.skill_H && e.skill_CL
+                        ).length}
+                      </p>
+                    </div>
+                  </div>
+                  
                   <EditableTable
                     data={rosterData.employees}
                     columns={[
@@ -1207,32 +1379,6 @@ export const RosterGenerator: React.FC = () => {
                       }
                     }}
                   />
-                  <div className="grid grid-cols-4 gap-4 mt-6">
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Total Employees</p>
-                      <p className="text-2xl font-bold">{rosterData.employees.length}</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Can Work Nights</p>
-                      <p className="text-2xl font-bold">
-                        {rosterData.employees.filter((e: any) => e.skill_N).length}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Can Work Afternoons</p>
-                      <p className="text-2xl font-bold">
-                        {rosterData.employees.filter((e: any) => e.skill_A).length}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Can Work All Shifts</p>
-                      <p className="text-2xl font-bold">
-                        {rosterData.employees.filter((e: any) =>
-                          e.skill_M && e.skill_IP && e.skill_A && e.skill_N && e.skill_M3 && e.skill_M4 && e.skill_H && e.skill_CL
-                        ).length}
-                      </p>
-                    </div>
-                  </div>
                 </>
               ) : (
                 <p className="text-gray-600">No employees data available.</p>
@@ -1574,38 +1720,9 @@ export const RosterGenerator: React.FC = () => {
                         }
                       }
                       
-                      // Fallback: If grouped range doesn't have request_id info, search through all items
-                      // This handles cases where grouping might have lost the information
-                      if (requestIdsToDelete.size === 0) {
-                        const allTimeOff = rosterData?.time_off || [];
-                        const itemsInRange = allTimeOff.filter((item: any) => {
-                          // Only check leave types
-                          if (!leaveTypes.some(lt => lt.code === item.code)) {
-                            return false;
-                          }
-                          
-                          const itemFromDate = normalizeDate(item.from_date);
-                          const itemDate = new Date(itemFromDate);
-                          const deleteFrom = new Date(deleteFromDate);
-                          const deleteTo = new Date(deleteToDate);
-                          
-                          return (
-                            item.employee === rangeToDelete.employee &&
-                            item.code === rangeToDelete.code &&
-                            itemDate >= deleteFrom &&
-                            itemDate <= deleteTo
-                          );
-                        });
-                        
-                        // Collect unique request_ids that are employee-requested (not "Added via Roster Generator")
-                        itemsInRange.forEach((item: any) => {
-                          const hasRequestId = item.request_id && item.request_id.trim() !== '';
-                          const isRosterGeneratorRequest = item.reason === 'Added via Roster Generator';
-                          if (hasRequestId && !isRosterGeneratorRequest) {
-                            requestIdsToDelete.add(item.request_id);
-                          }
-                        });
-                      }
+                      // IMPORTANT: Use ONLY the request_id from the row being deleted
+                      // Do NOT search for other matching items, as this would delete duplicates too!
+                      // If the row doesn't have a request_id, we'll handle it via time_off update below
                       
                       // If we have employee-requested leave requests, delete them immediately from UI, then sync with API
                       if (requestIdsToDelete.size > 0) {
@@ -1617,25 +1734,13 @@ export const RosterGenerator: React.FC = () => {
                           return true;
                         }
                         
-                          // Remove items that match the range to delete
-                        const itemFromDate = normalizeDate(item.from_date);
-                          const itemDate = new Date(itemFromDate);
-                          const deleteFrom = new Date(deleteFromDate);
-                          const deleteTo = new Date(deleteToDate);
-                          
-                          const inRange = (
-                            item.employee === rangeToDelete.employee &&
-                            item.code === rangeToDelete.code &&
-                            itemDate >= deleteFrom &&
-                            itemDate <= deleteTo
-                          );
-                          
-                          // Keep items that are NOT in the range, or are in range but don't have the request_id we're deleting
-                          if (!inRange) return true;
-                          if (inRange && item.request_id && requestIdsToDelete.has(item.request_id)) {
+                          // Only remove items that have the EXACT request_id we're deleting
+                          // IMPORTANT: Match by request_id ONLY, not by dates/employee/code
+                          // This prevents deleting duplicates with the same dates/employee/code
+                          if (item.request_id && requestIdsToDelete.has(item.request_id)) {
                             return false; // Remove this item
                           }
-                          return true;
+                          return true; // Keep all other items
                         });
                         
                         // Update UI immediately
@@ -1644,6 +1749,7 @@ export const RosterGenerator: React.FC = () => {
                         setTimeout(() => setSaveNotification(null), 2000);
                         
                         // Sync with backend in the background (don't await - fire and forget)
+                        // Delete only the specific request_id(s) from the row being deleted
                         Promise.all(
                           Array.from(requestIdsToDelete).map(requestId => 
                             requestsAPI.deleteLeaveRequest(requestId)
@@ -1672,110 +1778,82 @@ export const RosterGenerator: React.FC = () => {
                       // Get allTimeOff for use in fallback and final deletion
                       const allTimeOff = rosterData?.time_off || [];
                       
-                      // We need to get itemsInRange if we haven't already (for fallback case)
-                      let itemsInRange: any[] = [];
-                      if (requestIdsToDelete.size === 0) {
-                        itemsInRange = allTimeOff.filter((item: any) => {
-                          // Only check leave types
-                          if (!leaveTypes.some(lt => lt.code === item.code)) {
-                            return false;
-                          }
-                          
-                          const itemFromDate = normalizeDate(item.from_date);
-                          const itemDate = new Date(itemFromDate);
-                          const deleteFrom = new Date(deleteFromDate);
-                          const deleteTo = new Date(deleteToDate);
-                          
-                          return (
-                            item.employee === rangeToDelete.employee &&
-                            item.code === rangeToDelete.code &&
-                            itemDate >= deleteFrom &&
-                            itemDate <= deleteTo
-                          );
-                        });
-                      }
-                      
-                      const allRequestIds = new Set<string>();
-                      itemsInRange.forEach((item: any) => {
-                        if (item.request_id && item.request_id.trim() !== '') {
-                          allRequestIds.add(item.request_id);
+                      // This section is only for "Added via Roster Generator" requests that need to be deleted via time_off update
+                      // If the row has a request_id but reason is "Added via Roster Generator", use the request_id directly
+                      // IMPORTANT: Only use the request_id from rangeToDelete, don't search for matches!
+                      // This prevents deleting duplicates when multiple requests have the same dates/employee/code
+                      if (rangeToDelete.request_id && rangeToDelete.request_id.trim() !== '') {
+                        // Try API delete first even for "Added via Roster Generator" requests
+                        // (they can still be deleted via API if they exist in the database)
+                        try {
+                          console.log('Attempting API delete for request:', rangeToDelete.request_id);
+                          await requestsAPI.deleteLeaveRequest(rangeToDelete.request_id);
+                          console.log('Successfully deleted via API');
+                          setSaveNotification({ message: '✅ Leave request deleted!', type: 'success' });
+                          setTimeout(() => setSaveNotification(null), 2000);
+                          await loadRosterData();
+                          return;
+                        } catch (apiError: any) {
+                          console.log('API delete failed, will use time_off update method:', apiError.response?.data?.detail);
+                          // Fall through to time_off update method
                         }
-                      });
-                      
-                      if (allRequestIds.size > 0) {
-                        // IMMEDIATE UI UPDATE: Remove items from local state right away
-                        const newData = allTimeOff.filter((item: any) => {
-                          // Keep non-leave-type entries
-                          if (!leaveTypes.some(lt => lt.code === item.code)) {
-                            return true;
-                          }
-                          
-                          // Remove items that match the range to delete
-                          const itemFromDate = normalizeDate(item.from_date);
-                          const itemDate = new Date(itemFromDate);
-                          const deleteFrom = new Date(deleteFromDate);
-                          const deleteTo = new Date(deleteToDate);
-                          
-                          const inRange = (
-                            item.employee === rangeToDelete.employee &&
-                            item.code === rangeToDelete.code &&
-                            itemDate >= deleteFrom &&
-                            itemDate <= deleteTo
-                          );
-                          
-                          // Keep items that are NOT in the range, or are in range but don't have the request_id we're deleting
-                          if (!inRange) return true;
-                          if (inRange && item.request_id && allRequestIds.has(item.request_id)) {
-                            return false; // Remove this item
-                          }
-                          return true;
-                        });
-                        
-                        // Update UI immediately
-                        handleTimeOffChange(newData);
-                        setSaveNotification({ message: '✅ Leave request(s) deleted!', type: 'success' });
-                        setTimeout(() => setSaveNotification(null), 2000);
-                        
-                        // Try API delete in background (fallback case)
-                        Promise.all(
-                          Array.from(allRequestIds).map(requestId => 
-                            requestsAPI.deleteLeaveRequest(requestId)
-                          )
-                        ).then(() => {
-                          console.log('Successfully deleted leave requests from backend (fallback)');
-                          loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
-                        }).catch((error: any) => {
-                          console.log('API delete failed, using time_off update method:', error.response?.data?.detail);
-                          // Fall through to time_off update method if API delete fails
-                          // The UI is already updated, so this is just for backend sync
-                        });
-                        
-                        return; // Exit early - UI already updated
                       }
                       
-                      // Otherwise, it's a "Added via Roster Generator" request - delete via time_off update
+                      // Fallback: Delete via time_off update (for "Added via Roster Generator" requests without request_id or if API failed)
+                      // IMPORTANT: Only delete items with matching request_id OR items without request_id that match the exact range
+                      // This prevents deleting duplicates
+                      // allTimeOff is already defined above at line 1777
                       const newData = allTimeOff.filter((item: any) => {
                         // Keep non-leave-type entries
                         if (!leaveTypes.some(lt => lt.code === item.code)) {
                           return true;
                         }
                         
-                        // For leave types, check if they're in the range to delete
-                        const itemFromDate = normalizeDate(item.from_date);
-                        const itemDate = new Date(itemFromDate);
-                        const deleteFrom = new Date(deleteFromDate);
-                        const deleteTo = new Date(deleteToDate);
+                        // If the row being deleted has a request_id, only delete items with that exact request_id
+                        if (rangeToDelete.request_id && rangeToDelete.request_id.trim() !== '') {
+                          if (item.request_id === rangeToDelete.request_id) {
+                            return false; // Delete this item
+                          }
+                          return true; // Keep all other items
+                        }
                         
+                        // Otherwise, match by exact date range, employee, and code (only for items without request_id)
+                        const itemFromDate = normalizeDate(item.from_date);
+                        const itemToDate = normalizeDate(item.to_date);
+                        const deleteFrom = normalizeDate(deleteFromDate);
+                        const deleteTo = normalizeDate(deleteToDate);
+                        
+                        // Only delete if it matches exactly AND doesn't have a request_id
                         return !(
+                          !item.request_id && // Only delete items without request_id
                           item.employee === rangeToDelete.employee &&
                           item.code === rangeToDelete.code &&
-                          itemDate >= deleteFrom &&
-                          itemDate <= deleteTo
+                          itemFromDate === deleteFrom &&
+                          itemToDate === deleteTo
                         );
-                    });
-                    
-                    console.log(`📊 Filtered ${allTimeOff.length} items to ${newData.length} items`);
-                    handleTimeOffChange(newData);
+                      });
+                      
+                      // Update UI immediately
+                      handleTimeOffChange(newData);
+                      setSaveNotification({ message: '✅ Leave request(s) deleted!', type: 'success' });
+                      setTimeout(() => setSaveNotification(null), 2000);
+                      
+                      // Try API delete for the specific request_id if it exists
+                      if (rangeToDelete.request_id && rangeToDelete.request_id.trim() !== '') {
+                        requestsAPI.deleteLeaveRequest(rangeToDelete.request_id)
+                          .then(() => {
+                            console.log('Successfully deleted leave request from backend');
+                            loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
+                          })
+                          .catch((error: any) => {
+                            console.log('API delete failed (but UI already updated):', error.response?.data?.detail);
+                            // Don't show error to user since UI is already updated - just reload to sync
+                            loadRosterData().catch(err => console.error('Failed to reload after error:', err));
+                          });
+                      } else {
+                        // No request_id - just reload to ensure sync
+                        loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
+                      }
                     }
                   }}
                 />
@@ -2069,7 +2147,7 @@ export const RosterGenerator: React.FC = () => {
           {/* Schedule Generation & Review */}
           {activeTab === 'schedule' && (
             <div>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">⚙️ Generate Schedule</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Generate Schedule</h3>
               <p className="text-gray-600 mb-4">
                 Run the solver to build the monthly roster, review the assignments, and commit when you’re satisfied.
               </p>

@@ -262,7 +262,7 @@ export const SchedulePage: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-3xl font-bold text-gray-900 mb-6">Monthly Roster</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Monthly Roster</h2>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">

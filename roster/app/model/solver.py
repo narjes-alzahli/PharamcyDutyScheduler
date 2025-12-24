@@ -66,7 +66,8 @@ class RosterSolver:
         # Create decision variables with time_off data
         # Pass leave_codes from config so all active leave types are recognized
         leave_codes_set = set(self.config.leave_codes) if hasattr(self.config, 'leave_codes') and self.config.leave_codes else None
-        x = create_decision_variables(model, employees, dates, shifts, time_off, leave_codes_set)
+        working_shift_codes = getattr(self.config, 'working_shift_codes', None)
+        x = create_decision_variables(model, employees, dates, shifts, time_off, leave_codes_set, working_shift_codes)
         locks = {
             (emp, day, shift): data.get_special_requirement_force(emp, day, shift)
             for emp in employees
@@ -91,7 +92,9 @@ class RosterSolver:
             demands, skills, time_off, locks, caps, min_days_off,
             self.config.rest_codes, self.config.forbidden_adjacencies,
             self.config.weekly_rest_minimum,
-            leave_codes_set  # Pass leave_codes to check for existing leave types in sequencing constraints
+            leave_codes_set,  # Pass leave_codes to check for existing leave types in sequencing constraints
+            getattr(self.config, 'required_rest_after_shifts', None),  # Pass configurable rest requirements
+            working_shift_codes  # Pass working shift codes from database/config
         )
         
         # Add objective

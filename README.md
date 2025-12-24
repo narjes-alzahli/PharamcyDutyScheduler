@@ -5,35 +5,37 @@
 ```bash
 # 1. Clone repo
 git clone <your-repo-url>
-cd PharamcyDutyScheduler_tailwind
-git checkout tailwind
+cd PharamcyDutyScheduler
 
-# 2. Run setup
-bash QUICK_START_NEW_COMPUTER.sh
+# 2. Set up Python virtual environment
+bash activate_env.sh
 
-# 3. If you have database backup, import it:
-bash QUICK_START_NEW_COMPUTER.sh database_backup.sql
-```
+# 3. Initialize database
+python backend/init_db.py
 
-## 📦 Export Database (Before Moving)
+# 4. (Optional) Seed database with default data
+python backend/seed_database.py
 
-On your **OLD computer**:
-```bash
-bash EXPORT_DATABASE.sh
-# Transfer the .sql file to new computer
+# 5. Set up frontend
+cd frontend
+npm install
 ```
 
 ## 🏃 Run
 
 ```bash
 # Terminal 1: Backend
-uvicorn backend.main:app --reload
+# Option 1: Using the convenience script
+python run_backend.py
+
+# Option 2: Direct uvicorn command
+uvicorn backend.main:app --reload --port 8002
 
 # Terminal 2: Frontend
 cd frontend && npm start
 ```
 
-Access: `http://localhost:3000`
+Access: `http://localhost:3000` (or port configured in frontend)
 
 ---
 

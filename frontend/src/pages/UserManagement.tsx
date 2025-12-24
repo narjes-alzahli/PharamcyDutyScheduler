@@ -1298,7 +1298,7 @@ export const UserManagement: React.FC = () => {
   if (authLoading || !authReady) {
     return (
       <div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-6">User Management</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
         <LoadingSkeleton type="list" rows={5} />
       </div>
     );
@@ -1308,7 +1308,7 @@ export const UserManagement: React.FC = () => {
   if (!isManager || !currentUser) {
     return (
       <div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-6">User Management</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
           You don't have permission to access this page.
         </div>
@@ -1319,7 +1319,7 @@ export const UserManagement: React.FC = () => {
   if (loading) {
     return (
       <div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-6">User Management</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
         <LoadingSkeleton type="list" rows={5} />
       </div>
     );
@@ -1356,7 +1356,7 @@ export const UserManagement: React.FC = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              👥 User Accounts
+              User Accounts
             </button>
             <button
               onClick={() => setActiveTab('leave')}
@@ -1367,7 +1367,7 @@ export const UserManagement: React.FC = () => {
               }`}
             >
               <span className="inline-flex items-center space-x-2">
-                <span>🏖️ Leave Requests</span>
+                <span>Leave Requests</span>
                 {pendingLeaveCount > 0 && (
                   <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
                     {pendingLeaveCount}
@@ -1384,7 +1384,7 @@ export const UserManagement: React.FC = () => {
               }`}
             >
               <span className="inline-flex items-center space-x-2">
-                <span>🔒 Shift Requests</span>
+                <span>Shift Requests</span>
                 {pendingShiftCount > 0 && (
                   <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
                     {pendingShiftCount}
@@ -1543,27 +1543,40 @@ export const UserManagement: React.FC = () => {
                       <td style={{ width: `${leaveWidths.submitted || 150}px` }} className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
                       <td style={{ width: `${leaveWidths.actions || 200}px` }} className="px-4 py-3 text-sm border border-gray-300">
                         {req.status === 'Pending' ? (
-                          <div className="flex space-x-2">
+                          <div className="flex gap-1">
                             <button
                               onClick={() => handleApproveLeave(req.request_id)}
                               disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50"
+                              className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
+                              title="Approve request"
+                              aria-label="Approve request"
                             >
-                              {processingRequest === req.request_id ? 'Processing...' : 'Approve'}
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleRejectLeave(req.request_id)}
                               disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
+                              className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
+                              title="Reject request"
+                              aria-label="Reject request"
                             >
-                              Reject
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleDeleteLeave(req.request_id)}
                               disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-50"
+                              className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                              title="Remove request"
+                              aria-label="Remove request"
                             >
-                              Remove
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                           </div>
                         ) : (
@@ -1743,27 +1756,40 @@ export const UserManagement: React.FC = () => {
                       <td style={{ width: `${shiftWidths.submitted || 150}px` }} className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
                       <td style={{ width: `${shiftWidths.actions || 200}px` }} className="px-4 py-3 text-sm border border-gray-300">
                         {req.status === 'Pending' ? (
-                          <div className="flex space-x-2">
+                          <div className="flex gap-1">
                             <button
                               onClick={() => handleApproveShift(req.request_id)}
                               disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50"
+                              className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
+                              title="Approve request"
+                              aria-label="Approve request"
                             >
-                              {processingRequest === req.request_id ? 'Processing...' : 'Approve'}
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleRejectShift(req.request_id)}
                               disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
+                              className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
+                              title="Reject request"
+                              aria-label="Reject request"
                             >
-                              Reject
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleDeleteShift(req.request_id)}
                               disabled={processingRequest === req.request_id}
-                              className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-50"
+                              className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                              title="Remove request"
+                              aria-label="Remove request"
                             >
-                              Remove
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                           </div>
                         ) : (
@@ -1909,10 +1935,13 @@ export const UserManagement: React.FC = () => {
                       <button
                         onClick={() => handleDeleteUser(user.username, user.employee_name)}
                         disabled={deleting === user.username || user.username === currentUser?.username}
-                        className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
                         title={user.username === currentUser?.username ? "Cannot delete your own account" : "Delete user account"}
+                        aria-label="Delete user account"
                       >
-                        {deleting === user.username ? 'Deleting...' : 'Delete'}
+                        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                          <path d="M3 6h14M8 6V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2m3 0v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM8 9v6M12 9v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
                       </button>
                     </td>
                   </tr>

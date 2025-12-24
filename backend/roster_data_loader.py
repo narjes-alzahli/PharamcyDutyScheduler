@@ -30,7 +30,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
         employees_df = pd.DataFrame(columns=[
             'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 
             'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only',
-            'ip_ok', 'harat_ok', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
+            'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
         ])
     
     # Load time_off from database (approved leave requests)

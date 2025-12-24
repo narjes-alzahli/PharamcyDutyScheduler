@@ -372,7 +372,14 @@ export const requestsAPI = {
     return response.data; // Returns {message, request: {request_id, ...}}
   },
   updateLeaveRequest: async (requestId: string, request: LeaveRequest): Promise<void> => {
-    await api.put(`/api/requests/leave/${requestId}`, request);
+    console.log(`🔵 [api.ts] updateLeaveRequest called: PUT /api/requests/leave/${requestId}`, request);
+    try {
+      await api.put(`/api/requests/leave/${requestId}`, request);
+      console.log(`🟢 [api.ts] updateLeaveRequest success`);
+    } catch (error: any) {
+      console.error(`🔴 [api.ts] updateLeaveRequest error:`, error);
+      throw error;
+    }
   },
   deleteLeaveRequest: async (requestId: string): Promise<void> => {
     await api.delete(`/api/requests/leave/${requestId}`);

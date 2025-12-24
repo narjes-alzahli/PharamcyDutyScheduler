@@ -10,7 +10,7 @@ sys.path.insert(0, str(project_root))
 
 if __name__ == "__main__":
     import os
-    # Use port from environment variable or default to 8002 (8001 may be used by Cursor)
+    # Use port from environment variable or default to 8002 (8001 is used by Cursor)
     port = int(os.getenv("BACKEND_PORT", "8002"))
     uvicorn.run(
         "backend.main:app",

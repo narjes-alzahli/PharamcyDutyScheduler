@@ -7,7 +7,7 @@ export const Dashboard: React.FC = () => {
   if (user?.employee_type === 'Manager') {
     return (
       <div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-6">Roster Generator</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Generator</h2>
         <div className="bg-white rounded-lg shadow p-6">
           <p className="text-gray-600 mb-4">
             Welcome to the Roster Generator. This page will allow you to:
@@ -30,7 +30,7 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-3xl font-bold text-gray-900 mb-6">Roster Requests</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Requests</h2>
       <div className="bg-white rounded-lg shadow p-6">
         <p className="text-gray-600 mb-4">
           Submit leave requests and shift preferences here.

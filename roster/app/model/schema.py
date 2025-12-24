@@ -20,8 +20,6 @@ class Employee(BaseModel):
     skill_H: bool = Field(alias="skill_H")
     skill_CL: bool = Field(alias="skill_CL")
     clinic_only: bool = Field(default=False, alias="clinic_only")
-    ip_ok: bool = Field(default=True, alias="ip_ok")
-    harat_ok: bool = Field(default=True, alias="harat_ok")
     maxN: int = Field(ge=0, alias="maxN")
     maxA: int = Field(ge=0, alias="maxA")
     min_days_off: int = Field(ge=1, alias="min_days_off")
@@ -299,6 +297,11 @@ class RosterConfig:
         self.all_shift_codes = []  # All shifts (working + rest like DO, O)
         self.forbidden_adjacencies = [("N", "M"), ("A", "N")]
         self.weekly_rest_minimum = 1
+        self.required_rest_after_shifts = [
+            {"shift": "N", "rest_days": 2, "rest_code": "O"},
+            {"shift": "M4", "rest_days": 1, "rest_code": "O"},
+            {"shift": "A", "rest_days": 1, "rest_code": "O"}
+        ]
         
         if config_file and config_file.exists():
             self.load_from_file(config_file)
@@ -322,3 +325,5 @@ class RosterConfig:
             self.forbidden_adjacencies = config["forbidden_adjacencies"]
         if "weekly_rest_minimum" in config:
             self.weekly_rest_minimum = config["weekly_rest_minimum"]
+        if "required_rest_after_shifts" in config:
+            self.required_rest_after_shifts = config["required_rest_after_shifts"]

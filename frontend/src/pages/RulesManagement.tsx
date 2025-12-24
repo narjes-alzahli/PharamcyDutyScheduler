@@ -188,7 +188,7 @@ export const RulesManagement: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Rules Management</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Rules Management</h1>
         <p className="text-gray-600 mt-2">Configure leave types and view scheduling rules.</p>
       </div>
 
@@ -211,7 +211,7 @@ export const RulesManagement: React.FC = () => {
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            📋 Leave Types
+            Leave Types
           </button>
           <button
             onClick={() => setActiveTab('shift-types')}
@@ -240,7 +240,7 @@ export const RulesManagement: React.FC = () => {
       {activeTab === 'leave-types' && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-900">📋 Leave Types Management</h3>
+            <h3 className="text-xl font-bold text-gray-900">Leave Types Management</h3>
             <button
               onClick={() => {
                 setShowAddLeaveType(true);
@@ -730,7 +730,7 @@ export const RulesManagement: React.FC = () => {
 
             {/* Additional Notes */}
             <section className="border border-blue-200 rounded-lg bg-blue-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-blue-900 mb-3">📝 Notes</h4>
+              <h4 className="text-lg font-semibold text-blue-900 mb-3">Notes</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-blue-700">
                 <li>All constraints are hard constraints (must be satisfied) except for optimization objectives which are soft constraints (preferences).</li>
                 <li>If the solver cannot find a solution, it means the constraints are too restrictive. Consider adjusting employee availability, coverage requirements, or shift caps.</li>

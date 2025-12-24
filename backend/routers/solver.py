@@ -206,8 +206,13 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 "leave_codes": leave_codes,  # All active leave codes for the solver
                 "working_shift_codes": working_shift_codes,  # All active working shift codes
                 "all_shift_codes": all_shift_codes,  # All shifts (working + rest like DO, O)
-                "forbidden_adjacencies": [["N", "M"], ["A", "N"]],
-                "weekly_rest_minimum": 1
+                "forbidden_adjacencies": [["N", "M"], ["A", "N"], ["N", "N"]],
+                "weekly_rest_minimum": 1,
+                "required_rest_after_shifts": [
+                    {"shift": "N", "rest_days": 2, "rest_code": "O"},
+                    {"shift": "M4", "rest_days": 1, "rest_code": "O"},
+                    {"shift": "A", "rest_days": 1, "rest_code": "O"}
+                ]
             }
             
             config_path = temp_path / "config.yaml"

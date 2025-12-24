@@ -101,7 +101,7 @@ async def create_employee(
         'employee': employee.employee,
         'skill_M': True, 'skill_IP': True, 'skill_A': True, 'skill_N': True,
         'skill_M3': True, 'skill_M4': True, 'skill_H': True, 'skill_CL': True,
-        'clinic_only': False, 'ip_ok': True, 'harat_ok': True,
+        'clinic_only': False,
         'maxN': employee.maxN if hasattr(employee, 'maxN') else 3,
         'maxA': employee.maxA if hasattr(employee, 'maxA') else 3,
         'min_days_off': employee.min_days_off if hasattr(employee, 'min_days_off') else 4,

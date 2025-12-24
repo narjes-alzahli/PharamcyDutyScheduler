@@ -196,15 +196,15 @@ export const ReportsPage: React.FC = () => {
   }
 
   const tabs = [
-    { id: 'overview', emoji: '📊', label: 'Overview' },
-    { id: 'fairness', emoji: '📈', label: 'Fairness Analysis' },
-    { id: 'pending-off', emoji: '👥', label: 'Employee Pending Off' },
-    { id: 'solver', emoji: '⚙️', label: 'Solver Metrics' },
+    { id: 'overview', emoji: '', label: 'Overview' },
+    { id: 'fairness', emoji: '', label: 'Fairness Analysis' },
+    { id: 'pending-off', emoji: '', label: 'Employee Pending Off' },
+    { id: 'solver', emoji: '', label: 'Solver Metrics' },
   ] as const;
 
   return (
     <div className="space-y-6">
-      <h2 className="text-3xl font-bold text-gray-900">Reports & Visualization</h2>
+      <h2 className="text-2xl font-bold text-gray-900">Reports & Visualization</h2>
 
       {schedules.length === 0 ? (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-yellow-800">
@@ -258,7 +258,6 @@ export const ReportsPage: React.FC = () => {
                           : 'border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                       }`}
                     >
-                      <span aria-hidden>{tab.emoji}</span>
                       <span>{tab.label}</span>
                     </button>
                   ))}
@@ -270,7 +269,7 @@ export const ReportsPage: React.FC = () => {
                 {activeTab === 'overview' && metrics && (
                   <div className="space-y-4">
                   <div>
-                      <h3 className="text-xl font-bold text-gray-900">📊 Monthly Overview</h3>
+                      <h3 className="text-xl font-bold text-gray-900">Monthly Overview</h3>
                       <p className="mt-1 text-sm text-gray-500">
                         Quick stats that highlight how this roster was distributed across the team.
                       </p>
@@ -300,7 +299,7 @@ export const ReportsPage: React.FC = () => {
                 {activeTab === 'fairness' && fairnessData && (
                   <div className="space-y-6">
                   <div>
-                      <h3 className="text-xl font-bold text-gray-900">📈 Fairness Analysis</h3>
+                      <h3 className="text-xl font-bold text-gray-900">Fairness Analysis</h3>
                       <p className="mt-1 text-sm text-gray-500">
                         Compare how shifts are shared across the team. Scroll horizontally on smaller screens
                         to see every chart.
@@ -384,7 +383,7 @@ export const ReportsPage: React.FC = () => {
                         {/* Weekend Shift Distribution */}
                         {fairnessData.weekendData.length > 0 ? (
                           <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
-                            <h4 className="text-sm font-semibold text-gray-800">📅 Weekend Shift Distribution</h4>
+                            <h4 className="text-sm font-semibold text-gray-800">Weekend Shift Distribution</h4>
                             <Plot
                               data={[{
                                 type: 'pie',
@@ -410,7 +409,7 @@ export const ReportsPage: React.FC = () => {
                         {/* Total Working Days */}
                         {fairnessData.workingData.length > 0 ? (
                           <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
-                            <h4 className="text-sm font-semibold text-gray-800">📊 Total Working Days</h4>
+                            <h4 className="text-sm font-semibold text-gray-800">Total Working Days</h4>
                             <Plot
                               data={[{
                                 type: 'bar',
@@ -444,7 +443,7 @@ export const ReportsPage: React.FC = () => {
                 {activeTab === 'pending-off' && currentSchedule.employees && (
                   <div className="space-y-6">
                   <div>
-                      <h3 className="text-xl font-bold text-gray-900">👥 Employee Pending Off</h3>
+                      <h3 className="text-xl font-bold text-gray-900">Employee Pending Off</h3>
                       <p className="mt-1 text-sm text-gray-500">
                         Track remaining days off so employees know what’s still available.
                       </p>
@@ -509,7 +508,7 @@ export const ReportsPage: React.FC = () => {
                 {/* Solver Metrics Tab */}
                 {activeTab === 'solver' && currentSchedule.metrics && (
                   <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-gray-900">⚙️ Solver Metrics</h3>
+                    <h3 className="text-xl font-bold text-gray-900">Solver Metrics</h3>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Solve Time</p>

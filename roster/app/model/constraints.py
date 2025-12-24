@@ -12,13 +12,19 @@ def create_decision_variables(
     dates: List[date],
     shifts: List[str],
     time_off: Dict[Tuple[str, date], str] = None,
-    leave_codes: Optional[Set[str]] = None
+    leave_codes: Optional[Set[str]] = None,
+    working_shift_codes: Optional[List[str]] = None
 ) -> Dict[Tuple[str, date, str], cp_model.IntVar]:
     """Create binary decision variables for the optimization model."""
     x = {}
     
-    # Base working shifts that are always available (DO is now a leave code, only assigned when requested)
-    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"}
+    # Base working shifts from database/config (standard shifts that can be optimized)
+    # Default to standard shifts if not provided
+    if working_shift_codes:
+        working_shifts = set(working_shift_codes) | {"O"}  # Always include O (Off Duty)
+    else:
+        # Fallback to standard shifts
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"}
     
     # Leave codes that should only be created when explicitly requested
     # DO is now treated as a leave code - only assigned when requested in time_off
@@ -73,9 +79,16 @@ def add_skill_constraints(
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
     employees: List[str],
     dates: List[date],
-    skills: Dict[str, Dict[str, bool]]
+    skills: Dict[str, Dict[str, bool]],
+    working_shift_codes: Optional[List[str]] = None
 ) -> None:
     """Add skill constraints: employees can only work shifts they're qualified for."""
+    # Get working shifts from config or default to standard shifts
+    if working_shift_codes:
+        working_shifts = set(working_shift_codes)
+    else:
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    
     for employee in employees:
         if employee not in skills:
             continue
@@ -86,12 +99,14 @@ def add_skill_constraints(
             # Handle clinic_only employees
             if employee_skills.get("clinic_only", False):
                 # Clinic-only employees can only work CL shifts
-                for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H"]:
-                    model.Add(x[(employee, day, shift_type)] == 0)
+                # Forbid all working shifts except CL
+                for shift_type in working_shifts:
+                    if shift_type != "CL" and (employee, day, shift_type) in x:
+                        model.Add(x[(employee, day, shift_type)] == 0)
                 continue
             
             # Handle regular skill constraints
-            for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
+            for shift_type in working_shifts:
                 if shift_type in employee_skills and not employee_skills[shift_type]:
                     # Employee cannot work this shift type
                     model.Add(x[(employee, day, shift_type)] == 0)
@@ -110,25 +125,26 @@ def add_coverage_constraints(
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
     employees: List[str],
     dates: List[date],
-    demands: Dict[date, Dict[str, int]]
+    demands: Dict[date, Dict[str, int]],
+    working_shift_codes: Optional[List[str]] = None
 ) -> None:
     """Add coverage constraints: meet EXACT daily demand for each shift type."""
+    # Get working shifts from config or default to standard shifts
+    if working_shift_codes:
+        working_shifts = working_shift_codes
+    else:
+        working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
+    
     for day in dates:
         if day not in demands:
             continue
             
         day_demand = demands[day]
         
-        # Individual shift coverage - meet minimum requirements
-        for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
-            if shift_type in day_demand and day_demand[shift_type] > 0:
-                # Sum of employees working this shift type on this day
-                shift_vars = [
-                    x[(emp, day, shift_type)] 
-                    for emp in employees
-                ]
-                # Use >= for minimum requirements (allow over-staffing if needed)
-                model.Add(sum(shift_vars) >= day_demand[shift_type])
+        # Individual shift coverage - prefer meeting requirements but allow under-staffing if necessary
+        # Coverage is now handled via soft constraint (unfilled_coverage penalty) to allow flexibility
+        # when not enough staff are available, while still preferring to meet full requirements
+        # (Hard constraint removed - see scoring.py for unfilled_coverage penalty with weight 1000.0)
 
 
 def add_time_off_constraints(
@@ -258,9 +274,10 @@ def add_adjacency_constraints(
             
             for shift1, shift2 in forbidden_pairs:
                 # Cannot work shift1 on day1 and shift2 on day2
-                model.Add(
-                    x[(employee, day1, shift1)] + x[(employee, day2, shift2)] <= 1
-                )
+                if (employee, day1, shift1) in x and (employee, day2, shift2) in x:
+                    model.Add(
+                        x[(employee, day1, shift1)] + x[(employee, day2, shift2)] <= 1
+                    )
 
 
 def add_sequencing_constraints(
@@ -269,75 +286,92 @@ def add_sequencing_constraints(
     employees: List[str],
     dates: List[date],
     time_off: Dict[Tuple[str, date], str] = None,
-    leave_codes: Set[str] = None
+    leave_codes: Set[str] = None,
+    required_rest_after_shifts: List[Dict[str, Any]] = None,
+    working_shift_codes: Optional[List[str]] = None,
+    locks: Dict[Tuple[str, date, str], bool] = None
 ) -> None:
-    """Add sequencing constraints for shift patterns."""
-    # Only use O for rest days after shifts (DO is only assigned when requested in time off)
-    rest_code = "O"
+    """Add sequencing constraints for shift patterns.
     
-    # Working shifts that are not leave codes
-    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    Args:
+        required_rest_after_shifts: List of dicts with keys:
+            - shift: shift code that requires rest after
+            - rest_days: number of rest days required
+            - rest_code: code to use for rest (e.g., "O")
+        working_shift_codes: List of working shift codes from database/config
+        locks: Lock constraints (force/forbid specific assignments)
+    """
+    if not required_rest_after_shifts:
+        # Default to hardcoded rules if not provided
+        required_rest_after_shifts = [
+            {"shift": "N", "rest_days": 2, "rest_code": "O"},
+            {"shift": "M4", "rest_days": 1, "rest_code": "O"},
+            {"shift": "A", "rest_days": 1, "rest_code": "O"}
+        ]
     
-    # Determine leave codes (exclude working shifts and O)
+    # Working shifts from database/config (standard shifts that can be optimized)
+    if working_shift_codes:
+        working_shifts = set(working_shift_codes)
+    else:
+        # Fallback to standard shifts
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    
+    # Determine leave codes (exclude working shifts)
     if leave_codes:
-        leave_only_codes = leave_codes - working_shifts - {rest_code}
+        leave_only_codes = leave_codes - working_shifts
     else:
         leave_only_codes = set()
     
     for emp in employees:
         for i, day in enumerate(dates):
-            if i < len(dates) - 1:  # Not the last day
-                next_day = dates[i + 1]
+            # Process each required rest rule
+            for rule in required_rest_after_shifts:
+                shift_code = rule["shift"]
+                rest_days = rule["rest_days"]
+                rest_code = rule["rest_code"]
                 
-                # Check if employee already has a leave type assigned for next day
+                # Check if employee worked this shift today
+                if (emp, day, shift_code) not in x:
+                    continue
+                
+                # Check if employee already has a leave type assigned (skip rest requirement if so)
                 # A leave type is any code in time_off that is not a working shift
-                has_leave_next_day = False
-                if time_off and (emp, next_day) in time_off:
-                    leave_code = time_off[(emp, next_day)]
-                    # If the code is not a working shift, it's a leave type
-                    if leave_code not in working_shifts and leave_code != rest_code:
-                        has_leave_next_day = True
-                
-                # Rule 1: After Night (N) → two rest days (O) next two days (unless leave type already assigned)
-                # First O day (day after N)
-                if not has_leave_next_day:
-                    if (emp, day, "N") in x and (emp, next_day, rest_code) in x:
-                        # Create constraint: N_today <= O_tomorrow
-                        model.Add(x[(emp, day, "N")] <= x[(emp, next_day, rest_code)])
-                
-                # Second O day (two days after N)
-                if i < len(dates) - 2:  # Not the last two days
-                    day_after_next = dates[i + 2]
-                    has_leave_day_after_next = False
-                    if time_off and (emp, day_after_next) in time_off:
-                        leave_code = time_off[(emp, day_after_next)]
+                def has_leave_on_day(target_day):
+                    if time_off and (emp, target_day) in time_off:
+                        leave_code = time_off[(emp, target_day)]
                         if leave_code not in working_shifts and leave_code != rest_code:
-                            has_leave_day_after_next = True
+                            return True
+                    return False
+                
+                # Check if employee has a lock forcing them to work a working shift on target day
+                def has_forced_work_on_day(target_day):
+                    if locks:
+                        # Check if any working shift is forced (locked to True) on this day
+                        for shift in working_shifts:
+                            lock_key = (emp, target_day, shift)
+                            if locks.get(lock_key) is True:
+                                return True
+                    return False
+                
+                # Add rest day constraints for each required rest day
+                for rest_day_offset in range(1, rest_days + 1):
+                    if i + rest_day_offset >= len(dates):
+                        break  # Not enough days remaining
                     
-                    if not has_leave_day_after_next:
-                        if (emp, day, "N") in x and (emp, day_after_next, rest_code) in x:
-                            # Create constraint: N_today <= O_day_after_tomorrow
-                            model.Add(x[(emp, day, "N")] <= x[(emp, day_after_next, rest_code)])
-                
-                # Rule 2: After M4 → rest day (O) next day (unless leave type already assigned)
-                if not has_leave_next_day:
-                    if (emp, day, "M4") in x and (emp, next_day, rest_code) in x:
-                        # Create constraint: M4_today <= O_tomorrow
-                        model.Add(x[(emp, day, "M4")] <= x[(emp, next_day, rest_code)])
-                
-                # Rule 3: After A → rest day (O) next day (unless leave type already assigned)
-                if not has_leave_next_day:
-                    if (emp, day, "A") in x and (emp, next_day, rest_code) in x:
-                        # Create constraint: A_today <= O_tomorrow
-                        model.Add(x[(emp, day, "A")] <= x[(emp, next_day, rest_code)])
-            
-            # Rule 4: No back-to-back N shifts
-            if i < len(dates) - 1:  # Not the last day
-                next_day = dates[i + 1]
-                
-                if (emp, day, "N") in x and (emp, next_day, "N") in x:
-                    # Cannot work N on consecutive days
-                    model.Add(x[(emp, day, "N")] + x[(emp, next_day, "N")] <= 1)
+                    rest_day = dates[i + rest_day_offset]
+                    
+                    # Skip if employee has leave type on this rest day
+                    if has_leave_on_day(rest_day):
+                        continue
+                    
+                    # Skip if employee has a lock forcing them to work a working shift on this day
+                    # (e.g., if they requested A after M, don't require rest after A)
+                    if has_forced_work_on_day(rest_day):
+                        continue
+                    
+                    # Add constraint: shift_today <= rest_code_rest_day
+                    if (emp, day, shift_code) in x and (emp, rest_day, rest_code) in x:
+                        model.Add(x[(emp, day, shift_code)] <= x[(emp, rest_day, rest_code)])
 
 
 def add_all_constraints(
@@ -355,14 +389,16 @@ def add_all_constraints(
     rest_codes: Set[str],
     forbidden_pairs: List[Tuple[str, str]],
     weekly_rest_minimum: int = 1,
-    leave_codes: Set[str] = None
+    leave_codes: Set[str] = None,
+    required_rest_after_shifts: List[Dict[str, Any]] = None,
+    working_shift_codes: Optional[List[str]] = None
 ) -> None:
     """Add all constraints to the model."""
     
     # Core constraints
     add_one_per_day_constraint(model, x, employees, dates, shifts)
-    add_skill_constraints(model, x, employees, dates, skills)
-    add_coverage_constraints(model, x, employees, dates, demands)
+    add_skill_constraints(model, x, employees, dates, skills, working_shift_codes)
+    add_coverage_constraints(model, x, employees, dates, demands, working_shift_codes)
     
     # Time off and locks
     add_time_off_constraints(model, x, employees, dates, time_off)
@@ -376,15 +412,15 @@ def add_all_constraints(
     # Adjacency rules
     add_adjacency_constraints(model, x, employees, dates, forbidden_pairs)
     
-    # Sequencing rules (pass time_off and leave_codes to check for existing leave types)
-    add_sequencing_constraints(model, x, employees, dates, time_off, leave_codes)
+    # Sequencing rules (pass time_off, leave_codes, and locks to check for existing leave types and forced work)
+    add_sequencing_constraints(model, x, employees, dates, time_off, leave_codes, required_rest_after_shifts, working_shift_codes, locks)
     
     # CL availability constraint
     add_cl_availability_constraints(model, x, employees, dates, time_off)
     
     # Single skill employees work their shift Sun-Thu and rest Fri-Sat
     add_single_skill_employee_constraints(
-        model, x, employees, dates, shifts, skills, time_off, locks
+        model, x, employees, dates, shifts, skills, time_off, locks, working_shift_codes
     )
 
 
@@ -396,10 +432,16 @@ def add_single_skill_employee_constraints(
     shifts: List[str],
     skills: Dict[str, Dict[str, bool]],
     time_off: Dict[Tuple[str, date], str],
-    locks: Dict[Tuple[str, date, str], bool]
+    locks: Dict[Tuple[str, date, str], bool],
+    working_shift_codes: Optional[List[str]] = None
 ) -> None:
     """Force single-skill employees to work their skill Sun-Thu and rest Fri-Sat."""
-    working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    # Working shifts from database/config (standard shifts that can be optimized)
+    if working_shift_codes:
+        working_shifts = set(working_shift_codes)
+    else:
+        # Fallback to standard shifts
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
     weekend_days = {4, 5}  # Friday=4, Saturday=5
     
     for employee in employees:
