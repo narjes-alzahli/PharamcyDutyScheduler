@@ -66,6 +66,7 @@ class LockEntry(BaseModel):
     to_date: str
     shift: str
     force: bool
+    request_id: Optional[str] = None  # If provided, update this specific request; if None, always create new
 
 
 @router.get("/employees")
@@ -716,26 +717,50 @@ async def update_locks(
                 detail=f"Shift type '{entry.shift}' not found for employee {entry.employee}"
             )
         
-        # Check if request already exists (same employee, shift type, dates, force, and reason)
-        existing_request = db.query(ShiftRequest).filter(
-            ShiftRequest.user_id == user.id,
-            ShiftRequest.shift_type_id == shift_type.id,
-            ShiftRequest.from_date == from_date,
-            ShiftRequest.to_date == to_date,
-            ShiftRequest.force == entry.force,
-            ShiftRequest.reason == 'Added via Roster Generator',
-            ShiftRequest.status == RequestStatus.APPROVED
-        ).first()
+        # If request_id is provided, update that specific request
+        if entry.request_id:
+            # Parse request_id (format: "SR_123")
+            try:
+                if entry.request_id.startswith('SR_'):
+                    db_id = int(entry.request_id.split('_')[1])
+                else:
+                    raise ValueError(f"Invalid request_id format: {entry.request_id}")
+            except (IndexError, ValueError) as e:
+                logger.warning(f"Invalid request_id '{entry.request_id}', creating new request instead: {e}")
+                entry.request_id = None  # Fall through to create new request
         
-        if existing_request:
-            # Update existing request (dates might have changed)
-            existing_request.from_date = from_date
-            existing_request.to_date = to_date
-            existing_request.force = entry.force
-            updated_count += 1
-            logger.info(f"Updated shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
+        if entry.request_id:
+            # Update specific existing request
+            existing_request = db.query(ShiftRequest).filter(
+                ShiftRequest.id == db_id,
+                ShiftRequest.user_id == user.id  # Verify ownership
+            ).first()
+            
+            if existing_request:
+                existing_request.from_date = from_date
+                existing_request.to_date = to_date
+                existing_request.force = entry.force
+                existing_request.shift_type_id = shift_type.id  # Allow shift type changes
+                updated_count += 1
+                logger.info(f"Updated shift request {entry.request_id}: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
+            else:
+                # Request ID provided but not found - create new instead
+                logger.warning(f"Request ID {entry.request_id} not found for employee {entry.employee}, creating new request")
+                new_request = ShiftRequest(
+                    user_id=user.id,
+                    shift_type_id=shift_type.id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    force=entry.force,
+                    reason='Added via Roster Generator',
+                    status=RequestStatus.APPROVED
+                )
+                db.add(new_request)
+                created_count += 1
+                logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
         else:
-            # Create new shift request (auto-approved for managers adding via Roster Generator)
+            # No request_id provided - always create new request (allow duplicates)
+            # This prevents overwriting existing requests when user adds a new one
             new_request = ShiftRequest(
                 user_id=user.id,
                 shift_type_id=shift_type.id,
