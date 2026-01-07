@@ -134,13 +134,12 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     };
   }, []);
 
-  useEffect(() => {
+  const loadMonthDemands = useCallback(async () => {
     if (!selectedYear || !selectedMonth) {
       setLoading(false);
       return;
     }
     
-    const loadMonthDemands = async () => {
       try {
         setLoading(true);
         
@@ -206,10 +205,11 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       } finally {
         setLoading(false);
       }
-    };
+  }, [selectedYear, selectedMonth, showToast]);
     
+  useEffect(() => {
     loadMonthDemands();
-  }, [selectedYear, selectedMonth, generateDefaults]);
+  }, [loadMonthDemands]);
 
   const handleResetDefaults = async () => {
     if (!selectedYear || !selectedMonth) return;
@@ -906,7 +906,46 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         </>
       ) : (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-          No demands data available for {monthNames[selectedMonth - 1]} {selectedYear}. Generating defaults...
+          <div className="flex items-center justify-between">
+            <span>
+              No demands data available for {monthNames[selectedMonth - 1]} {selectedYear}.
+            </span>
+            <button
+              onClick={async () => {
+                if (!selectedYear || !selectedMonth) return;
+                try {
+                  setLoading(true);
+                  const base_demand = {
+                    'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2
+                  };
+                  const weekend_demand = {
+                    'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
+                  };
+                  const response = await api.post('/api/data/demands/generate', {
+                    year: selectedYear,
+                    month: selectedMonth,
+                    base_demand,
+                    weekend_demand
+                  });
+                  const generatedDemands = response.data.demands;
+                  // Save to database
+                  await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, generatedDemands);
+                  // Reload demands
+                  await loadMonthDemands();
+                  showToast({ message: 'Demands generated successfully!', type: 'success' });
+                } catch (error: any) {
+                  console.error('Failed to generate demands:', error);
+                  showToast({ message: error.response?.data?.detail || 'Failed to generate demands', type: 'error' });
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className="ml-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              disabled={loading || !selectedYear || !selectedMonth}
+            >
+              {loading ? 'Generating...' : 'Generate Demands'}
+            </button>
+          </div>
         </div>
       )}
     </div>

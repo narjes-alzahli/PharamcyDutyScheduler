@@ -32,6 +32,13 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 
+# Production data files - now stored in database
+# (These are gitignored so they won't be deleted when pulling)
+roster/app/data/employees.csv
+roster/app/data/demands/
+roster/app/data/committed_schedules/
+roster/app/data/holidays/
+
 # Build artifacts
 frontend/build/
 frontend/build.zip
@@ -56,3 +63,7 @@ logs/
 .coverage
 .pytest_cache/
 htmlcov/
+
+# Server-specific files (not for repository)
+SERVER_MIGRATION.md
+backend/migrate_server_data_to_database.py

@@ -6,7 +6,7 @@ from typing import Dict, Any
 from datetime import date, timedelta
 from sqlalchemy.orm import Session, joinedload
 
-from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus
+from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus, EmployeeSkills
 
 
 def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[str, pd.DataFrame]:
@@ -19,12 +19,27 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
         expand_ranges: If True, expand date ranges into individual days (for solver).
                       If False, keep ranges as-is (for frontend UI).
     """
-    project_root = Path(__file__).parent.parent
-    
-    # Load employees from CSV (skills data is still in CSV)
-    employees_csv = project_root / "roster" / "app" / "data" / "employees.csv"
-    if employees_csv.exists():
-        employees_df = pd.read_csv(employees_csv)
+    # Load employees from database
+    employees = db.query(EmployeeSkills).all()
+    if employees:
+        employees_data = [{
+            'employee': emp.name,
+            'skill_M': emp.skill_M,
+            'skill_IP': emp.skill_IP,
+            'skill_A': emp.skill_A,
+            'skill_N': emp.skill_N,
+            'skill_M3': emp.skill_M3,
+            'skill_M4': emp.skill_M4,
+            'skill_H': emp.skill_H,
+            'skill_CL': emp.skill_CL,
+            'clinic_only': emp.clinic_only,
+            'maxN': emp.maxN,
+            'maxA': emp.maxA,
+            'min_days_off': emp.min_days_off,
+            'weight': emp.weight,
+            'pending_off': emp.pending_off
+        } for emp in employees]
+        employees_df = pd.DataFrame(employees_data)
     else:
         # Create empty DataFrame with required columns
         employees_df = pd.DataFrame(columns=[
@@ -197,127 +212,202 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
     }
 
 
-def load_month_demands(year: int, month: int) -> pd.DataFrame:
-    """Load demands for a specific month from CSV.
+def load_month_demands(year: int, month: int, db: Session = None) -> pd.DataFrame:
+    """Load demands for a specific month from database.
     
-    Note: Holiday column is optional. If it exists in the file, it will be preserved.
-    If it doesn't exist, it won't be added (unlike before). This allows the solver
-    to work without holiday column interference.
+    Args:
+        year: Year
+        month: Month (1-12)
+        db: Database session (optional, will create one if not provided)
+    
+    Returns:
+        DataFrame with demands data
     """
-    project_root = Path(__file__).parent.parent
-    demands_dir = project_root / "roster" / "app" / "data" / "demands"
+    from backend.models import Demand
+    from backend.database import SessionLocal
     
-    # Try month-specific file first
-    month_file = demands_dir / f"demands_{year}_{month:02d}.csv"
-    if month_file.exists():
-        # Read CSV with keep_default_na=False for holiday column to preserve empty strings
-        df = pd.read_csv(month_file, keep_default_na=False, na_values=[])
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        # Load from database
+        demands = db.query(Demand).filter(
+            Demand.year == year,
+            Demand.month == month
+        ).all()
+        
+        if demands:
+            demands_data = [{
+                'date': demand.date,
+                'need_M': demand.need_M,
+                'need_IP': demand.need_IP,
+                'need_A': demand.need_A,
+                'need_N': demand.need_N,
+                'need_M3': demand.need_M3,
+                'need_M4': demand.need_M4,
+                'need_H': demand.need_H,
+                'need_CL': demand.need_CL
+            } for demand in demands]
+            df = pd.DataFrame(demands_data)
         if 'date' in df.columns:
             df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        # Only process holiday column if it exists in the file (don't add it if missing)
-        if 'holiday' in df.columns:
-            df['holiday'] = df['holiday'].fillna('').astype(str).replace(['nan', 'None', 'NaN'], '')
-        # If holiday column doesn't exist, that's fine - don't add it
         return df
     
-    # Fallback to general demands file
-    general_file = project_root / "roster" / "app" / "data" / "demands.csv"
-    if general_file.exists():
-        df = pd.read_csv(general_file, keep_default_na=False, na_values=[])
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce')
-            # Filter for the requested month
-            df = df[df['date'].dt.year == year]
-            df = df[df['date'].dt.month == month]
-        # Only process holiday column if it exists in the file (don't add it if missing)
-        if 'holiday' in df.columns:
-            df['holiday'] = df['holiday'].fillna('').astype(str).replace(['nan', 'None', 'NaN'], '')
-        # If holiday column doesn't exist, that's fine - don't add it
-        return df
-    
-    # Return empty DataFrame with required columns (no holiday column)
+        # Return empty DataFrame if no demands found
+        # Demands must exist in database - solver will fail if empty
     return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N', 
                                   'need_M3', 'need_M4', 'need_H', 'need_CL'])
+    finally:
+        if close_db:
+            db.close()
 
 
-def save_month_demands(year: int, month: int, demands_df: pd.DataFrame):
-    """Save demands for a specific month to CSV (without holiday column).
+def save_month_demands(year: int, month: int, demands_df: pd.DataFrame, db: Session = None):
+    """Save demands for a specific month to database (without holiday column).
     
     Holidays are stored separately - use save_month_holidays() for that.
-    """
-    project_root = Path(__file__).parent.parent
-    demands_dir = project_root / "roster" / "app" / "data" / "demands"
-    demands_dir.mkdir(parents=True, exist_ok=True)
     
+    Args:
+        year: Year
+        month: Month (1-12)
+        demands_df: DataFrame with demands data
+        db: Database session (optional, will create one if not provided)
+    """
+    from backend.models import Demand
+    from backend.database import SessionLocal
+    
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
     # Remove holiday column if it exists - holidays are stored separately
     demands_df = demands_df.copy()
     if 'holiday' in demands_df.columns:
         demands_df = demands_df.drop(columns=['holiday'])
     
-    month_file = demands_dir / f"demands_{year}_{month:02d}.csv"
-    
-    # Ensure dates are formatted as YYYY-MM-DD strings before saving
+        # Ensure date column is properly formatted
     if 'date' in demands_df.columns:
-        # Convert date objects to YYYY-MM-DD strings for consistent CSV format
-        demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce').dt.strftime('%Y-%m-%d')
-    
-    # Save without holiday column
-    demands_df.to_csv(month_file, index=False, na_rep='')
+            demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce')
+        
+        # Delete existing demands for this month
+        db.query(Demand).filter(
+            Demand.year == year,
+            Demand.month == month
+        ).delete()
+        
+        # Insert new demands
+        for _, row in demands_df.iterrows():
+            date_val = row['date']
+            if pd.isna(date_val):
+                continue
+            
+            if isinstance(date_val, pd.Timestamp):
+                date_val = date_val.date()
+            
+            demand = Demand(
+                date=date_val,
+                year=year,
+                month=month,
+                need_M=int(row.get('need_M', 0)),
+                need_IP=int(row.get('need_IP', 0)),
+                need_A=int(row.get('need_A', 0)),
+                need_N=int(row.get('need_N', 0)),
+                need_M3=int(row.get('need_M3', 0)),
+                need_M4=int(row.get('need_M4', 0)),
+                need_H=int(row.get('need_H', 0)),
+                need_CL=int(row.get('need_CL', 0))
+            )
+            db.add(demand)
+        
+        db.commit()
+    finally:
+        if close_db:
+            db.close()
 
 
-def save_month_holidays(year: int, month: int, holidays: Dict[str, str]):
-    """Save holidays for a specific month to a separate CSV file.
+def save_month_holidays(year: int, month: int, holidays: Dict[str, str], db: Session = None):
+    """Save holidays for a specific month to database.
     
     Args:
         year: Year
         month: Month (1-12)
         holidays: Dict mapping date strings (YYYY-MM-DD) to holiday names
+        db: Database session (optional, will create one if not provided)
     """
-    project_root = Path(__file__).parent.parent
-    holidays_dir = project_root / "roster" / "app" / "data" / "holidays"
-    holidays_dir.mkdir(parents=True, exist_ok=True)
+    from backend.models import Holiday
+    from backend.database import SessionLocal
     
-    # Filter holidays for the specified month
-    month_holidays = {}
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        # Delete existing holidays for this month
+        db.query(Holiday).filter(
+            Holiday.year == year,
+            Holiday.month == month
+        ).delete()
+        
+        # Insert new holidays
     for date_str, holiday_name in holidays.items():
+            if not holiday_name or not holiday_name.strip():
+                continue
         try:
             date_obj = pd.to_datetime(date_str).date()
             if date_obj.year == year and date_obj.month == month:
-                month_holidays[date_str] = holiday_name.strip()
+                    holiday = Holiday(
+                        date=date_obj,
+                        year=year,
+                        month=month,
+                        name=holiday_name.strip()
+                    )
+                    db.add(holiday)
         except:
             continue
     
-    # Create DataFrame
-    if month_holidays:
-        holidays_df = pd.DataFrame([
-            {'date': date_str, 'holiday': holiday_name}
-            for date_str, holiday_name in month_holidays.items()
-            if holiday_name  # Only save non-empty holidays
-        ])
-        if not holidays_df.empty:
-            holidays_df.to_csv(holidays_dir / f"holidays_{year}_{month:02d}.csv", index=False)
-        else:
-            # Remove file if no holidays
-            holiday_file = holidays_dir / f"holidays_{year}_{month:02d}.csv"
-            if holiday_file.exists():
-                holiday_file.unlink()
-    else:
-        # Remove file if no holidays
-        holiday_file = holidays_dir / f"holidays_{year}_{month:02d}.csv"
-        if holiday_file.exists():
-            holiday_file.unlink()
+        db.commit()
+    finally:
+        if close_db:
+            db.close()
 
 
-def load_month_holidays(year: int, month: int) -> Dict[str, str]:
-    """Load holidays for a specific month from CSV.
+def load_month_holidays(year: int, month: int, db: Session = None) -> Dict[str, str]:
+    """Load holidays for a specific month from database.
     
     Returns:
         Dict mapping date strings (YYYY-MM-DD) to holiday names
     """
-    project_root = Path(__file__).parent.parent
-    holidays_dir = project_root / "roster" / "app" / "data" / "holidays"
+    from backend.models import Holiday
+    from backend.database import SessionLocal
     
-    holiday_file = holidays_dir / f"holidays_{year}_{month:02d}.csv"
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        holidays = db.query(Holiday).filter(
+            Holiday.year == year,
+            Holiday.month == month
+        ).all()
+        
+        return {holiday.date.isoformat(): holiday.name for holiday in holidays}
+    finally:
+        if close_db:
+            db.close()
     if holiday_file.exists():
         df = pd.read_csv(holiday_file, keep_default_na=False, na_values=[])
         holidays = {}

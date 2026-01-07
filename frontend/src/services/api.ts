@@ -440,6 +440,9 @@ export const usersAPI = {
     const response = await api.get('/api/users');
     return response.data;
   },
+  createUser: async (userData: { employee_name: string; password: string; employee_type: string }): Promise<void> => {
+    await api.post('/api/users/', userData);
+  },
   updateUser: async (username: string, userUpdate: UserUpdate): Promise<void> => {
     await api.put(`/api/users/${username}`, userUpdate);
   },

@@ -20,10 +20,8 @@ export const RosterGenerator: React.FC = () => {
   const [generatedSchedule, setGeneratedSchedule] = useState<any[] | null>(null);
   const [generatedEmployees, setGeneratedEmployees] = useState<any[] | null>(null);
   const [scheduleMetrics, setScheduleMetrics] = useState<any>(null);
-  const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showAddTimeOff, setShowAddTimeOff] = useState(false);
   const [showAddLock, setShowAddLock] = useState(false);
-  const [newEmployeeName, setNewEmployeeName] = useState('');
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   const [allShiftRequests, setAllShiftRequests] = useState<any[]>([]);
@@ -931,54 +929,6 @@ export const RosterGenerator: React.FC = () => {
     }, 800);
   };
 
-  const addEmployee = () => {
-    setNewEmployeeName('');
-    setShowAddEmployee(true);
-  };
-
-  const handleAddEmployeeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!newEmployeeName || !newEmployeeName.trim()) {
-      alert('Please enter an employee name');
-      return;
-    }
-
-    const trimmedName = newEmployeeName.trim();
-    
-    // Check for duplicate names
-    const existingNames = rosterData?.employees?.map((emp: any) => emp.employee?.trim()) || [];
-    if (existingNames.includes(trimmedName)) {
-      alert(`Employee "${trimmedName}" already exists. Please use a different name.`);
-      return;
-    }
-
-    const newEmployee = {
-      employee: trimmedName,
-      skill_M: true,
-      skill_IP: true,
-      skill_A: true,
-      skill_N: true,
-      skill_M3: true,
-      skill_M4: true,
-      skill_H: true,
-      skill_CL: true,
-      clinic_only: false,
-      maxN: 3,
-      maxA: 3,
-      min_days_off: 4,
-      weight: 1.0,
-      pending_off: 0,
-    };
-    
-    const newData = [...(rosterData?.employees || []), newEmployee];
-    setRosterData({ ...rosterData, employees: newData });
-    setShowAddEmployee(false);
-    setNewEmployeeName('');
-    
-    // Save immediately after adding
-    await handleEmployeesChange(newData);
-  };
 
   const addTimeOff = async (employee: string, fromDate: string, toDate: string, code: string) => {
     // Date inputs already return YYYY-MM-DD format, but handle both formats for safety
@@ -1249,64 +1199,10 @@ export const RosterGenerator: React.FC = () => {
             <div>
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">Employee Management</h3>
-                  <p className="text-gray-600">Add, edit, or remove staff members and their skills</p>
+                  <h3 className="text-xl font-bold text-gray-900">Employee Skills Management</h3>
+                  <p className="text-gray-600">Edit staff skills and constraints. To add new staff, create a Staff user in User Management.</p>
                 </div>
-                <button
-                  onClick={addEmployee}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                >
-                  ➕ Add Employee
-                </button>
               </div>
-              
-              {/* Add Employee Modal */}
-              {showAddEmployee && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                  <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Add New Employee</h3>
-                    <form onSubmit={handleAddEmployeeSubmit}>
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Employee Name
-                        </label>
-                        <input
-                          type="text"
-                          value={newEmployeeName}
-                          onChange={(e) => setNewEmployeeName(e.target.value)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                          placeholder="Enter employee name"
-                          autoFocus
-                          required
-                        />
-                        {newEmployeeName && (
-                          <p className="mt-2 text-xs text-gray-500">
-                            Username will be: <strong>{newEmployeeName.trim().toLowerCase().replace(/\s+/g, '_')}</strong>
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex justify-end space-x-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddEmployee(false);
-                            setNewEmployeeName('');
-                          }}
-                          className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                        >
-                          Add Employee
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
               
               {/* Auto-dismissing notification toast */}
               {saveNotification && (

@@ -1,6 +1,6 @@
 """SQLAlchemy database models."""
 
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Text, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Text, Enum as SQLEnum, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from backend.database import Base
@@ -112,4 +112,103 @@ class ShiftRequest(Base):
     # Relationships
     user = relationship("User", back_populates="shift_requests")
     shift_type = relationship("ShiftType", back_populates="shift_requests")
+
+
+class EmployeeSkills(Base):
+    """Employee skills model - skills, constraints, and preferences for staff users.
+    
+    Each staff user has employee skills linked via user_id.
+    """
+    __tablename__ = "employee_skills"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, unique=True, index=True)  # Link to user account
+    skill_M = Column(Boolean, default=True)
+    skill_IP = Column(Boolean, default=True)
+    skill_A = Column(Boolean, default=True)
+    skill_N = Column(Boolean, default=True)
+    skill_M3 = Column(Boolean, default=True)
+    skill_M4 = Column(Boolean, default=True)
+    skill_H = Column(Boolean, default=False)
+    skill_CL = Column(Boolean, default=True)
+    clinic_only = Column(Boolean, default=False)
+    maxN = Column(Integer, default=3)  # Maximum night shifts
+    maxA = Column(Integer, default=3)  # Maximum afternoon shifts
+    min_days_off = Column(Integer, default=4)  # Minimum days off per period
+    weight = Column(Float, default=1.0)  # Fairness weight
+    pending_off = Column(Float, default=0.0)  # Pending off balance
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationship to User (for authentication)
+    user = relationship("User", backref="employee_skills")
+
+
+class Demand(Base):
+    """Demand model - staffing requirements per date."""
+    __tablename__ = "demands"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, nullable=False, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    month = Column(Integer, nullable=False, index=True)
+    need_M = Column(Integer, default=0)
+    need_IP = Column(Integer, default=0)
+    need_A = Column(Integer, default=0)
+    need_N = Column(Integer, default=0)
+    need_M3 = Column(Integer, default=0)
+    need_M4 = Column(Integer, default=0)
+    need_H = Column(Integer, default=0)
+    need_CL = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Unique constraint: one demand record per date
+    __table_args__ = (UniqueConstraint('date', name='uq_demand_date'),)
+
+
+class CommittedSchedule(Base):
+    """Committed schedule model - final schedules that have been committed."""
+    __tablename__ = "committed_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    month = Column(Integer, nullable=False, index=True)
+    employee_name = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    shift = Column(String, nullable=False)  # Shift code (M, IP, A, N, etc.)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Unique constraint: one schedule entry per employee-date combination
+    __table_args__ = (UniqueConstraint('year', 'month', 'employee_name', 'date', name='uq_schedule_entry'),)
+
+
+class ScheduleMetrics(Base):
+    """Schedule metrics model - analytics and metrics for committed schedules."""
+    __tablename__ = "schedule_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    month = Column(Integer, nullable=False, index=True)
+    metrics = Column(JSON, nullable=False)  # Store all metrics as JSON
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Unique constraint: one metrics record per year-month
+    __table_args__ = (UniqueConstraint('year', 'month', name='uq_schedule_metrics'),)
+
+
+class Holiday(Base):
+    """Holiday model - holidays per date."""
+    __tablename__ = "holidays"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, nullable=False, unique=True, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    month = Column(Integer, nullable=False, index=True)
+    name = Column(String, nullable=False)  # Holiday name
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

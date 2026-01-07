@@ -773,6 +773,10 @@ export const UserManagement: React.FC = () => {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'leave' | 'shift'>('users');
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserType, setNewUserType] = useState('Staff');
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
@@ -1005,6 +1009,42 @@ export const UserManagement: React.FC = () => {
       loadRequests();
     }
   }, [activeTab, authReady, isManager, loadRequests]);
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!newUserName || !newUserName.trim()) {
+      alert('Please enter an employee name');
+      return;
+    }
+    
+    if (!newUserPassword || newUserPassword.length < 3) {
+      alert('Please enter a password (at least 3 characters)');
+      return;
+    }
+
+    try {
+      setUpdating(true);
+      await usersAPI.createUser({
+        employee_name: newUserName.trim(),
+        password: newUserPassword,
+        employee_type: newUserType,
+      });
+      
+      setNotification({ message: '✅ User created successfully! Employee skills will be created automatically for Staff users.', type: 'success' });
+      setTimeout(() => setNotification(null), 3000);
+      setNewUserName('');
+      setNewUserPassword('');
+      setNewUserType('Staff');
+      setShowCreateUser(false);
+      await loadData();
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to create user', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1860,7 +1900,20 @@ export const UserManagement: React.FC = () => {
         <>
       {/* Display Current Users */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <h3 className="text-xl font-bold text-gray-900 mb-4">Employee User Accounts</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-gray-900">Employee User Accounts</h3>
+          <button
+            onClick={() => {
+              setNewPassword('');
+              setEmployeeType('Staff');
+              setSelectedEmployee('');
+              setShowCreateUser(true);
+            }}
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          >
+            ➕ Create User
+          </button>
+        </div>
         {users.length > 0 ? (
           <>
           <SearchBar
@@ -1960,7 +2013,7 @@ export const UserManagement: React.FC = () => {
             )}
           </>
         ) : (
-          <p className="text-gray-600">No users found.</p>
+          <p className="text-gray-600">No users found. Click "Create User" to add a new user account.</p>
         )}
       </div>
 
@@ -2051,6 +2104,91 @@ export const UserManagement: React.FC = () => {
           </div>
         </form>
       </div>
+      
+      {/* Create User Modal */}
+      {showCreateUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Create New User</h3>
+            <form onSubmit={handleCreateUser}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Employee Name
+                </label>
+                <input
+                  type="text"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Enter employee name"
+                  autoFocus
+                  required
+                />
+                {newUserName && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Username will be: <strong>{newUserName.trim().toLowerCase().replace(/\s+/g, '_')}</strong>
+                  </p>
+                )}
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Enter password"
+                  required
+                  minLength={3}
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Employee Type
+                </label>
+                <select
+                  value={newUserType}
+                  onChange={(e) => setNewUserType(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  required
+                >
+                  <option value="Staff">Staff</option>
+                  <option value="Manager">Manager</option>
+                </select>
+                {newUserType === 'Staff' && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Staff users will automatically get employee skills with default values.
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateUser(false);
+                    setNewUserName('');
+                    setNewUserPassword('');
+                    setNewUserType('Staff');
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  disabled={updating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                  disabled={updating}
+                >
+                  {updating ? 'Creating...' : 'Create User'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
         </>
       )}
 

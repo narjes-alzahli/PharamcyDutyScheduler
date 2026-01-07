@@ -6,6 +6,8 @@ from pathlib import Path
 import pandas as pd
 import json
 from typing import List, Optional
+from sqlalchemy.orm import Session
+from datetime import date as date_type
 import sys
 
 # Add project root to path
@@ -13,50 +15,54 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from backend.routers.auth import get_current_user
+from backend.database import get_db
+from backend.models import CommittedSchedule, ScheduleMetrics
 
 router = APIRouter()
 security = HTTPBearer()
 
 
-def load_committed_schedules() -> List[dict]:
-    """Load all committed schedules."""
-    schedules_dir = Path("roster/app/data/committed_schedules")
+def load_committed_schedules(db: Session) -> List[dict]:
+    """Load all committed schedules from database."""
+    # Get unique year-month combinations
+    from sqlalchemy import distinct, func
+    year_month_pairs = db.query(
+        CommittedSchedule.year,
+        CommittedSchedule.month
+    ).distinct().all()
+    
     schedules = []
-    
-    if not schedules_dir.exists():
-        return schedules
-    
-    # Find all schedule CSV files
-    schedule_files = sorted(schedules_dir.glob("schedule_*_schedule.csv"))
-    
-    for schedule_file in schedule_files:
-        # Extract date from filename (e.g., schedule_2025_03_schedule.csv)
-        parts = schedule_file.stem.split('_')
-        if len(parts) >= 3:
-            year = int(parts[1])
-            month = int(parts[2])
-            
-            schedule_df = pd.read_csv(schedule_file)
+    for year, month in year_month_pairs:
+        # Load schedule entries
+        schedule_entries = db.query(CommittedSchedule).filter(
+            CommittedSchedule.year == year,
+            CommittedSchedule.month == month
+        ).all()
+        
+        if not schedule_entries:
+            continue
+        
+        # Convert to DataFrame format
+        schedule_data = [{
+            'employee': entry.employee_name,
+            'date': entry.date.isoformat(),
+            'shift': entry.shift
+        } for entry in schedule_entries]
+        schedule_df = pd.DataFrame(schedule_data)
             schedule_df['date'] = pd.to_datetime(schedule_df['date'])
             
-            # Load employee data if available
-            employee_file = schedule_file.parent / f"schedule_{year}_{month:02d}_employee.csv"
-            employee_df = None
-            if employee_file.exists():
-                employee_df = pd.read_csv(employee_file)
-            
             # Load metrics if available
-            metrics_file = schedule_file.parent / f"schedule_{year}_{month:02d}_metrics.json"
-            metrics = None
-            if metrics_file.exists():
-                with open(metrics_file, 'r') as f:
-                    metrics = json.load(f)
+        metrics_record = db.query(ScheduleMetrics).filter(
+            ScheduleMetrics.year == year,
+            ScheduleMetrics.month == month
+        ).first()
+        metrics = metrics_record.metrics if metrics_record else None
             
             schedules.append({
                 'year': year,
                 'month': month,
                 'schedule_df': schedule_df,
-                'employee_df': employee_df,
+            'employee_df': None,  # Employee data not stored separately in DB
                 'metrics': metrics
             })
     
@@ -64,9 +70,12 @@ def load_committed_schedules() -> List[dict]:
 
 
 @router.get("/committed")
-async def get_committed_schedules(current_user: dict = Depends(get_current_user)):
+async def get_committed_schedules(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Get all committed schedules."""
-    schedules = load_committed_schedules()
+    schedules = load_committed_schedules(db)
     
     return [
         {
@@ -83,10 +92,11 @@ async def get_committed_schedules(current_user: dict = Depends(get_current_user)
 async def get_schedule(
     year: int,
     month: int,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Get a specific committed schedule."""
-    schedules = load_committed_schedules()
+    schedules = load_committed_schedules(db)
     
     schedule = next(
         (s for s in schedules if s['year'] == year and s['month'] == month),
@@ -108,68 +118,57 @@ async def get_schedule(
 @router.post("/commit")
 async def commit_schedule(
     schedule_data: dict,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Commit a generated schedule to persistent storage."""
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can commit schedules")
     
     try:
-        from datetime import datetime
-        import json
-        
         year = schedule_data['year']
         month = schedule_data['month']
         schedule = schedule_data['schedule']  # List of {employee, date, shift}
-        employees = schedule_data.get('employees', [])  # Optional employee data
         metrics = schedule_data.get('metrics', {})  # Optional metrics
         
-        # Create committed schedules directory if it doesn't exist
-        committed_dir = Path("roster/app/data/committed_schedules")
-        committed_dir.mkdir(parents=True, exist_ok=True)
+        # Delete existing schedule for this month
+        db.query(CommittedSchedule).filter(
+            CommittedSchedule.year == year,
+            CommittedSchedule.month == month
+        ).delete()
         
-        # Create filename with year and month
-        filename_prefix = f"schedule_{year}_{month:02d}"
+        # Insert new schedule entries
+        for entry in schedule:
+            date_val = pd.to_datetime(entry['date'], errors='coerce').date()
+            if pd.isna(date_val):
+                continue
+            
+            schedule_entry = CommittedSchedule(
+                year=year,
+                month=month,
+                employee_name=entry['employee'],
+                date=date_val,
+                shift=entry['shift']
+            )
+            db.add(schedule_entry)
         
-        # Convert schedule to DataFrame
-        schedule_df = pd.DataFrame(schedule)
-        if 'date' in schedule_df.columns:
-            # Handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS" formats
-            # Let pandas auto-detect the format - it handles both ISO8601 and simple date formats
-            schedule_df['date'] = pd.to_datetime(schedule_df['date'], errors='coerce')
+        # Save/update metrics
+        existing_metrics = db.query(ScheduleMetrics).filter(
+            ScheduleMetrics.year == year,
+            ScheduleMetrics.month == month
+        ).first()
         
-        # Save schedule data
-        schedule_df.to_csv(committed_dir / f"{filename_prefix}_schedule.csv", index=False)
-        
-        # Save employee data if provided
-        if employees:
-            employee_df = pd.DataFrame(employees)
-            employee_df.to_csv(committed_dir / f"{filename_prefix}_employee.csv", index=False)
-        
-        # Create a simple coverage DataFrame (can be enhanced later)
-        if 'date' in schedule_df.columns and len(schedule_df) > 0:
-            unique_dates = schedule_df['date'].unique()
-            coverage_df = pd.DataFrame({
-                'date': unique_dates,
-                'coverage': [0] * len(unique_dates)
-            })
-            coverage_df.to_csv(committed_dir / f"{filename_prefix}_coverage.csv", index=False)
-        
-        # Save metrics
-        def convert_dates(obj):
-            from pandas import Timestamp
-            if isinstance(obj, dict):
-                return {str(k) if isinstance(k, (datetime, Timestamp)) else k: convert_dates(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_dates(item) for item in obj]
-            elif isinstance(obj, (datetime, Timestamp)):
-                return obj.isoformat()
+        if existing_metrics:
+            existing_metrics.metrics = metrics
             else:
-                return obj
+            metrics_entry = ScheduleMetrics(
+                year=year,
+                month=month,
+                metrics=metrics
+            )
+            db.add(metrics_entry)
         
-        serializable_metrics = convert_dates(metrics)
-        with open(committed_dir / f"{filename_prefix}_metrics.json", 'w') as f:
-            json.dump(serializable_metrics, f, indent=2)
+        db.commit()
         
         return {
             "message": f"Schedule committed successfully for {year}-{month:02d}",
@@ -177,6 +176,7 @@ async def commit_schedule(
             "month": month
         }
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to commit schedule: {str(e)}")
 
 
@@ -185,46 +185,64 @@ async def update_schedule(
     year: int,
     month: int,
     schedule_data: dict,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Update a committed schedule. Only managers can update schedules."""
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can update schedules")
     
     try:
-        from datetime import datetime
-        import json
-        
-        schedule = schedule_data['schedule']  # List of {employee, date, shift}
-        employees = schedule_data.get('employees')  # Optional employee data update
-        
-        # Create committed schedules directory if it doesn't exist
-        committed_dir = Path("roster/app/data/committed_schedules")
-        committed_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create filename with year and month
-        filename_prefix = f"schedule_{year}_{month:02d}"
-        schedule_file = committed_dir / f"{filename_prefix}_schedule.csv"
-        
         # Check if schedule exists
-        if not schedule_file.exists():
+        existing_count = db.query(CommittedSchedule).filter(
+            CommittedSchedule.year == year,
+            CommittedSchedule.month == month
+        ).count()
+        
+        if existing_count == 0:
             raise HTTPException(status_code=404, detail="Schedule not found")
         
-        # Convert schedule to DataFrame
-        schedule_df = pd.DataFrame(schedule)
-        if 'date' in schedule_df.columns:
-            # Handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS" formats
-            # Let pandas auto-detect the format - it handles both ISO8601 and simple date formats
-            schedule_df['date'] = pd.to_datetime(schedule_df['date'], errors='coerce')
+        schedule = schedule_data['schedule']  # List of {employee, date, shift}
         
-        # Save updated schedule data
-        schedule_df.to_csv(schedule_file, index=False)
+        # Delete existing schedule entries
+        db.query(CommittedSchedule).filter(
+            CommittedSchedule.year == year,
+            CommittedSchedule.month == month
+        ).delete()
         
-        # Update employee data if provided
-        if employees is not None:
-            employee_file = committed_dir / f"{filename_prefix}_employee.csv"
-            employee_df = pd.DataFrame(employees)
-            employee_df.to_csv(employee_file, index=False)
+        # Insert updated schedule entries
+        for entry in schedule:
+            date_val = pd.to_datetime(entry['date'], errors='coerce').date()
+            if pd.isna(date_val):
+                continue
+            
+            schedule_entry = CommittedSchedule(
+                year=year,
+                month=month,
+                employee_name=entry['employee'],
+                date=date_val,
+                shift=entry['shift']
+            )
+            db.add(schedule_entry)
+        
+        # Update metrics if provided
+        if 'metrics' in schedule_data:
+            existing_metrics = db.query(ScheduleMetrics).filter(
+                ScheduleMetrics.year == year,
+                ScheduleMetrics.month == month
+            ).first()
+            
+            if existing_metrics:
+                existing_metrics.metrics = schedule_data['metrics']
+            else:
+                metrics_entry = ScheduleMetrics(
+                    year=year,
+                    month=month,
+                    metrics=schedule_data['metrics']
+                )
+                db.add(metrics_entry)
+        
+        db.commit()
         
         return {
             "message": f"Schedule updated successfully for {year}-{month:02d}",
@@ -234,5 +252,6 @@ async def update_schedule(
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update schedule: {str(e)}")
 

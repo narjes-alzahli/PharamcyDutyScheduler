@@ -1,42 +1,37 @@
 # 🏥 Pharmacy Staff Scheduler
 
-## 🚀 Setup on New Computer
+## Quick Start
 
 ```bash
-# 1. Clone repo
-git clone <your-repo-url>
-cd PharamcyDutyScheduler
-
-# 2. Set up Python virtual environment
+# 1. Setup
 bash activate_env.sh
-
-# 3. Initialize database
+alembic upgrade head
 python backend/init_db.py
+cd frontend && npm install
 
-# 4. (Optional) Seed database with default data
-python backend/seed_database.py
-
-# 5. Set up frontend
-cd frontend
-npm install
+# 2. Run
+python run_backend.py          # Terminal 1
+cd frontend && npm start       # Terminal 2
 ```
 
-## 🏃 Run
+**Access:** `http://localhost:3333` (frontend) → `http://localhost:8002` (backend)
 
-```bash
-# Terminal 1: Backend
-# Option 1: Using the convenience script
-python run_backend.py
+## Default Credentials
 
-# Option 2: Direct uvicorn command
-uvicorn backend.main:app --reload --port 8002
+- **Admin:** `admin` / `admin123`
+- **Staff:** `<username>` / `password123` (e.g., `ameera` / `password123`)
 
-# Terminal 2: Frontend
-cd frontend && npm start
+## Database
+
+**Development (SQLite):** Works automatically - no setup needed.
+
+**Production (PostgreSQL):** Set `DATABASE_URL` in `.env`:
+```
+DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/pharmacy_scheduler
 ```
 
-Access: `http://localhost:3000` (or port configured in frontend)
+See `.env.example` for configuration options.
 
----
+## Server Setup
 
-**Default admin:** username: `admin`, password: `admin123`
+See [SERVER_MIGRATION.md](SERVER_MIGRATION.md) for production deployment guide.

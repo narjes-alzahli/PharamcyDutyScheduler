@@ -81,18 +81,6 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 
-def save_login_state(username: str):
-    """Save login state to file."""
-    login_file = Path("roster/app/data/login_state.json")
-    login_file.parent.mkdir(parents=True, exist_ok=True)
-    login_data = {
-        'username': username,
-        'timestamp': datetime.now().isoformat()
-    }
-    with open(login_file, 'w') as f:
-        json.dump(login_data, f, indent=2)
-
-
 def cleanup_expired_tokens():
     """Remove expired tokens from blacklist."""
     now = datetime.utcnow()
@@ -236,10 +224,6 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
     
     # Create refresh token (longer-lived, 30 days)
     refresh_token = create_refresh_token(data=token_data)
-    
-    # Save login state if remember_me is checked (legacy support)
-    if login_data.remember_me:
-        save_login_state(login_data.username)
     
     return LoginResponse(
         access_token=access_token,

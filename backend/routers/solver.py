@@ -24,8 +24,7 @@ from backend.models import LeaveType
 from backend.roster_data_loader import (
     load_roster_data_from_db, 
     load_month_demands, 
-    save_month_demands, 
-    generate_month_demands,
+    save_month_demands,
     load_month_holidays
 )
 
@@ -62,6 +61,9 @@ class JobStatus(BaseModel):
 
 def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
     """Run solver in background."""
+    from backend.database import SessionLocal
+    
+    db = SessionLocal()
     try:
         solver_jobs[job_id]["status"] = "running"
         
@@ -72,22 +74,15 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             # Save employees
             roster_data['employees'].to_csv(temp_path / "employees.csv", index=False)
             
-            # Load month-specific demands
-            month_demands = load_month_demands(request.year, request.month)
+            # Load month-specific demands from database
+            month_demands = load_month_demands(request.year, request.month, db)
             
-            # Auto-generate demands if empty (same as original Streamlit behavior)
+            # Demands must exist in database - do not auto-generate
             if month_demands.empty:
-                base_demand = {
-                    'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2
-                }
-                weekend_demand = {
-                    'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
-                }
-                month_demands = generate_month_demands(
-                    request.year, request.month, base_demand, weekend_demand
-                )
-                # Save the generated demands for future use
-                save_month_demands(request.year, request.month, month_demands)
+                error_msg = f"No demands data found for {request.year}-{request.month:02d}. Please add demands in the Staffing Needs tab before solving."
+                solver_jobs[job_id]["status"] = "failed"
+                solver_jobs[job_id]["error"] = error_msg
+                return
             
             # Load holidays separately (not from demands CSV)
             holidays_dict = load_month_holidays(request.year, request.month)
@@ -285,6 +280,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
     except Exception as e:
         solver_jobs[job_id]["status"] = "failed"
         solver_jobs[job_id]["error"] = str(e)
+    finally:
+        db.close()
 
 
 @router.post("/solve", response_model=SolveResponse)

@@ -15,11 +15,17 @@ sys.path.insert(0, str(project_root))
 
 from backend.routers.auth import get_current_user
 from backend.database import get_db
-from backend.models import User, EmployeeType
+from backend.models import User, EmployeeType, EmployeeSkills
 from backend.utils import hash_password
 
 router = APIRouter()
 security = HTTPBearer()
+
+
+class UserCreate(BaseModel):
+    employee_name: str
+    password: str
+    employee_type: str
 
 
 class UserUpdate(BaseModel):
@@ -49,6 +55,63 @@ async def get_all_users(
     return users
 
 
+@router.post("/")
+async def create_user(
+    user_data: UserCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new user account (managers only)."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can create users")
+    
+    # Generate username from employee name
+    username = re.sub(r'\s+', '_', user_data.employee_name.strip().lower())
+    
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.username == username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User with this name already exists")
+    
+    # Create user
+    employee_type = EmployeeType.MANAGER if user_data.employee_type == 'Manager' else EmployeeType.STAFF
+    hashed_password = hash_password(user_data.password)
+    
+    new_user = User(
+        username=username,
+        password=hashed_password,
+        employee_name=user_data.employee_name,
+        employee_type=employee_type
+    )
+    db.add(new_user)
+    db.flush()  # Get the user ID
+    
+    # Auto-create employee_skills for staff users
+    if employee_type == EmployeeType.STAFF:
+        employee_skills = EmployeeSkills(
+            name=user_data.employee_name,
+            user_id=new_user.id,
+            skill_M=True,
+            skill_IP=True,
+            skill_A=True,
+            skill_N=True,
+            skill_M3=True,
+            skill_M4=True,
+            skill_H=False,
+            skill_CL=True,
+            clinic_only=False,
+            maxN=3,
+            maxA=3,
+            min_days_off=4,
+            weight=1.0,
+            pending_off=0.0
+        )
+        db.add(employee_skills)
+    
+    db.commit()
+    return {"message": "User created successfully"}
+
+
 @router.put("/")
 async def update_user(
     update: UserUpdate,
@@ -66,10 +129,45 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     user.employee_name = update.employee_name
+    old_type = user.employee_type
     user.employee_type = EmployeeType.MANAGER if update.employee_type == 'Manager' else EmployeeType.STAFF
     if update.password:
         # Hash the password before storing
         user.password = hash_password(update.password)
+    
+    # Auto-create/update employee_skills for staff users
+    if user.employee_type == EmployeeType.STAFF:
+        employee_skills = db.query(EmployeeSkills).filter(EmployeeSkills.user_id == user.id).first()
+        if not employee_skills:
+            # Create employee_skills with default values
+            employee_skills = EmployeeSkills(
+                name=user.employee_name,
+                user_id=user.id,
+                skill_M=True,
+                skill_IP=True,
+                skill_A=True,
+                skill_N=True,
+                skill_M3=True,
+                skill_M4=True,
+                skill_H=False,
+                skill_CL=True,
+                clinic_only=False,
+                maxN=3,
+                maxA=3,
+                min_days_off=4,
+                weight=1.0,
+                pending_off=0.0
+            )
+            db.add(employee_skills)
+        else:
+            # Update name if it changed
+            employee_skills.name = user.employee_name
+    elif old_type == EmployeeType.STAFF and user.employee_type == EmployeeType.MANAGER:
+        # Remove employee_skills if user changed from Staff to Manager
+        employee_skills = db.query(EmployeeSkills).filter(EmployeeSkills.user_id == user.id).first()
+        if employee_skills:
+            db.delete(employee_skills)
+    
     db.commit()
     return {"message": "User account updated successfully"}
 
@@ -91,6 +189,11 @@ async def delete_user(
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Delete associated employee_skills if exists
+    employee_skills = db.query(EmployeeSkills).filter(EmployeeSkills.user_id == user.id).first()
+    if employee_skills:
+        db.delete(employee_skills)
     
     db.delete(user)
     db.commit()

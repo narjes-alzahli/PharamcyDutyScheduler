@@ -24,7 +24,7 @@ from backend.roster_data_loader import (
     save_month_holidays,
     load_month_holidays
 )
-from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType
+from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills
 from sqlalchemy.orm import Session
 from sqlalchemy import not_
 from datetime import date
@@ -81,43 +81,7 @@ async def get_employees(
     return employees_df.to_dict('records')
 
 
-@router.post("/employees")
-async def create_employee(
-    employee: EmployeeData,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Create a new employee."""
-    if current_user['employee_type'] != 'Manager':
-        raise HTTPException(status_code=403, detail="Only managers can create employees")
-    
-    roster_data = load_roster_data_from_db(db)
-    employees_df = roster_data['employees']
-    
-    # Check if employee already exists
-    if not employees_df.empty and employee.employee in employees_df['employee'].values:
-        raise HTTPException(status_code=400, detail="Employee already exists")
-    
-    # Add new employee with default values
-    new_row = {
-        'employee': employee.employee,
-        'skill_M': True, 'skill_IP': True, 'skill_A': True, 'skill_N': True,
-        'skill_M3': True, 'skill_M4': True, 'skill_H': True, 'skill_CL': True,
-        'clinic_only': False,
-        'maxN': employee.maxN if hasattr(employee, 'maxN') else 3,
-        'maxA': employee.maxA if hasattr(employee, 'maxA') else 3,
-        'min_days_off': employee.min_days_off if hasattr(employee, 'min_days_off') else 4,
-        'weight': 1.0,
-        'pending_off': 0.0
-    }
-    employees_df = pd.concat([employees_df, pd.DataFrame([new_row])], ignore_index=True)
-    
-    # Save to file (employee skills are still stored in CSV for now)
-    employees_path = project_root / "roster" / "app" / "data" / "employees.csv"
-    employees_df.to_csv(employees_path, index=False)
-    
-    return {"message": "Employee created successfully"}
-
+# POST /employees removed - employees are now created automatically when creating Staff users in User Management
 
 @router.put("/employees")
 async def update_employees(
@@ -129,78 +93,84 @@ async def update_employees(
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can update employees")
     
-    from backend.models import User, EmployeeType
     import re
     
-    # Load existing employees to detect changes
-    existing_roster_data = load_roster_data_from_db(db)
-    existing_employees_df = existing_roster_data['employees']
-    existing_employee_names = set(existing_employees_df['employee'].values) if not existing_employees_df.empty else set()
-    
-    employees_df = pd.DataFrame(employees)
+    # Get existing employees from database
+    existing_employees = {emp.name: emp for emp in db.query(EmployeeSkills).all()}
+    existing_employee_names = set(existing_employees.keys())
     
     # Validate: Check for duplicate employee names
-    employee_names = employees_df['employee'].astype(str).str.strip()
-    duplicates = employee_names[employee_names.duplicated()].unique()
-    if len(duplicates) > 0:
+    employee_names = [str(emp.get('employee', '')).strip() for emp in employees]
+    duplicates = [name for name in employee_names if employee_names.count(name) > 1]
+    if duplicates:
         raise HTTPException(
             status_code=400, 
-            detail=f"Duplicate employee names found: {', '.join(duplicates)}. Each employee must have a unique name."
+            detail=f"Duplicate employee names found: {', '.join(set(duplicates))}. Each employee must have a unique name."
         )
     
     # Validate: Check for empty employee names
-    empty_names = employee_names[employee_names == '']
-    if len(empty_names) > 0:
+    empty_names = [name for name in employee_names if not name]
+    if empty_names:
         raise HTTPException(
             status_code=400,
             detail="Employee names cannot be empty. Please enter a name for all employees."
         )
     
-    # Ensure all required columns exist
-    required_columns = ['employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only', 'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off']
-    for col in required_columns:
-        if col not in employees_df.columns:
-            if col.startswith('skill_'):
-                employees_df[col] = True
-            elif col == 'clinic_only':
-                employees_df[col] = False
-            elif col in ['maxN', 'maxA']:
-                employees_df[col] = 3
-            elif col == 'min_days_off':
-                employees_df[col] = 4
-            elif col == 'weight':
-                employees_df[col] = 1.0
-            elif col == 'pending_off':
-                employees_df[col] = 0.0
+    new_employee_names = set(employee_names)
     
-    # Convert boolean columns to proper boolean type
-    skill_columns = ['skill_M', 'skill_IP', 'skill_A', 'skill_N', 'skill_M3', 'skill_M4', 'skill_H', 'skill_CL']
-    for col in skill_columns:
-        if col in employees_df.columns:
-            employees_df[col] = employees_df[col].astype(bool)
+    # Update or create employees
+    for emp_data in employees:
+        employee_name = str(emp_data.get('employee', '')).strip()
+        if not employee_name:
+            continue
+        
+        if employee_name in existing_employees:
+            # Update existing
+            emp = existing_employees[employee_name]
+            emp.skill_M = bool(emp_data.get('skill_M', True))
+            emp.skill_IP = bool(emp_data.get('skill_IP', True))
+            emp.skill_A = bool(emp_data.get('skill_A', True))
+            emp.skill_N = bool(emp_data.get('skill_N', True))
+            emp.skill_M3 = bool(emp_data.get('skill_M3', True))
+            emp.skill_M4 = bool(emp_data.get('skill_M4', True))
+            emp.skill_H = bool(emp_data.get('skill_H', False))
+            emp.skill_CL = bool(emp_data.get('skill_CL', True))
+            emp.clinic_only = bool(emp_data.get('clinic_only', False))
+            emp.maxN = int(emp_data.get('maxN', 3))
+            emp.maxA = int(emp_data.get('maxA', 3))
+            emp.min_days_off = int(emp_data.get('min_days_off', 4))
+            emp.weight = float(emp_data.get('weight', 1.0))
+            emp.pending_off = float(emp_data.get('pending_off', 0.0))
+        else:
+            # Create new
+            new_emp = EmployeeSkills(
+                name=employee_name,
+                skill_M=bool(emp_data.get('skill_M', True)),
+                skill_IP=bool(emp_data.get('skill_IP', True)),
+                skill_A=bool(emp_data.get('skill_A', True)),
+                skill_N=bool(emp_data.get('skill_N', True)),
+                skill_M3=bool(emp_data.get('skill_M3', True)),
+                skill_M4=bool(emp_data.get('skill_M4', True)),
+                skill_H=bool(emp_data.get('skill_H', False)),
+                skill_CL=bool(emp_data.get('skill_CL', True)),
+                clinic_only=bool(emp_data.get('clinic_only', False)),
+                maxN=int(emp_data.get('maxN', 3)),
+                maxA=int(emp_data.get('maxA', 3)),
+                min_days_off=int(emp_data.get('min_days_off', 4)),
+                weight=float(emp_data.get('weight', 1.0)),
+                pending_off=float(emp_data.get('pending_off', 0.0))
+            )
+            db.add(new_emp)
     
-    # Ensure numeric columns are proper types
-    employees_df['maxN'] = employees_df['maxN'].astype(int)
-    employees_df['maxA'] = employees_df['maxA'].astype(int)
-    employees_df['min_days_off'] = employees_df['min_days_off'].astype(int)
-    employees_df['weight'] = employees_df['weight'].astype(float)
-    employees_df['pending_off'] = employees_df['pending_off'].astype(float)
-    employees_df['clinic_only'] = employees_df['clinic_only'].astype(bool)
+    # Delete employees that are no longer in the list
+    employees_to_delete = existing_employee_names - new_employee_names
+    for employee_name in employees_to_delete:
+        db.delete(existing_employees[employee_name])
     
-    # Reorder columns to match expected format
-    employees_df = employees_df[required_columns]
-    
-    # Save to file
-    employees_path = Path("roster/app/data/employees.csv")
-    employees_df.to_csv(employees_path, index=False)
-    
-    # Sync user accounts: auto-create accounts for new employees (using database)
-    new_employee_names = set(employees_df['employee'].values)
-    
-    # Create user accounts for new employees
+    # Sync user accounts: auto-create accounts for new employees
     for employee_name in new_employee_names:
         if employee_name not in existing_employee_names:
-            # Generate username: lowercase, replace all spaces (single or multiple) with underscore
+            # Generate username: lowercase, replace all spaces with underscore
             username = re.sub(r'\s+', '_', employee_name.strip().lower())
             
             # Check if user already exists in database
@@ -208,7 +178,6 @@ async def update_employees(
             if not existing_user:
                 # Create default password: first letter lowercase + rest + "123"
                 employee_password = f"{employee_name[0].lower()}{employee_name[1:]}123"
-                # Hash the password before storing
                 hashed_password = hash_password(employee_password)
                 new_user = User(
                     username=username,
@@ -240,22 +209,16 @@ async def delete_employee(
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can delete employees")
     
-    roster_data = load_roster_data_from_db(db)
-    employees_df = roster_data['employees']
-    
     # Check if employee exists
-    if employees_df.empty or employee_name not in employees_df['employee'].values:
+    employee = db.query(EmployeeSkills).filter(EmployeeSkills.name == employee_name).first()
+    if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     
-    # Remove employee
-    employees_df = employees_df[employees_df['employee'] != employee_name]
+    # Delete employee
+    db.delete(employee)
+    db.commit()
     
-    # Save to file (employee skills are still stored in CSV for now)
-    employees_path = project_root / "roster" / "app" / "data" / "employees.csv"
-    employees_df.to_csv(employees_path, index=False)
-    
-    # Optionally delete user account (but keep it for now to preserve login history)
-    # User accounts are kept even if employee is deleted, in case they need to be restored
+    # Note: User accounts are kept even if employee is deleted, in case they need to be restored
     # Managers can manually delete user accounts from User Management page if needed
     
     return {"message": "Employee deleted successfully"}
@@ -265,53 +228,22 @@ async def delete_employee(
 async def get_demands(
     year: Optional[int] = None,
     month: Optional[int] = None,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """Get demands data."""
-    if year and month:
-        demands_df = load_month_demands(year, month)
-    else:
-        # Load from general demands file
-        demands_file = project_root / "roster" / "app" / "data" / "demands.csv"
-        if demands_file.exists():
-            demands_df = pd.read_csv(demands_file)
-        else:
-            demands_df = pd.DataFrame()
+    """Get demands data for a specific month. Year and month are required."""
+    if not year or not month:
+        raise HTTPException(
+            status_code=400, 
+            detail="Year and month parameters are required"
+        )
     
-    if year and month:
-        demands_df['date'] = pd.to_datetime(demands_df['date'])
-        demands_df = demands_df[
-            (demands_df['date'].dt.year == year) &
-            (demands_df['date'].dt.month == month)
-        ]
-    
+    demands_df = load_month_demands(year, month, db)
     return demands_df.to_dict('records')
 
 
-@router.post("/demands")
-async def create_demand(
-    demand: DemandData,
-    current_user: dict = Depends(get_current_user)
-):
-    """Create a new demand entry."""
-    if current_user['employee_type'] != 'Manager':
-        raise HTTPException(status_code=403, detail="Only managers can create demands")
-    
-    # Load existing demands
-    demands_file = project_root / "roster" / "app" / "data" / "demands.csv"
-    if demands_file.exists():
-        demands_df = pd.read_csv(demands_file)
-    else:
-        demands_df = pd.DataFrame()
-    
-    # Add new demand
-    new_row = pd.DataFrame([demand.dict()])
-    demands_df = pd.concat([demands_df, new_row], ignore_index=True)
-    
-    # Save to file
-    demands_df.to_csv(demands_file, index=False)
-    
-    return {"message": "Demand created successfully"}
+# POST /demands removed - use POST /demands/month/{year}/{month} instead
+# Demands must be created for specific months
 
 
 @router.get("/roster-data")
@@ -324,14 +256,8 @@ async def get_roster_data(
         # Don't expand ranges for frontend - keep as ranges
         roster_data = load_roster_data_from_db(db, expand_ranges=False)
         
-        # Load demands from CSV (no database model yet)
-        from pathlib import Path
-        import pandas as pd
-        project_root = Path(__file__).parent.parent.parent
-        demands_file = project_root / "roster" / "app" / "data" / "demands.csv"
-        if demands_file.exists():
-            demands_df = pd.read_csv(demands_file)
-        else:
+        # Demands are loaded per-month from month-specific files
+        # No general demands file needed
             demands_df = pd.DataFrame()
         
         # Convert date objects to ISO strings for JSON serialization
@@ -846,6 +772,7 @@ async def generate_demands(
         raise HTTPException(status_code=403, detail="Only managers can generate demands")
     
     # Load existing holidays separately (not from demands)
+    # Note: generate_demands doesn't have db session, so it will create its own
     existing_holidays = load_month_holidays(request.year, request.month)
     # Convert date strings to date objects for matching
     existing_holidays_dates = {}
@@ -896,15 +823,17 @@ async def generate_demands(
 async def get_month_demands(
     year: int,
     month: int,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Get demands for a specific month (with holidays merged for UI display)."""
-    month_demands = load_month_demands(year, month)
+    month_demands = load_month_demands(year, month, db)
     
     if month_demands.empty:
         return []
     
     # Load holidays separately
+    # Note: get_month_demands doesn't have db session, so it will create its own
     holidays = load_month_holidays(year, month)
     
     # Convert dates to strings
@@ -925,7 +854,8 @@ async def save_month_demands(
     year: int,
     month: int,
     demands: List[dict],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Save demands for a specific month (without holidays - holidays are saved separately)."""
     if current_user['employee_type'] != 'Manager':
@@ -962,12 +892,12 @@ async def save_month_demands(
             else:
                 demands_df[col] = 0
     
-    # Save demands (without holiday column)
-    save_month_demands_to_file(year, month, demands_df)
+    # Save demands to database (without holiday column)
+    save_month_demands_to_file(year, month, demands_df, db)
     
     # Save holidays separately if any were provided
     if holidays:
-        save_month_holidays(year, month, holidays)
+        save_month_holidays(year, month, holidays, db=db)
     
     return {"message": "Demands saved successfully"}
 
@@ -979,6 +909,7 @@ async def get_month_holidays(
     current_user: dict = Depends(get_current_user)
 ):
     """Get holidays for a specific month."""
+    # Note: get_month_holidays doesn't have db session, so it will create its own
     holidays = load_month_holidays(year, month)
     return holidays
 
@@ -988,12 +919,13 @@ async def save_month_holidays_endpoint(
     year: int,
     month: int,
     holidays: Dict[str, str],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Save holidays for a specific month."""
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can save holidays")
     
-    save_month_holidays(year, month, holidays)
+    save_month_holidays(year, month, holidays, db=db)
     return {"message": "Holidays saved successfully"}
 
