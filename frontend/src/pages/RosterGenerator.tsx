@@ -1262,6 +1262,7 @@ export const RosterGenerator: React.FC = () => {
                       { key: 'pending_off', label: 'Pending Off', type: 'number', min: -50, max: 50 },
                     ]}
                     onDataChange={handleEmployeesChange}
+                    draggable={true}
                     onDeleteRow={async (index) => {
                       const employeeToDelete = rosterData.employees[index];
                       const newData = rosterData.employees.filter((_: any, i: number) => i !== index);

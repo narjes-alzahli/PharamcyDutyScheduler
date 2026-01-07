@@ -457,16 +457,16 @@ export const ReportsPage: React.FC = () => {
                       <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Avg Pending Off</p>
                         <p className="text-2xl font-bold">
-                          {(
+                          {Math.round(
                             currentSchedule.employees.reduce((sum: number, emp: any) => sum + (emp.pending_off || 0), 0) /
                             currentSchedule.employees.length
-                          ).toFixed(1)}
+                          )}
                         </p>
                       </div>
                       <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm text-gray-600">Max Pending Off</p>
                         <p className="text-2xl font-bold">
-                          {Math.max(...currentSchedule.employees.map((emp: any) => emp.pending_off || 0)).toFixed(1)}
+                          {Math.round(Math.max(...currentSchedule.employees.map((emp: any) => emp.pending_off || 0)))}
                         </p>
                       </div>
                     </div>
@@ -477,14 +477,14 @@ export const ReportsPage: React.FC = () => {
                           const sortedEmployees = currentSchedule.employees
                             .slice()
                             .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0));
-                          const pendingValues = sortedEmployees.map((emp: any) => emp.pending_off || 0);
+                          const pendingValues = sortedEmployees.map((emp: any) => Math.round(emp.pending_off || 0));
                           return (
                             <Plot
                               data={[{
                                 type: 'bar',
                                 x: sortedEmployees.map((emp: any) => emp.employee),
                                 y: pendingValues,
-                                text: pendingValues.map((value: number) => value.toFixed(1)),
+                                text: pendingValues.map((value: number) => value.toString()),
                                 textposition: 'auto',
                                 marker: { color: '#5DADE2' },
                                 orientation: 'v',

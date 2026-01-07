@@ -9,6 +9,7 @@ import { Login } from './pages/Login';
 import { SchedulePage } from './pages/Schedule';
 import { RosterGenerator } from './pages/RosterGenerator';
 import { ReportsPage } from './pages/Reports';
+import { AllRostersPage } from './pages/AllRosters';
 import { RosterRequests } from './pages/RosterRequests';
 import { UserManagement } from './pages/UserManagement';
 import { RulesManagement } from './pages/RulesManagement';
@@ -72,6 +73,16 @@ const AppRoutes: React.FC = () => {
           <ProtectedRoute>
             <Layout>
               <ReportsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/rosters"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AllRostersPage />
             </Layout>
           </ProtectedRoute>
         }

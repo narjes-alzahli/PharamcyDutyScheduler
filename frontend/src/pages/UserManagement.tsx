@@ -766,8 +766,12 @@ export const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState('');
+  const [editingEmployeeName, setEditingEmployeeName] = useState('');
+  const [editingUsername, setEditingUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [employeeType, setEmployeeType] = useState('Staff');
+  const [showEditUser, setShowEditUser] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -791,12 +795,23 @@ export const UserManagement: React.FC = () => {
   const { columnWidths: shiftWidths, handleMouseDown: shiftHandleMouseDown, tableRef: shiftTableRef, isResizing: shiftResizing } = useResizableColumns(shiftTableColumns, 150);
   
   // Resizable columns for users table
-  const usersTableColumns = ['username', 'employee_name', 'employee_type', 'password', 'actions'];
+  const usersTableColumns = ['username', 'employee_name', 'employee_type', 'pending_off', 'password', 'actions'];
   const { columnWidths: usersWidths, handleMouseDown: usersHandleMouseDown, tableRef: usersTableRef, isResizing: usersResizing } = useResizableColumns(usersTableColumns, 200);
   
   
+  // Enrich users with pending_off data from employees
+  const usersWithPendingOff = useMemo(() => {
+    return users.map(user => {
+      if (user.employee_type === 'Manager') {
+        return { ...user, pending_off: null }; // Managers have N/A
+      }
+      const employee = employees.find(emp => emp.employee === user.employee_name);
+      return { ...user, pending_off: employee?.pending_off ?? null };
+    });
+  }, [users, employees]);
+
   // Search and sort for users
-  const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(users, ['username', 'employee_name', 'employee_type']);
+  const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(usersWithPendingOff, ['username', 'employee_name', 'employee_type']);
   const { sortedData: sortedUsers, sortConfig: usersSortConfig, handleSort: handleUsersSort } = useTableSort(searchedUsers);
   
   // Calendar and table filter dates (must be declared before useMemo hooks)
@@ -817,7 +832,7 @@ export const UserManagement: React.FC = () => {
   const [usersPage, setUsersPage] = useState(1);
   const [leavePage, setLeavePage] = useState(1);
   const [shiftPage, setShiftPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 15;
 
   const pendingLeaveCount = leaveRequests.filter((req) => req.status === 'Pending').length;
   const pendingShiftCount = shiftRequests.filter((req) => req.status === 'Pending').length;
@@ -1054,10 +1069,36 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
+    if (!editingEmployeeName || !editingEmployeeName.trim()) {
+      setUsernameError('Employee name cannot be empty');
+      return;
+    }
+
+    if (!editingUsername || !editingUsername.trim()) {
+      setUsernameError('Username cannot be empty');
+      return;
+    }
+
+    // Check if username is unique (excluding current user)
+    const trimmedUsername = editingUsername.trim().toLowerCase();
+    const existingUser = users.find(u => 
+      u.username.toLowerCase() === trimmedUsername && 
+      u.username !== (window as any).editingOldUsername
+    );
+    if (existingUser) {
+      setUsernameError('Username already exists. Please choose a different username.');
+      return;
+    }
+
+    setUsernameError(null);
+
     try {
       setUpdating(true);
+      const oldUsername = (window as any).editingOldUsername || selectedEmployee ? getUsername(selectedEmployee) : '';
       await api.put('/api/users/', {
-        employee_name: selectedEmployee,
+        employee_name: editingEmployeeName.trim(),
+        username: editingUsername.trim(),
+        old_username: oldUsername,
         password: newPassword || undefined,
         employee_type: employeeType,
       });
@@ -1065,10 +1106,20 @@ export const UserManagement: React.FC = () => {
       setNotification({ message: '✅ User account updated successfully!', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
       setNewPassword('');
+      setSelectedEmployee('');
+      setEditingEmployeeName('');
+      setEditingUsername('');
+      setShowEditUser(false);
+      (window as any).editingOldUsername = undefined;
       await loadData();
     } catch (error: any) {
-      setNotification({ message: error.response?.data?.detail || 'Failed to update user account', type: 'error' });
-      setTimeout(() => setNotification(null), 4000);
+      const errorMessage = error.response?.data?.detail || 'Failed to update user account';
+      if (errorMessage.includes('Username already exists') || errorMessage.includes('username')) {
+        setUsernameError(errorMessage);
+      } else {
+        setNotification({ message: errorMessage, type: 'error' });
+        setTimeout(() => setNotification(null), 4000);
+      }
     } finally {
       setUpdating(false);
     }
@@ -1925,7 +1976,7 @@ export const UserManagement: React.FC = () => {
             <table ref={usersTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th key="username" style={{ width: `${usersWidths.username || 200}px`, maxWidth: `${usersWidths.username || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                  <th key="username" style={{ width: `${usersWidths.username || 200}px`, maxWidth: `${usersWidths.username || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="flex items-center space-x-1 truncate">
                       <span className="truncate">Username</span>
                       <button onClick={() => handleUsersSort('username')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by username">
@@ -1934,7 +1985,7 @@ export const UserManagement: React.FC = () => {
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'username')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="employee_name" style={{ width: `${usersWidths.employee_name || 200}px`, maxWidth: `${usersWidths.employee_name || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                  <th key="employee_name" style={{ width: `${usersWidths.employee_name || 200}px`, maxWidth: `${usersWidths.employee_name || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="flex items-center space-x-1 truncate">
                       <span className="truncate">Employee Name</span>
                       <button onClick={() => handleUsersSort('employee_name')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by employee name">
@@ -1943,7 +1994,7 @@ export const UserManagement: React.FC = () => {
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_name')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="employee_type" style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                  <th key="employee_type" style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="flex items-center space-x-1 truncate">
                       <span className="truncate">Employee Type</span>
                       <button onClick={() => handleUsersSort('employee_type')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by employee type">
@@ -1952,11 +2003,20 @@ export const UserManagement: React.FC = () => {
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="password" style={{ width: `${usersWidths.password || 200}px`, maxWidth: `${usersWidths.password || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                  <th key="pending_off" style={{ width: `${usersWidths.pending_off || 150}px`, maxWidth: `${usersWidths.pending_off || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="flex items-center space-x-1 truncate">
+                      <span className="truncate">Pending Off</span>
+                      <button onClick={() => handleUsersSort('pending_off')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by pending off">
+                        {usersSortConfig?.key === 'pending_off' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                      </button>
+                    </div>
+                    <div onMouseDown={(e) => usersHandleMouseDown(e, 'pending_off')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                  </th>
+                  <th key="password" style={{ width: `${usersWidths.password || 200}px`, maxWidth: `${usersWidths.password || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="truncate">Password</div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'password')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
-                  <th key="actions" style={{ width: `${usersWidths.actions || 150}px`, maxWidth: `${usersWidths.actions || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                  <th key="actions" style={{ width: `${usersWidths.actions || 150}px`, maxWidth: `${usersWidths.actions || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="truncate">Actions</div>
                   </th>
                 </tr>
@@ -1964,38 +2024,66 @@ export const UserManagement: React.FC = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                   {paginatedUsers.map((user, index) => (
                   <tr key={index} className="hover:bg-gray-50">
-                    <td style={{ width: `${usersWidths.username || 200}px`, maxWidth: `${usersWidths.username || 200}px` }} className="px-6 py-4 text-sm font-medium text-gray-900 border border-gray-300 overflow-hidden">
+                    <td style={{ width: `${usersWidths.username || 200}px`, maxWidth: `${usersWidths.username || 200}px` }} className="px-4 py-2 text-sm font-medium text-gray-900 border border-gray-300 overflow-hidden">
                       <div className="truncate" title={user.username}>
                         {user.username}
                       </div>
                     </td>
-                    <td style={{ width: `${usersWidths.employee_name || 200}px`, maxWidth: `${usersWidths.employee_name || 200}px` }} className="px-6 py-4 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                    <td style={{ width: `${usersWidths.employee_name || 200}px`, maxWidth: `${usersWidths.employee_name || 200}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
                       <div className="truncate" title={user.employee_name}>
                         {user.employee_name}
                       </div>
                     </td>
-                    <td style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px` }} className="px-6 py-4 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                    <td style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
                       <div className="truncate" title={user.employee_type}>
                         {user.employee_type}
                       </div>
                     </td>
-                    <td style={{ width: `${usersWidths.password || 200}px`, maxWidth: `${usersWidths.password || 200}px` }} className="px-6 py-4 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                    <td style={{ width: `${usersWidths.pending_off || 150}px`, maxWidth: `${usersWidths.pending_off || 150}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                      <div className="truncate" title={user.employee_type === 'Manager' ? 'N/A' : '0'}>
+                        {user.employee_type === 'Manager' ? 'N/A' : '0'}
+                      </div>
+                    </td>
+                    <td style={{ width: `${usersWidths.password || 200}px`, maxWidth: `${usersWidths.password || 200}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
                       <div className="truncate" title={user.password_hidden}>
                         {user.password_hidden ? (user.password_hidden.length > 8 ? '*'.repeat(8) : user.password_hidden) : '-'}
                       </div>
                     </td>
-                    <td style={{ width: `${usersWidths.actions || 150}px`, maxWidth: `${usersWidths.actions || 150}px` }} className="px-6 py-4 text-sm border border-gray-300 overflow-hidden">
-                      <button
-                        onClick={() => handleDeleteUser(user.username, user.employee_name)}
-                        disabled={deleting === user.username || user.username === currentUser?.username}
-                        className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={user.username === currentUser?.username ? "Cannot delete your own account" : "Delete user account"}
-                        aria-label="Delete user account"
-                      >
-                        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
-                          <path d="M3 6h14M8 6V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2m3 0v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM8 9v6M12 9v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </button>
+                    <td style={{ width: `${usersWidths.actions || 150}px`, maxWidth: `${usersWidths.actions || 150}px` }} className="px-4 py-2 text-sm border border-gray-300 overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectedEmployee(user.employee_name);
+                            setEditingEmployeeName(user.employee_name);
+                            setEditingUsername(user.username);
+                            setEmployeeType(user.employee_type);
+                            setNewPassword('');
+                            setShowCreateUser(false);
+                            setShowEditUser(true);
+                            setUsernameError(null);
+                            // Store old username for backend lookup
+                            (window as any).editingOldUsername = user.username;
+                          }}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Edit user account"
+                          aria-label="Edit user account"
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                            <path d="M11 3H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 0 3L12 12l-4 1 1-4 6.5-6.5a2.121 2.121 0 0 1 3 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(user.username, user.employee_name)}
+                          disabled={deleting === user.username || user.username === currentUser?.username}
+                          className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={user.username === currentUser?.username ? "Cannot delete your own account" : "Delete user account"}
+                          aria-label="Delete user account"
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                            <path d="M3 6h14M8 6V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2m3 0v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM8 9v6M12 9v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -2018,92 +2106,108 @@ export const UserManagement: React.FC = () => {
       </div>
 
       {/* Edit User Form */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-xl font-bold text-gray-900 mb-4">Edit User Account</h3>
-        <form onSubmit={handleUpdateUser} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select Employee
-              </label>
-              <select
-                value={selectedEmployee}
-                onChange={(e) => {
-                  setSelectedEmployee(e.target.value);
-                  // Find existing user type if user exists
-                  const username = getUsername(e.target.value);
-                  const existingUser = users.find(u => u.username === username);
-                  if (existingUser) {
-                    setEmployeeType(existingUser.employee_type);
-                  } else {
+      {showEditUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Edit User Account</h3>
+            <form onSubmit={handleUpdateUser}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Employee Name
+                </label>
+                <input
+                  type="text"
+                  value={editingEmployeeName}
+                  onChange={(e) => {
+                    setEditingEmployeeName(e.target.value);
+                    setUsernameError(null);
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  required
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Username <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editingUsername}
+                  onChange={(e) => {
+                    setEditingUsername(e.target.value);
+                    setUsernameError(null);
+                  }}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                    usernameError ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                />
+                {usernameError ? (
+                  <p className="mt-2 text-xs text-red-600">{usernameError}</p>
+                ) : (
+                  <p className="mt-2 text-xs text-gray-500">Username must be unique</p>
+                )}
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Leave empty to keep current password"
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Employee Type
+                </label>
+                <select
+                  value={employeeType}
+                  onChange={(e) => setEmployeeType(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  required
+                >
+                  <option value="Staff">Staff</option>
+                  <option value="Manager">Manager</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditUser(false);
+                    setSelectedEmployee('');
+                    setEditingEmployeeName('');
+                    setEditingUsername('');
+                    setNewPassword('');
                     setEmployeeType('Staff');
-                  }
-                }}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                required
-              >
-                <option value="">Select Employee...</option>
-                {employees.map(emp => (
-                  <option key={emp.employee} value={emp.employee}>
-                    {emp.employee}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Username
-              </label>
-              <input
-                type="text"
-                value={selectedEmployee ? getUsername(selectedEmployee) : ''}
-                disabled
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">Username cannot be changed</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                New Password
-              </label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                placeholder="Leave empty to keep current password"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Employee Type
-              </label>
-              <select
-                value={employeeType}
-                onChange={(e) => setEmployeeType(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                required
-              >
-                <option value="Staff">Staff</option>
-                <option value="Manager">Manager</option>
-              </select>
-            </div>
+                    setUsernameError(null);
+                    (window as any).editingOldUsername = undefined;
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  disabled={updating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                  disabled={updating || !editingEmployeeName || !editingUsername}
+                >
+                  {updating ? 'Updating...' : 'Update User'}
+                </button>
+              </div>
+            </form>
           </div>
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={updating || !selectedEmployee}
-              className="px-6 py-3 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {updating ? 'Updating...' : 'Update User Account'}
-            </button>
-          </div>
-        </form>
-      </div>
+        </div>
+      )}
       
       {/* Create User Modal */}
       {showCreateUser && (

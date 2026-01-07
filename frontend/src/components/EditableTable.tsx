@@ -24,6 +24,7 @@ interface EditableTableProps {
   debounceMs?: number; // Optional debounce delay
   searchable?: boolean; // Whether to show search bar
   searchPlaceholder?: string;
+  draggable?: boolean; // Whether rows can be dragged to reorder
 }
 
 export const EditableTable: React.FC<EditableTableProps> = ({
@@ -35,10 +36,13 @@ export const EditableTable: React.FC<EditableTableProps> = ({
   debounceMs = 2000, // Default 2 second debounce to prevent constant saves
   searchable = true,
   searchPlaceholder = 'Search table...',
+  draggable = false, // Default to false, enable when needed
 }) => {
   const [editingCell, setEditingCell] = useState<{ row: number; col: string } | null>(null);
   const [localData, setLocalData] = useState(data);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
+  const [dragOverRowIndex, setDragOverRowIndex] = useState<number | null>(null);
   
   // Resizable columns
   const columnKeys = columns.map(col => col.key);
@@ -51,8 +55,61 @@ export const EditableTable: React.FC<EditableTableProps> = ({
   // Sort functionality
   const { sortedData, sortConfig, handleSort } = useTableSort(searchedData);
   
-  // Use sorted data for display
-  const displayData = sortedData;
+  // Use sorted data for display (but if draggable, don't sort - preserve order)
+  const displayData = draggable ? searchedData : sortedData;
+  
+  // Handle drag and drop for row reordering
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (!draggable) return;
+    setDraggedRowIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', ''); // Required for Firefox
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    if (!draggable || draggedRowIndex === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverRowIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverRowIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    if (!draggable || draggedRowIndex === null) return;
+    e.preventDefault();
+    
+    if (draggedRowIndex === dropIndex) {
+      setDraggedRowIndex(null);
+      setDragOverRowIndex(null);
+      return;
+    }
+
+    // Reorder the data
+    const newData = [...localData];
+    const draggedItem = newData[draggedRowIndex];
+    
+    // Remove the dragged item
+    newData.splice(draggedRowIndex, 1);
+    
+    // Insert at new position
+    const newIndex = draggedRowIndex < dropIndex ? dropIndex - 1 : dropIndex;
+    newData.splice(newIndex, 0, draggedItem);
+    
+    setLocalData(newData);
+    setDraggedRowIndex(null);
+    setDragOverRowIndex(null);
+    
+    // Save immediately when reordering
+    onDataChange(newData);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedRowIndex(null);
+    setDragOverRowIndex(null);
+  };
 
   React.useEffect(() => {
     setLocalData(data);
@@ -325,9 +382,21 @@ export const EditableTable: React.FC<EditableTableProps> = ({
               return displayIndex;
             };
             const originalIndex = findOriginalIndex();
+            const isDragging = draggedRowIndex === originalIndex;
+            const isDragOver = dragOverRowIndex === originalIndex;
+            const isFirstColumn = (colIndex: number) => colIndex === 0;
             return (
-            <tr key={`row-${displayIndex}-${originalIndex}`} className="hover:bg-gray-50">
-              {columns.map(col => {
+            <tr 
+              key={`row-${displayIndex}-${originalIndex}`} 
+              className={`hover:bg-gray-50 group ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'bg-blue-100 border-t-2 border-blue-500' : ''}`}
+              draggable={draggable}
+              onDragStart={(e) => handleDragStart(e, originalIndex)}
+              onDragOver={(e) => handleDragOver(e, originalIndex)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, originalIndex)}
+              onDragEnd={handleDragEnd}
+            >
+              {columns.map((col, colIndex) => {
                 const width = columnWidths[col.key] || 150;
                 // Add min-width for number columns to ensure numbers are visible
                 const minWidthClass = col.type === 'number' ? 'min-w-[80px]' : 
@@ -338,7 +407,7 @@ export const EditableTable: React.FC<EditableTableProps> = ({
                 <td
                   key={col.key}
                   style={{ width: `${width}px` }}
-                    className={`px-4 py-2 whitespace-nowrap text-sm border border-gray-300 ${minWidthClass} ${col.type === 'text' && col.key.toLowerCase().includes('date') ? 'relative overflow-visible' : ''}`}
+                    className={`px-4 py-2 whitespace-nowrap text-sm border border-gray-300 ${minWidthClass} ${col.type === 'text' && col.key.toLowerCase().includes('date') ? 'relative overflow-visible' : ''} ${draggable && isFirstColumn(colIndex) ? 'relative' : ''}`}
                 >
                   {renderCell(row, originalIndex, col)}
                 </td>

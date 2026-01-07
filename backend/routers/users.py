@@ -30,8 +30,10 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     employee_name: str
+    username: str  # Required - must be unique
     password: Optional[str] = None
     employee_type: str
+    old_username: Optional[str] = None  # Used to find the user if username/employee_name changed
 
 
 @router.get("/")
@@ -122,11 +124,32 @@ async def update_user(
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can update users")
     
-    username = re.sub(r'\s+', '_', update.employee_name.strip().lower())
+    # Validate username is provided
+    if not update.username or not update.username.strip():
+        raise HTTPException(status_code=400, detail="Username is required and cannot be empty")
     
-    user = db.query(User).filter(User.username == username).first()
+    # Validate employee_name is provided
+    if not update.employee_name or not update.employee_name.strip():
+        raise HTTPException(status_code=400, detail="Employee name is required and cannot be empty")
+    
+    # Find user by old_username if provided, otherwise by generated username from employee_name
+    if update.old_username:
+        user = db.query(User).filter(User.username == update.old_username).first()
+    else:
+        username = re.sub(r'\s+', '_', update.employee_name.strip().lower())
+        user = db.query(User).filter(User.username == username).first()
+    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if new username is already taken (if username is being changed)
+    new_username = update.username.strip().lower()
+    
+    if new_username != user.username:
+        existing_user = db.query(User).filter(User.username == new_username).first()
+        if existing_user and existing_user.id != user.id:
+            raise HTTPException(status_code=400, detail="Username already exists. Please choose a different username.")
+        user.username = new_username
     
     user.employee_name = update.employee_name
     old_type = user.employee_type

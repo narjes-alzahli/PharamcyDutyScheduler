@@ -145,15 +145,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigation = user?.employee_type === 'Manager'
     ? [
         { name: 'Roster Generator', path: '/generator' },
-        { name: 'Monthly Roster', path: '/schedule' },
-        { name: 'Reports & Visualization', path: '/reports' },
+        { name: 'All Rosters', path: '/rosters' },
         { name: 'User Management', path: '/users' },
         { name: 'Rules Management', path: '/rules' },
       ]
     : [
         { name: 'Roster Requests', path: '/requests' },
-        { name: 'Monthly Roster', path: '/schedule' },
-        { name: 'Reports & Visualization', path: '/reports' },
+        { name: 'All Rosters', path: '/rosters' },
       ];
 
   return (

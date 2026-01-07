@@ -295,7 +295,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                       x: sortedEmployeesByPendingOff.map((emp: any) => emp.employee),
                       y: pendingOffValues,
                       type: 'bar',
-                      text: pendingOffValues.map((value: number) => value.toFixed(1)),
+                      text: pendingOffValues.map((value: number) => Math.round(value).toString()),
                       textposition: 'auto',
                       marker: { color: '#5DADE2' },
                     },

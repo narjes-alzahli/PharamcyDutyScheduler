@@ -458,13 +458,14 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                       {editable ? (
                         <div className="shift-dropdown-container relative">
                           <div
-                            className={`cursor-pointer transition-all ${isEditing ? 'ring-2 ring-blue-500 rounded' : 'hover:scale-110'}`}
+                            className={`cursor-pointer transition-all min-h-[24px] flex items-center justify-center ${isEditing ? 'ring-2 ring-blue-500 rounded' : 'hover:scale-110 hover:bg-gray-100 hover:bg-opacity-50 rounded'} ${!displayText ? 'border border-dashed border-gray-300' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               setEditingCell(isEditing ? null : { employee, date: dateStr });
                             }}
-                    >
-                      {displayText}
+                            title={displayText ? `${employee} - ${getDynamicShiftLabel(shift)}` : `${employee} - Click to add shift`}
+                          >
+                            {displayText || (isEditing ? '' : <span className="text-gray-400 text-xs">+</span>)}
                           </div>
                           {isEditing && (
                             <div className="absolute top-full left-0 z-50 bg-white border-2 border-gray-300 rounded-lg shadow-xl mt-1 max-h-64 overflow-y-auto min-w-[200px] shift-dropdown-container">

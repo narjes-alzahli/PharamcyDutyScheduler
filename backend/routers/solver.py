@@ -41,7 +41,7 @@ class SolveRequest(BaseModel):
     time_limit: int = 300
     unfilled_penalty: float = 1000.0
     fairness_weight: float = 5.0
-    switching_penalty: float = 1.0
+    switching_penalty: float = 0.0
 
 
 class SolveResponse(BaseModel):
