@@ -258,7 +258,7 @@ async def get_roster_data(
         
         # Demands are loaded per-month from month-specific files
         # No general demands file needed
-            demands_df = pd.DataFrame()
+        demands_df = pd.DataFrame()
         
         # Convert date objects to ISO strings for JSON serialization
         # Replace NaN values with None to make JSON serializable

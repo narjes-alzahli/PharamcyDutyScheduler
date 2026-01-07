@@ -253,14 +253,14 @@ def load_month_demands(year: int, month: int, db: Session = None) -> pd.DataFram
                 'need_CL': demand.need_CL
             } for demand in demands]
             df = pd.DataFrame(demands_data)
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        return df
-    
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            return df
+        
         # Return empty DataFrame if no demands found
         # Demands must exist in database - solver will fail if empty
-    return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N', 
-                                  'need_M3', 'need_M4', 'need_H', 'need_CL'])
+        return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N', 
+                                      'need_M3', 'need_M4', 'need_H', 'need_CL'])
     finally:
         if close_db:
             db.close()
@@ -288,13 +288,13 @@ def save_month_demands(year: int, month: int, demands_df: pd.DataFrame, db: Sess
         close_db = False
     
     try:
-    # Remove holiday column if it exists - holidays are stored separately
-    demands_df = demands_df.copy()
-    if 'holiday' in demands_df.columns:
-        demands_df = demands_df.drop(columns=['holiday'])
-    
+        # Remove holiday column if it exists - holidays are stored separately
+        demands_df = demands_df.copy()
+        if 'holiday' in demands_df.columns:
+            demands_df = demands_df.drop(columns=['holiday'])
+        
         # Ensure date column is properly formatted
-    if 'date' in demands_df.columns:
+        if 'date' in demands_df.columns:
             demands_df['date'] = pd.to_datetime(demands_df['date'], errors='coerce')
         
         # Delete existing demands for this month
@@ -360,12 +360,12 @@ def save_month_holidays(year: int, month: int, holidays: Dict[str, str], db: Ses
         ).delete()
         
         # Insert new holidays
-    for date_str, holiday_name in holidays.items():
+        for date_str, holiday_name in holidays.items():
             if not holiday_name or not holiday_name.strip():
                 continue
-        try:
-            date_obj = pd.to_datetime(date_str).date()
-            if date_obj.year == year and date_obj.month == month:
+            try:
+                date_obj = pd.to_datetime(date_str).date()
+                if date_obj.year == year and date_obj.month == month:
                     holiday = Holiday(
                         date=date_obj,
                         year=year,
@@ -373,8 +373,8 @@ def save_month_holidays(year: int, month: int, holidays: Dict[str, str], db: Ses
                         name=holiday_name.strip()
                     )
                     db.add(holiday)
-        except:
-            continue
+            except:
+                continue
     
         db.commit()
     finally:

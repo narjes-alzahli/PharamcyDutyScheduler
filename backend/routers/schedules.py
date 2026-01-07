@@ -49,22 +49,22 @@ def load_committed_schedules(db: Session) -> List[dict]:
             'shift': entry.shift
         } for entry in schedule_entries]
         schedule_df = pd.DataFrame(schedule_data)
-            schedule_df['date'] = pd.to_datetime(schedule_df['date'])
-            
-            # Load metrics if available
+        schedule_df['date'] = pd.to_datetime(schedule_df['date'])
+        
+        # Load metrics if available
         metrics_record = db.query(ScheduleMetrics).filter(
             ScheduleMetrics.year == year,
             ScheduleMetrics.month == month
         ).first()
         metrics = metrics_record.metrics if metrics_record else None
-            
-            schedules.append({
-                'year': year,
-                'month': month,
-                'schedule_df': schedule_df,
+        
+        schedules.append({
+            'year': year,
+            'month': month,
+            'schedule_df': schedule_df,
             'employee_df': None,  # Employee data not stored separately in DB
-                'metrics': metrics
-            })
+            'metrics': metrics
+        })
     
     return schedules
 
@@ -160,7 +160,7 @@ async def commit_schedule(
         
         if existing_metrics:
             existing_metrics.metrics = metrics
-            else:
+        else:
             metrics_entry = ScheduleMetrics(
                 year=year,
                 month=month,
