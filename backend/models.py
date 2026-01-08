@@ -101,7 +101,7 @@ class ShiftRequest(Base):
     shift_type_id = Column(Integer, ForeignKey("shift_types.id"), nullable=False)  # Changed from shift string
     from_date = Column(Date, nullable=False)
     to_date = Column(Date, nullable=False)
-    force = Column(Boolean, nullable=False, default=True)  # True = Force (Must), False = Forbid (Cannot)
+    force = Column(Boolean, nullable=False, default=True)  # True = Must, False = Cannot
     reason = Column(Text, nullable=True)
     status = Column(SQLEnum(RequestStatus), nullable=False, default=RequestStatus.PENDING)
     submitted_at = Column(DateTime(timezone=True), server_default=func.now())

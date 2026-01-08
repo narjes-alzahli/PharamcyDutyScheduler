@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { schedulesAPI, Schedule } from '../services/api';
+import { schedulesAPI, Schedule, dataAPI } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
 import * as htmlToImage from 'html-to-image';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,6 +9,10 @@ import { DatePicker } from '../components/DatePicker';
 import { isTokenExpired } from '../utils/tokenUtils';
 import Plot from 'react-plotly.js';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
+import { calculatePendingOff, PendingOffData } from '../utils/pendingOffCalculation';
+import { PieChart } from '../components/PieChart';
+import { createEmployeeColorMap } from '../utils/employeeColors';
+import { EmployeeLegend } from '../components/EmployeeLegend';
 
 export const AllRostersPage: React.FC = () => {
   const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth } = useDate();
@@ -28,6 +32,7 @@ export const AllRostersPage: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalSchedule, setOriginalSchedule] = useState<Schedule | null>(null);
+  const [employeesFromAPI, setEmployeesFromAPI] = useState<any[]>([]);
   const scheduleCardRef = useRef<HTMLDivElement>(null);
   const isManager = user?.employee_type === 'Manager';
 
@@ -90,6 +95,17 @@ export const AllRostersPage: React.FC = () => {
     }
   }, []);
 
+  // Load employees from API to get the correct order (from EmployeeSkills table)
+  const loadEmployees = useCallback(async () => {
+    try {
+      const employees = await dataAPI.getEmployees();
+      setEmployeesFromAPI(employees);
+    } catch (err: any) {
+      console.error('Failed to load employees:', err);
+      setEmployeesFromAPI([]);
+    }
+  }, []);
+
   // FIX: Load schedules list ONLY after auth guard confirms we're ready
   // This ensures user is authenticated AND token is valid before making API calls
   // FIX: Add request cancellation on unmount to prevent memory leaks
@@ -98,6 +114,7 @@ export const AllRostersPage: React.FC = () => {
     
     if (authReady) {
       loadSchedules(abortController.signal);
+      loadEmployees(); // Load employees to get correct order
     } else {
       // Auth not ready - clear schedules and show loading
       setSchedules([]);
@@ -110,7 +127,7 @@ export const AllRostersPage: React.FC = () => {
     return () => {
       abortController.abort();
     };
-  }, [authReady, loadSchedules]);
+  }, [authReady, loadSchedules, loadEmployees]);
 
   // Load specific schedule ONLY after schedules list is loaded
   useEffect(() => {
@@ -280,10 +297,83 @@ export const AllRostersPage: React.FC = () => {
     };
   };
 
+  // Get employee order from employees API (EmployeeSkills table order), not from stored schedule
+  // This ensures consistent ordering matching the employees table
+  const employeeOrder = useMemo(() => {
+    if (employeesFromAPI.length > 0) {
+      return employeesFromAPI.map((emp: any) => emp.employee);
+    }
+    // Fallback to schedule employees if API employees not loaded yet
+    if (currentSchedule?.employees) {
+      return currentSchedule.employees.map((emp: any) => emp.employee);
+    }
+    return undefined;
+  }, [employeesFromAPI, currentSchedule]);
+
   const fairnessData: FairnessData | null = useMemo(() => {
     if (!monthSchedule.length) return null;
-    return calculateFairnessData(monthSchedule);
-  }, [monthSchedule]);
+    return calculateFairnessData(monthSchedule, employeeOrder);
+  }, [monthSchedule, employeeOrder]);
+
+  // Create consistent color map for all employees
+  const employeeColorMap = useMemo(() => {
+    if (!fairnessData) return new Map<string, string>();
+    const allEmployees = new Set<string>();
+    fairnessData.nightData.forEach(d => allEmployees.add(d.emp));
+    fairnessData.afternoonData.forEach(d => allEmployees.add(d.emp));
+    fairnessData.m4Data?.forEach(d => allEmployees.add(d.emp));
+    fairnessData.weekendData.forEach(d => allEmployees.add(d.emp));
+    fairnessData.thursdayData?.forEach(d => allEmployees.add(d.emp));
+    fairnessData.workingData.forEach(d => allEmployees.add(d.emp));
+    return createEmployeeColorMap(Array.from(allEmployees));
+  }, [fairnessData]);
+  
+  // Calculate dynamic pending_off values from current schedule state
+  const dynamicEmployees: PendingOffData[] | null = useMemo(() => {
+    if (!monthSchedule.length || !originalSchedule || !originalSchedule.employees) return null;
+    if (!selectedYear || !selectedMonth) return null;
+    
+    // Get original schedule entries for this month
+    const originalScheduleEntries = originalSchedule.schedule.filter((entry: any) => {
+      const date = new Date(entry.date);
+      return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
+    });
+    
+    // Calculate what was added in the original month from the original schedule
+    const originalCalculated = calculatePendingOff(originalScheduleEntries, {}, {}, selectedYear, selectedMonth);
+    const originalEmployeesMap = new Map(originalSchedule.employees.map((e: any) => [e.employee, e]));
+    
+    // Reverse-calculate initial pending_off for each employee:
+    // final_pending_off = initial_pending_off + (weekend_shifts + night_shifts - DOs_given)
+    // So initial_pending_off = final_pending_off - (weekend_shifts + night_shifts - DOs_given)
+    const initialPendingOff: Record<string, number> = {};
+    
+    originalCalculated.forEach(calc => {
+      const original = originalEmployeesMap.get(calc.employee);
+      if (original) {
+        const finalPendingOff = original.pending_off || 0;
+        // Calculate what was added this month: weekend_shifts + night_shifts - DOs_given
+        const addedThisMonth = calc.weekend_shifts + calc.night_shifts - calc.DOs_given;
+        // Initial = Final - Added
+        initialPendingOff[calc.employee] = Math.max(0, finalPendingOff - addedThisMonth);
+      } else {
+        // Employee not in original, use 0 as initial
+        initialPendingOff[calc.employee] = 0;
+      }
+    });
+    
+    // For any employees in the original employees list but not in the calculated list,
+    // use their pending_off as the initial (they may not have had shifts in original schedule)
+    originalSchedule.employees.forEach((emp: any) => {
+      if (!(emp.employee in initialPendingOff)) {
+        initialPendingOff[emp.employee] = emp.pending_off || 0;
+      }
+    });
+    
+    // Now calculate from current (potentially edited) schedule using the calculated initial values
+    return calculatePendingOff(monthSchedule, initialPendingOff, {}, selectedYear, selectedMonth);
+  }, [monthSchedule, originalSchedule, selectedYear, selectedMonth]);
+  
   const metrics = calculateMetrics();
 
   // Show loading spinner while auth is loading or initial schedules list is loading
@@ -411,7 +501,10 @@ export const AllRostersPage: React.FC = () => {
                   schedule={currentSchedule.schedule}
                   year={selectedYear}
                   month={selectedMonth}
-                  employees={currentSchedule.employees}
+                  employees={employeesFromAPI.length > 0 ? employeesFromAPI : (dynamicEmployees && hasUnsavedChanges ? dynamicEmployees.map(e => ({
+                    employee: e.employee,
+                    pending_off: e.pending_off
+                  })) : currentSchedule.employees)}
                   editable={isManager}
                   onScheduleChange={handleScheduleChange}
                 />
@@ -462,9 +555,6 @@ export const AllRostersPage: React.FC = () => {
                       <div className="space-y-4">
                         <div>
                           <h3 className="text-xl font-bold text-gray-900">Monthly Overview</h3>
-                          <p className="mt-1 text-sm text-gray-500">
-                            Quick stats that highlight how this roster was distributed across the team.
-                          </p>
                         </div>
                         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                           <div className="rounded-lg bg-gray-50 p-4">
@@ -492,140 +582,57 @@ export const AllRostersPage: React.FC = () => {
                       <div className="space-y-6">
                         <div>
                           <h3 className="text-xl font-bold text-gray-900">Fairness Analysis</h3>
-                          <p className="mt-1 text-sm text-gray-500">
-                            Compare how shifts are shared across the team. Scroll horizontally on smaller screens
-                            to see every chart.
-                          </p>
-                        </div>
-                        
-                        {/* Fairness Metrics */}
-                        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                          <div className="rounded-lg bg-gray-50 p-4">
-                            <p className="text-sm text-gray-600">Min Working Days</p>
-                            <p className="text-2xl font-bold">{fairnessData.metrics.minWork}</p>
-                          </div>
-                          <div className="rounded-lg bg-gray-50 p-4">
-                            <p className="text-sm text-gray-600">Max Working Days</p>
-                            <p className="text-2xl font-bold">{fairnessData.metrics.maxWork}</p>
-                          </div>
-                          <div className="rounded-lg bg-gray-50 p-4">
-                            <p className="text-sm text-gray-600">Avg Working Days</p>
-                            <p className="text-2xl font-bold">{fairnessData.metrics.avgWork.toFixed(1)}</p>
-                          </div>
-                          <div className="rounded-lg bg-gray-50 p-4">
-                            <p className="text-sm text-gray-600">Fairness Score</p>
-                            <p className="text-2xl font-bold">{fairnessData.metrics.fairnessScore.toFixed(2)}</p>
-                          </div>
                         </div>
 
-                        <div className="-mx-4 overflow-x-auto border-t border-gray-200 pt-6 md:mx-0 md:overflow-visible">
-                          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:grid-cols-4">
-                            {/* Night Shift Distribution */}
-                            {fairnessData.nightData.length > 0 ? (
-                              <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
-                                <h4 className="text-sm font-semibold text-gray-800">🌙 Night Shift Distribution</h4>
-                                <Plot
-                                  data={[{
-                                    type: 'pie',
-                                    values: fairnessData.nightData.map(d => d.count),
-                                    labels: fairnessData.nightData.map(d => d.emp),
-                                    textinfo: 'percent+label',
-                                    textposition: 'inside',
-                                    marker: { colors: ['#FFB6C1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'] },
-                                  }]}
-                                  layout={{
-                                    height: 300,
-                                  }}
-                                  config={{ responsive: true }}
-                                  style={{ width: '100%', minWidth: '220px' }}
-                                />
-                              </div>
-                            ) : (
-                              <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
-                                <p className="text-gray-600">No night shifts assigned</p>
-                              </div>
-                            )}
-
-                            {/* Afternoon Shift Distribution */}
-                            {fairnessData.afternoonData.length > 0 ? (
-                              <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
-                                <h4 className="text-sm font-semibold text-gray-800">🌅 Afternoon Shift Distribution</h4>
-                                <Plot
-                                  data={[{
-                                    type: 'pie',
-                                    values: fairnessData.afternoonData.map(d => d.count),
-                                    labels: fairnessData.afternoonData.map(d => d.emp),
-                                    textinfo: 'percent+label',
-                                    textposition: 'inside',
-                                    marker: { colors: ['#FFE4E1', '#F0E68C', '#DDA0DD', '#B0E0E6', '#98FB98', '#F5DEB3'] },
-                                  }]}
-                                  layout={{
-                                    height: 300,
-                                  }}
-                                  config={{ responsive: true }}
-                                  style={{ width: '100%', minWidth: '220px' }}
-                                />
-                              </div>
-                            ) : (
-                              <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
-                                <p className="text-gray-600">No afternoon shifts assigned</p>
-                              </div>
-                            )}
-
-                            {/* Weekend Shift Distribution */}
-                            {fairnessData.weekendData.length > 0 ? (
-                              <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
-                                <h4 className="text-sm font-semibold text-gray-800">Weekend Shift Distribution</h4>
-                                <Plot
-                                  data={[{
-                                    type: 'pie',
-                                    values: fairnessData.weekendData.map(d => d.count),
-                                    labels: fairnessData.weekendData.map(d => d.emp),
-                                    textinfo: 'percent+label',
-                                    textposition: 'inside',
-                                    marker: { colors: ['#C5E1A5', '#FFCCBC', '#B2DFDB', '#FFE082', '#CE93D8', '#90CAF9'] },
-                                  }]}
-                                  layout={{
-                                    height: 300,
-                                  }}
-                                  config={{ responsive: true }}
-                                  style={{ width: '100%', minWidth: '220px' }}
-                                />
-                              </div>
-                            ) : (
-                              <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
-                                <p className="text-gray-600">No weekend shifts assigned</p>
-                              </div>
-                            )}
-
-                            {/* Total Working Days */}
-                            {fairnessData.workingData.length > 0 ? (
-                              <div className="min-w-[260px] rounded-lg border border-gray-100 p-3 shadow-sm md:min-w-0 space-y-3">
-                                <h4 className="text-sm font-semibold text-gray-800">Total Working Days</h4>
-                                <Plot
-                                  data={[{
-                                    type: 'bar',
-                                    x: fairnessData.workingData.map(d => d.count),
-                                    y: fairnessData.workingData.map(d => d.emp),
-                                    orientation: 'h',
-                                    text: fairnessData.workingData.map(d => d.count),
-                                    textposition: 'auto',
-                                    marker: { color: 'lightcoral' },
-                                  }]}
-                                  layout={{
-                                    xaxis: { title: 'Working Days' },
-                                    yaxis: { title: 'Employee' },
-                                    height: Math.max(300, fairnessData.workingData.length * 20 + 100),
-                                  }}
-                                  config={{ responsive: true }}
-                                  style={{ width: '100%', minWidth: '220px' }}
-                                />
-                              </div>
-                            ) : (
-                              <div className="min-w-[260px] rounded-lg bg-gray-50 p-4 text-center md:min-w-0">
-                                <p className="text-gray-600">No working shifts assigned</p>
-                              </div>
-                            )}
+                        <div className="-mx-4 overflow-x-auto border-t border-gray-200 pt-4 md:mx-0 md:overflow-visible">
+                          {/* Employee Legend - Above Graphs */}
+                          {employeeColorMap.size > 0 && (
+                            <div className="mb-4">
+                              <EmployeeLegend
+                                employees={Array.from(employeeColorMap.keys())}
+                                employeeOrder={employeeOrder}
+                              />
+                            </div>
+                          )}
+                          
+                          {/* Pie Charts - 3x2 Grid (3 columns, 2 rows) */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            <PieChart
+                              data={fairnessData.nightData}
+                              title="Night Shift Distribution"
+                              colorMap={employeeColorMap}
+                              emptyMessage="No night shifts assigned"
+                            />
+                            <PieChart
+                              data={fairnessData.afternoonData}
+                              title="Afternoon Shift Distribution"
+                              colorMap={employeeColorMap}
+                              emptyMessage="No afternoon shifts assigned"
+                            />
+                            <PieChart
+                              data={fairnessData.m4Data || []}
+                              title="M4 Shift Distribution"
+                              colorMap={employeeColorMap}
+                              emptyMessage="No M4 shifts assigned"
+                            />
+                            <PieChart
+                              data={fairnessData.weekendData}
+                              title="Weekend Shift Distribution"
+                              colorMap={employeeColorMap}
+                              emptyMessage="No weekend shifts assigned"
+                            />
+                            <PieChart
+                              data={fairnessData.thursdayData || []}
+                              title="Thursday Shift Distribution"
+                              colorMap={employeeColorMap}
+                              emptyMessage="No Thursday shifts assigned"
+                            />
+                            <PieChart
+                              data={fairnessData.workingData}
+                              title="Total Working Days Distribution"
+                              colorMap={employeeColorMap}
+                              emptyMessage="No working days assigned"
+                            />
                           </div>
                         </div>
                       </div>
@@ -636,70 +643,65 @@ export const AllRostersPage: React.FC = () => {
                       <div className="space-y-6">
                         <div>
                           <h3 className="text-xl font-bold text-gray-900">Employee Pending Off</h3>
-                          <p className="mt-1 text-sm text-gray-500">
-                            Track remaining days off so employees know what's still available.
-                          </p>
                         </div>
                         
-                        {currentSchedule.employees && currentSchedule.employees.length > 0 ? (
-                          <>
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                              <div className="rounded-lg bg-gray-50 p-4">
-                                <p className="text-sm text-gray-600">Total Employees</p>
-                                <p className="text-2xl font-bold">{currentSchedule.employees.length}</p>
+                        {(() => {
+                          // Use dynamic employees if we have unsaved changes, otherwise use committed employees
+                          const displayEmployees = (dynamicEmployees && hasUnsavedChanges) 
+                            ? dynamicEmployees.map(e => ({ employee: e.employee, pending_off: e.pending_off }))
+                            : currentSchedule.employees;
+                          
+                          if (!displayEmployees || displayEmployees.length === 0) {
+                            return (
+                              <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+                                No Pending Off data available for this schedule.
                               </div>
-                              <div className="rounded-lg bg-gray-50 p-4">
-                                <p className="text-sm text-gray-600">Avg Pending Off</p>
-                                <p className="text-2xl font-bold">
-                                  {Math.round(
-                                    currentSchedule.employees.reduce((sum: number, emp: any) => sum + (emp.pending_off || 0), 0) /
-                                    currentSchedule.employees.length
-                                  )}
-                                </p>
+                            );
+                          }
+                          
+                          return (
+                            <>
+                              <div className="-mx-4 overflow-x-auto md:mx-0 md:overflow-visible">
+                                {(() => {
+                                  // Use employee order from schedule instead of sorting by pending_off
+                                  // Reverse the order so graphs start with the last employee
+                                  const orderedEmployees = employeeOrder 
+                                    ? displayEmployees.slice().sort((a: any, b: any) => {
+                                        const aIdx = employeeOrder.indexOf(a.employee);
+                                        const bIdx = employeeOrder.indexOf(b.employee);
+                                        if (aIdx === -1 && bIdx === -1) return 0;
+                                        if (aIdx === -1) return 1;
+                                        if (bIdx === -1) return -1;
+                                        return bIdx - aIdx; // Reverse: bIdx - aIdx instead of aIdx - bIdx
+                                      })
+                                    : displayEmployees;
+                                  const pendingValues = orderedEmployees.map((emp: any) => Math.round(emp.pending_off || 0));
+                                  return (
+                                    <Plot
+                                      data={[{
+                                        type: 'bar',
+                                        x: orderedEmployees.map((emp: any) => emp.employee),
+                                        y: pendingValues,
+                                        text: pendingValues.map((value: number) => value.toString()),
+                                        textposition: 'auto',
+                                        marker: { color: '#5DADE2' },
+                                        orientation: 'v',
+                                      }]}
+                                      layout={{
+                                        xaxis: { title: 'Employee' },
+                                        yaxis: { title: 'Pending Off Days' },
+                                        height: 200,
+                                        margin: { l: 50, r: 10, t: 10, b: 60 },
+                                      }}
+                                      config={{ responsive: true }}
+                                      style={{ width: '100%', minWidth: '280px' }}
+                                    />
+                                  );
+                                })()}
                               </div>
-                          <div className="rounded-lg bg-gray-50 p-4">
-                            <p className="text-sm text-gray-600">Max Pending Off</p>
-                            <p className="text-2xl font-bold">
-                              {Math.round(Math.max(...currentSchedule.employees.map((emp: any) => emp.pending_off || 0)))}
-                            </p>
-                          </div>
-                            </div>
-
-                            <div className="-mx-4 overflow-x-auto md:mx-0 md:overflow-visible">
-                              {(() => {
-                                const sortedEmployees = currentSchedule.employees
-                                  .slice()
-                                  .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0));
-                                const pendingValues = sortedEmployees.map((emp: any) => Math.round(emp.pending_off || 0));
-                                return (
-                                  <Plot
-                                    data={[{
-                                      type: 'bar',
-                                      x: sortedEmployees.map((emp: any) => emp.employee),
-                                      y: pendingValues,
-                                      text: pendingValues.map((value: number) => value.toString()),
-                                      textposition: 'auto',
-                                      marker: { color: '#5DADE2' },
-                                      orientation: 'v',
-                                    }]}
-                                    layout={{
-                                      xaxis: { title: 'Employee' },
-                                      yaxis: { title: 'Pending Off Days' },
-                                      height: 300,
-                                      margin: { l: 60, r: 20, t: 20, b: 80 },
-                                    }}
-                                    config={{ responsive: true }}
-                                    style={{ width: '100%', minWidth: '280px' }}
-                                  />
-                                );
-                              })()}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-                            No Pending Off data available for this schedule.
-                          </div>
-                        )}
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
 

@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Plot from 'react-plotly.js';
-import { calculateFairnessData } from '../utils/fairnessMetrics';
+import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
+import { PieChart } from './PieChart';
+import { createEmployeeColorMap } from '../utils/employeeColors';
+import { EmployeeLegend } from './EmployeeLegend';
 
 interface ScheduleAnalysisProps {
   schedule: any[];
@@ -43,13 +46,40 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
     shiftCounts[s.shift] = (shiftCounts[s.shift] || 0) + 1;
   });
 
-  const fairnessData = calculateFairnessData(schedule);
+  // Get employee order from employees prop (same as schedule table)
+  const employeeOrder = useMemo(() => {
+    if (!employees || employees.length === 0) return undefined;
+    return employees.map((emp: any) => emp.employee);
+  }, [employees]);
+
+  const fairnessData = calculateFairnessData(schedule, employeeOrder);
+
+  // Create consistent color map for all employees
+  const employeeColorMap = useMemo(() => {
+    const allEmployees = new Set<string>();
+    fairnessData.nightData.forEach(d => allEmployees.add(d.emp));
+    fairnessData.afternoonData.forEach(d => allEmployees.add(d.emp));
+    fairnessData.m4Data?.forEach(d => allEmployees.add(d.emp));
+    fairnessData.weekendData.forEach(d => allEmployees.add(d.emp));
+    fairnessData.thursdayData?.forEach(d => allEmployees.add(d.emp));
+    fairnessData.workingData.forEach(d => allEmployees.add(d.emp));
+    return createEmployeeColorMap(Array.from(allEmployees));
+  }, [fairnessData]);
 
   const employeeDetails = employees || [];
-  const sortedEmployeesByPendingOff = employeeDetails
-    .slice()
-    .sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0));
-  const pendingOffValues = sortedEmployeesByPendingOff.map(
+  // Use employee order from schedule instead of sorting by pending_off
+  // Reverse the order so graphs start with the last employee
+  const orderedEmployeesByPendingOff = employeeOrder
+    ? employeeDetails.slice().sort((a: any, b: any) => {
+        const aIdx = employeeOrder.indexOf(a.employee);
+        const bIdx = employeeOrder.indexOf(b.employee);
+        if (aIdx === -1 && bIdx === -1) return 0;
+        if (aIdx === -1) return 1;
+        if (bIdx === -1) return -1;
+        return bIdx - aIdx; // Reverse: bIdx - aIdx instead of aIdx - bIdx
+      })
+    : employeeDetails.slice().sort((a: any, b: any) => (a.pending_off || 0) - (b.pending_off || 0));
+  const pendingOffValues = orderedEmployeesByPendingOff.map(
     (emp: any) => emp.pending_off || 0
   );
   const totalEmployees = employeeDetails.length;
@@ -73,7 +103,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
           onClick={() => toggleSection('summary')}
           className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
         >
-          <span>Schedule Summary - Key numbers and metrics</span>
+          <span>Schedule Summary</span>
           <span>{expandedSections.summary ? '▼' : '▶'}</span>
         </button>
         {expandedSections.summary && (
@@ -106,193 +136,82 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
           onClick={() => toggleSection('fairness')}
           className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
         >
-          <span>Fairness Analysis - How fair is the schedule?</span>
+          <span>Fairness Analysis</span>
           <span>{expandedSections.fairness ? '▼' : '▶'}</span>
         </button>
         {expandedSections.fairness && (
           <div className="p-4 border-t border-gray-200 space-y-6">
-            {/* Fairness Metrics */}
-            <div className="grid grid-cols-4 gap-4 mb-6">
-              {(() => {
-                return (
-                  <>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Min Working Days</p>
-                      <p className="text-2xl font-bold">{fairnessData.metrics.minWork}</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Max Working Days (Non-Clinical)</p>
-                      <p className="text-2xl font-bold">{fairnessData.metrics.maxWork}</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Avg Working Days</p>
-                      <p className="text-2xl font-bold">{fairnessData.metrics.avgWork.toFixed(1)}</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm text-gray-600">Fairness Score</p>
-                      <p className="text-2xl font-bold">{fairnessData.metrics.fairnessScore.toFixed(2)}</p>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* Charts Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Night Shift Distribution */}
-              {fairnessData.nightData.length > 0 ? (
-                <div>
-                  <h4 className="font-semibold mb-2">🌙 Night Shift Distribution</h4>
-                  <Plot
-                    data={[
-                      {
-                        values: fairnessData.nightData.map((d) => d.count),
-                        labels: fairnessData.nightData.map((d) => d.emp),
-                        type: 'pie',
-                      },
-                    ]}
-                    layout={{
-                      title: 'Night Shift Distribution',
-                      height: 300,
-                    }}
-                    config={{ responsive: true }}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-              ) : (
-                <div className="bg-gray-50 p-4 rounded text-center">
-                  <p className="text-gray-500">No night shifts assigned</p>
-                </div>
-              )}
-
-              {/* Afternoon Shift Distribution */}
-              {fairnessData.afternoonData.length > 0 ? (
-                <div>
-                  <h4 className="font-semibold mb-2">🌅 Afternoon Shift Distribution</h4>
-                  <Plot
-                    data={[
-                      {
-                        values: fairnessData.afternoonData.map((d) => d.count),
-                        labels: fairnessData.afternoonData.map((d) => d.emp),
-                        type: 'pie',
-                      },
-                    ]}
-                    layout={{
-                      title: 'Afternoon Shift Distribution',
-                      height: 300,
-                    }}
-                    config={{ responsive: true }}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-              ) : (
-                <div className="bg-gray-50 p-4 rounded text-center">
-                  <p className="text-gray-500">No afternoon shifts assigned</p>
-                </div>
-              )}
-
-              {/* Weekend Shift Distribution */}
-              {(() => {
-                return fairnessData.weekendData.length > 0 ? (
-                  <div>
-                    <h4 className="font-semibold mb-2">Weekend Shift Distribution</h4>
-                    <Plot
-                      data={[
-                        {
-                          values: fairnessData.weekendData.map((d) => d.count),
-                          labels: fairnessData.weekendData.map((d) => d.emp),
-                          type: 'pie',
-                        },
-                      ]}
-                      layout={{
-                        title: 'Weekend Shift Distribution',
-                        height: 300,
-                      }}
-                      config={{ responsive: true }}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                ) : (
-                  <div className="bg-gray-50 p-4 rounded text-center">
-                    <p className="text-gray-500">No weekend shifts assigned</p>
-                  </div>
-                );
-              })()}
-
-              {/* Total Working Days */}
-              {(() => {
-                return fairnessData.workingData.length > 0 ? (
-                  <div>
-                    <h4 className="font-semibold mb-2">Total Working Days</h4>
-                    <Plot
-                      data={[
-                        {
-                          x: fairnessData.workingData.map((d) => d.count),
-                          y: fairnessData.workingData.map((d) => d.emp),
-                          type: 'bar',
-                          orientation: 'h',
-                          marker: { color: 'lightcoral' },
-                        },
-                      ]}
-                      layout={{
-                        title: 'Total Working Days',
-                        xaxis: { title: 'Working Days' },
-                        yaxis: { title: 'Employee' },
-                        height: Math.max(300, fairnessData.workingData.length * 20 + 100),
-                      }}
-                      config={{ responsive: true }}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                ) : (
-                  <div className="bg-gray-50 p-4 rounded text-center">
-                    <p className="text-gray-500">No working shifts assigned</p>
-                  </div>
-                );
-              })()}
+            {/* Employee Legend - Above Graphs */}
+            {employeeColorMap.size > 0 && (
+              <div className="mb-4">
+                <EmployeeLegend
+                  employees={Array.from(employeeColorMap.keys())}
+                  employeeOrder={employeeOrder}
+                />
+              </div>
+            )}
+            
+            {/* Charts Grid - 3x2 grid (3 columns, 2 rows) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              <PieChart
+                data={fairnessData.nightData}
+                title="Night Shift Distribution"
+                colorMap={employeeColorMap}
+                emptyMessage="No night shifts assigned"
+              />
+              <PieChart
+                data={fairnessData.afternoonData}
+                title="Afternoon Shift Distribution"
+                colorMap={employeeColorMap}
+                emptyMessage="No afternoon shifts assigned"
+              />
+              <PieChart
+                data={fairnessData.m4Data || []}
+                title="M4 Shift Distribution"
+                colorMap={employeeColorMap}
+                emptyMessage="No M4 shifts assigned"
+              />
+              <PieChart
+                data={fairnessData.weekendData}
+                title="Weekend Shift Distribution"
+                colorMap={employeeColorMap}
+                emptyMessage="No weekend shifts assigned"
+              />
+              <PieChart
+                data={fairnessData.thursdayData || []}
+                title="Thursday Shift Distribution"
+                colorMap={employeeColorMap}
+                emptyMessage="No Thursday shifts assigned"
+              />
+              <PieChart
+                data={fairnessData.workingData}
+                title="Total Working Days Distribution"
+                colorMap={employeeColorMap}
+                emptyMessage="No working days assigned"
+              />
             </div>
           </div>
         )}
       </div>
 
-      {/* Employee Details */}
+      {/* Pending Off */}
       {employeeDetails.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg">
           <button
             onClick={() => toggleSection('employeeDetails')}
             className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
           >
-            <span>Employee Details - Individual staff information</span>
+            <span>Pending Off</span>
             <span>{expandedSections.employeeDetails ? '▼' : '▶'}</span>
           </button>
           {expandedSections.employeeDetails && (
             <div className="p-4 border-t border-gray-200">
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <div className="bg-gray-50 p-4 rounded">
-                  <p className="text-sm text-gray-600">Total Employees</p>
-                  <p className="text-2xl font-bold">{totalEmployees}</p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded">
-                  <p className="text-sm text-gray-600">Avg Pending Off</p>
-                  <p className="text-2xl font-bold">
-                    {averagePendingOff.toFixed(1)}
-                  </p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded">
-                  <p className="text-sm text-gray-600">Max Pending Off</p>
-                  <p className="text-2xl font-bold">
-                    {maxPendingOff.toFixed(1)}
-                  </p>
-                </div>
-              </div>
-
               {/* Pending Off Chart */}
-              <div>
-                <h4 className="font-semibold mb-2">Pending Off Days</h4>
+              <div className="w-full">
                 <Plot
                   data={[
                     {
-                      x: sortedEmployeesByPendingOff.map((emp: any) => emp.employee),
+                      x: orderedEmployeesByPendingOff.map((emp: any) => emp.employee),
                       y: pendingOffValues,
                       type: 'bar',
                       text: pendingOffValues.map((value: number) => Math.round(value).toString()),
@@ -303,10 +222,12 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                   layout={{
                     xaxis: { title: 'Employee' },
                     yaxis: { title: 'Pending Off Days' },
-                    height: 300,
+                    height: 200,
+                    margin: { l: 50, r: 10, t: 10, b: 60 },
+                    autosize: true,
                   }}
-                  config={{ responsive: true }}
-                  style={{ width: '100%' }}
+                  config={{ responsive: true, displayModeBar: false }}
+                  style={{ width: '100%', height: '100%' }}
                 />
               </div>
             </div>
@@ -321,7 +242,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
             onClick={() => toggleSection('technical')}
             className="w-full px-4 py-3 text-left font-semibold text-gray-900 hover:bg-gray-50 flex justify-between items-center"
           >
-            <span>Technical Details - How the schedule was created</span>
+            <span>Technical Details</span>
             <span>{expandedSections.technical ? '▼' : '▶'}</span>
           </button>
           {expandedSections.technical && (

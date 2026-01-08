@@ -34,6 +34,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     employee_type: str
     old_username: Optional[str] = None  # Used to find the user if username/employee_name changed
+    pending_off: Optional[float] = None
 
 
 @router.get("/")
@@ -185,6 +186,9 @@ async def update_user(
         else:
             # Update name if it changed
             employee_skills.name = user.employee_name
+            # Update pending_off if provided
+            if update.pending_off is not None:
+                employee_skills.pending_off = float(update.pending_off)
     elif old_type == EmployeeType.STAFF and user.employee_type == EmployeeType.MANAGER:
         # Remove employee_skills if user changed from Staff to Manager
         employee_skills = db.query(EmployeeSkills).filter(EmployeeSkills.user_id == user.id).first()

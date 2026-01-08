@@ -40,7 +40,7 @@ class ShiftRequest(BaseModel):
     from_date: str
     to_date: str
     shift: str
-    request_type: str  # "Force (Must)" or "Forbid (Cannot)"
+    request_type: str  # "Must" or "Cannot" (also accepts legacy "Force (Must)" or "Forbid (Cannot)")
     reason: Optional[str] = None
     employee: Optional[str] = None  # Optional: for managers updating "Added via Roster Generator" requests
 
@@ -409,7 +409,7 @@ async def create_shift_request(
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
-    force = request.request_type == "Force (Must)"
+    force = request.request_type == "Must" or request.request_type == "Force (Must)"  # Support both new and legacy formats
     
     # Find shift type by code
     shift_type = db.query(ShiftType).filter(ShiftType.code == request.shift).first()
@@ -514,7 +514,7 @@ async def update_shift_request(
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
-    force = update.request_type == "Force (Must)"
+    force = update.request_type == "Must" or update.request_type == "Force (Must)"  # Support both new and legacy formats
 
     # Find shift type by code
     shift_type = db.query(ShiftType).filter(ShiftType.code == update.shift).first()

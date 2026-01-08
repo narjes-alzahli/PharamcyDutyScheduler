@@ -54,7 +54,7 @@ export const RosterRequests: React.FC = () => {
   const [shiftFromDate, setShiftFromDate] = useState('');
   const [shiftToDate, setShiftToDate] = useState('');
   const [shiftType, setShiftType] = useState('M');
-  const [requestType, setRequestType] = useState('Force (Must)');
+  const [requestType, setRequestType] = useState('Must');
   const [shiftReason, setShiftReason] = useState('');
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
 
@@ -164,7 +164,7 @@ export const RosterRequests: React.FC = () => {
     setShiftFromDate(todayYYYYMMDD);
     setShiftToDate(todayYYYYMMDD);
     setShiftType('M');
-    setRequestType('Force (Must)');
+    setRequestType('Must');
     setShiftReason('');
     setEditingShiftId(null);
   };
@@ -336,7 +336,7 @@ export const RosterRequests: React.FC = () => {
     setShiftFromDate(parseDateToISO(req.from_date) || req.from_date);
     setShiftToDate(parseDateToISO(req.to_date || req.from_date) || req.to_date || req.from_date);
     setShiftType(req.shift);
-    setRequestType(req.force ? 'Force (Must)' : 'Forbid (Cannot)');
+    setRequestType(req.force ? 'Must' : 'Cannot');
     setShiftReason(req.reason || '');
   };
 
@@ -804,8 +804,8 @@ export const RosterRequests: React.FC = () => {
                       onChange={(e) => setRequestType(e.target.value)}
                       className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
-                      <option value="Force (Must)">Force (Must) - I must work this shift</option>
-                      <option value="Forbid (Cannot)">Forbid (Cannot) - I cannot work this shift</option>
+                      <option value="Must">Must - I must work this shift</option>
+                      <option value="Cannot">Cannot - I cannot work this shift</option>
                     </select>
                   </div>
 
@@ -876,7 +876,7 @@ export const RosterRequests: React.FC = () => {
                           </span>
                           <span className="font-medium text-gray-900">
                             Type:{' '}
-                            <span className="font-normal text-gray-600">{req.force ? 'Force' : 'Forbid'}</span>
+                            <span className="font-normal text-gray-600">{req.force ? 'Must' : 'Cannot'}</span>
                           </span>
                           <span className="font-medium text-gray-900">
                             Reason:{' '}
@@ -957,7 +957,7 @@ export const RosterRequests: React.FC = () => {
                               {req.shift}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 border border-gray-300">
-                              {req.force ? 'Force' : 'Forbid'}
+                              {req.force ? 'Must' : 'Cannot'}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-500 border border-gray-300">
                               {req.reason || '-'}

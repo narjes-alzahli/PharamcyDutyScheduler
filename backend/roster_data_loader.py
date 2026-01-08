@@ -19,8 +19,8 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
         expand_ranges: If True, expand date ranges into individual days (for solver).
                       If False, keep ranges as-is (for frontend UI).
     """
-    # Load employees from database
-    employees = db.query(EmployeeSkills).all()
+    # Load employees from database, ordered by ID to maintain consistent order
+    employees = db.query(EmployeeSkills).order_by(EmployeeSkills.id).all()
     if employees:
         employees_data = [{
             'employee': emp.name,

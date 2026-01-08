@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { dataAPI, solverAPI, schedulesAPI, SolveRequest, JobStatus, leaveTypesAPI, LeaveType, shiftTypesAPI, ShiftType, requestsAPI } from '../services/api';
 import { ScheduleTable } from '../components/ScheduleTable';
 import { EditableTable } from '../components/EditableTable';
@@ -7,6 +7,7 @@ import { ScheduleAnalysis } from '../components/ScheduleAnalysis';
 import { useAuth } from '../contexts/AuthContext';
 import { CalendarDatePicker } from '../components/CalendarDatePicker';
 import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
+import { calculatePendingOff } from '../utils/pendingOffCalculation';
 
 export const RosterGenerator: React.FC = () => {
   const [activeTab, setActiveTab] = useState('employees');
@@ -18,6 +19,7 @@ export const RosterGenerator: React.FC = () => {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [generatedSchedule, setGeneratedSchedule] = useState<any[] | null>(null);
+  const [originalGeneratedSchedule, setOriginalGeneratedSchedule] = useState<any[] | null>(null);
   const [generatedEmployees, setGeneratedEmployees] = useState<any[] | null>(null);
   const [scheduleMetrics, setScheduleMetrics] = useState<any>(null);
   const [showAddTimeOff, setShowAddTimeOff] = useState(false);
@@ -158,6 +160,7 @@ export const RosterGenerator: React.FC = () => {
       if (status.status === 'completed' && status.result) {
         setSolving(false);
         setGeneratedSchedule(status.result.schedule);
+        setOriginalGeneratedSchedule(JSON.parse(JSON.stringify(status.result.schedule))); // Store original for reverse calculation
         setGeneratedEmployees(status.result.employees || null);
         setScheduleMetrics(status.result.metrics || { solve_time: 0, status: 'completed' });
         setActiveTab('schedule');
@@ -196,6 +199,7 @@ export const RosterGenerator: React.FC = () => {
 
   const clearGeneratedResults = () => {
     setGeneratedSchedule(null);
+    setOriginalGeneratedSchedule(null);
     setGeneratedEmployees(null);
     setScheduleMetrics(null);
     setJobId(null);
@@ -877,7 +881,7 @@ export const RosterGenerator: React.FC = () => {
                   from_date: minFromDate,
                   to_date: maxToDate,
                   shift: firstLock.shift,
-                  request_type: firstLock.force ? 'Force (Must)' : 'Forbid (Cannot)',
+                  request_type: firstLock.force ? 'Must' : 'Cannot',
                   reason: firstLock.reason || 'Added via Roster Generator',
                   employee: firstLock.employee, // Include employee so backend can update user_id if changed
                 });
@@ -1153,13 +1157,13 @@ export const RosterGenerator: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-3xl font-bold text-gray-900 mb-6">Roster Generator</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Generator</h2>
       {selectionControls}
 
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row">
-          <aside className="md:w-56 md:pr-4 md:border-r md:border-gray-200 mb-6 md:mb-0">
-            <div className="space-y-3">
+          <aside className="md:w-48 md:pr-4 md:border-r md:border-gray-200 mb-6 md:mb-0 flex-shrink-0">
+            <div className="space-y-2">
               {steps.map((step, index) => {
                 const isActive = activeTab === step.id;
                 return (
@@ -1167,14 +1171,14 @@ export const RosterGenerator: React.FC = () => {
                     key={step.id}
                     type="button"
                     onClick={() => setActiveTab(step.id)}
-                    className={`w-full flex items-start space-x-2 rounded-lg border px-3 py-3 text-left transition ${
+                    className={`w-full flex items-start space-x-2 rounded-lg border px-2 py-2 text-left transition ${
                       isActive
                         ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
                         : 'border-gray-200 hover:border-primary-300 hover:shadow-sm'
                     }`}
                   >
                     <span
-                      className={`flex items-center justify-center w-8 h-8 mt-0.5 rounded-full border ${
+                      className={`flex items-center justify-center w-6 h-6 mt-0.5 rounded-full border text-xs ${
                         isActive
                           ? 'bg-primary-500 border-primary-500 text-white'
                           : 'border-gray-300 text-gray-500'
@@ -1183,7 +1187,7 @@ export const RosterGenerator: React.FC = () => {
                       {index + 1}
                     </span>
                     <div>
-                      <p className={`font-semibold ${isActive ? 'text-primary-700' : 'text-gray-800'}`}>
+                      <p className={`text-sm font-medium ${isActive ? 'text-primary-700' : 'text-gray-800'}`}>
                         {step.name}
                       </p>
                     </div>
@@ -1193,14 +1197,14 @@ export const RosterGenerator: React.FC = () => {
             </div>
           </aside>
 
-          <div className="flex-1 md:pl-8 space-y-8" ref={contentRef}>
+          <div className="flex-1 md:pl-8 space-y-8 min-w-0" ref={contentRef}>
           {/* Employees Tab */}
           {activeTab === 'employees' && (
-            <div>
+            <div className="min-w-0">
               <div className="flex justify-between items-center mb-4">
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">Employee Skills Management</h3>
-                  <p className="text-gray-600">Edit staff skills and constraints. To add new staff, create a Staff user in User Management.</p>
+                  <p className="text-gray-600">Edit staff skills. To add new staff, create a Staff user in User Management.</p>
                 </div>
               </div>
               
@@ -1247,22 +1251,23 @@ export const RosterGenerator: React.FC = () => {
                     </div>
                   </div>
                   
-                  <EditableTable
-                    data={rosterData.employees}
-                    columns={[
-                      { key: 'employee', label: 'Employee', type: 'text' },
-                      { key: 'skill_M', label: 'Main', type: 'checkbox' },
-                      { key: 'skill_IP', label: 'Inpatient', type: 'checkbox' },
-                      { key: 'skill_A', label: 'Afternoon', type: 'checkbox' },
-                      { key: 'skill_N', label: 'Night', type: 'checkbox' },
-                      { key: 'skill_M3', label: 'M3', type: 'checkbox' },
-                      { key: 'skill_M4', label: 'M4', type: 'checkbox' },
-                      { key: 'skill_H', label: 'Harat', type: 'checkbox' },
-                      { key: 'skill_CL', label: 'Clinic', type: 'checkbox' },
-                      { key: 'pending_off', label: 'Pending Off', type: 'number', min: -50, max: 50 },
-                    ]}
-                    onDataChange={handleEmployeesChange}
-                    draggable={true}
+                  <div className="overflow-x-auto w-full">
+                    <EditableTable
+                      data={rosterData.employees}
+                      columns={[
+                        { key: 'employee', label: 'Employee', type: 'text', readOnly: true },
+                        { key: 'skill_M', label: 'M', type: 'checkbox' },
+                        { key: 'skill_IP', label: 'IP', type: 'checkbox' },
+                        { key: 'skill_A', label: 'A', type: 'checkbox' },
+                        { key: 'skill_N', label: 'N', type: 'checkbox' },
+                        { key: 'skill_M3', label: 'M3', type: 'checkbox' },
+                        { key: 'skill_M4', label: 'M4', type: 'checkbox' },
+                        { key: 'skill_H', label: 'H', type: 'checkbox' },
+                        { key: 'skill_CL', label: 'CL', type: 'checkbox' },
+                        { key: 'pending_off', label: 'P/O', type: 'number', min: -50, max: 50 },
+                      ]}
+                      onDataChange={handleEmployeesChange}
+                      draggable={true}
                     onDeleteRow={async (index) => {
                       const employeeToDelete = rosterData.employees[index];
                       const newData = rosterData.employees.filter((_: any, i: number) => i !== index);
@@ -1276,6 +1281,7 @@ export const RosterGenerator: React.FC = () => {
                       }
                     }}
                   />
+                  </div>
                 </>
               ) : (
                 <p className="text-gray-600">No employees data available.</p>
@@ -1297,7 +1303,7 @@ export const RosterGenerator: React.FC = () => {
             <div>
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">🏖️ Leave Requests</h3>
+                  <h3 className="text-xl font-bold text-gray-900">Leave Requests</h3>
                   <p className="text-gray-600">Submit and approve vacation, sick leave, and other time off requests</p>
                 </div>
                 <button
@@ -1762,7 +1768,7 @@ export const RosterGenerator: React.FC = () => {
             <div>
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">🔒 Shift Requests</h3>
+                  <h3 className="text-xl font-bold text-gray-900">Shift Requests</h3>
                   <p className="text-gray-600">Force specific shifts or block certain assignments for staff</p>
                 </div>
                 <button
@@ -1797,12 +1803,12 @@ export const RosterGenerator: React.FC = () => {
                   
                   return monthData.map((lock: any) => ({
                     ...lock,
-                    force: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
+                    force: lock.force ? 'Must' : 'Cannot',
                     // Preserve original values for matching during edits (even when dates/shift change)
                     _originalRequestId: lock.request_id,
                     _originalReason: lock.reason,
                     _originalShift: lock.shift,
-                    _originalForce: lock.force ? 'Force (Must)' : 'Forbid (Cannot)',
+                    _originalForce: lock.force ? 'Must' : 'Cannot',
                     _originalFromDate: lock.from_date,
                     _originalToDate: lock.to_date,
                     _originalEmployee: lock.employee,
@@ -1813,7 +1819,7 @@ export const RosterGenerator: React.FC = () => {
                     { key: 'from_date', label: 'From Date', type: 'text' },
                     { key: 'to_date', label: 'To Date', type: 'text' },
                     { key: 'shift', label: 'Shift', type: 'select', options: shiftTypes.length > 0 ? shiftTypes.filter(st => st.code !== 'O' && st.code !== 'DO').map(st => st.code) : [] },
-                    { key: 'force', label: 'Action', type: 'select', options: ['Force (Must)', 'Forbid (Cannot)'] },
+                    { key: 'force', label: 'Action', type: 'select', options: ['Must', 'Cannot'] },
                   ]}
                   onDataChange={(newData) => {
                     console.log('🔄 onDataChange called for locks with', newData.length, 'items');
@@ -1914,7 +1920,7 @@ export const RosterGenerator: React.FC = () => {
                           from_date: isoFromDate || item.from_date,
                           to_date: isoToDate || item.to_date,
                           shift: item.shift,
-                      force: item.force === 'Force (Must)',
+                      force: item.force === 'Must',
                           reason: reason,
                           request_id: forcedRequestId,
                         };
@@ -1945,7 +1951,7 @@ export const RosterGenerator: React.FC = () => {
                         from_date: isoFromDate || item.from_date,
                         to_date: isoToDate || item.to_date,
                         shift: item.shift,
-                        force: item.force === 'Force (Must)',
+                        force: item.force === 'Must',
                         reason: reason,
                       };
                       
@@ -2019,13 +2025,13 @@ export const RosterGenerator: React.FC = () => {
                       
                       const deleteFromDate = normalizeDate(itemToDelete.from_date);
                       const deleteToDate = normalizeDate(itemToDelete.to_date);
-                      const deleteForce = typeof itemToDelete.force === 'string' ? itemToDelete.force === 'Force (Must)' : !!itemToDelete.force;
+                      const deleteForce = typeof itemToDelete.force === 'string' ? itemToDelete.force === 'Must' : !!itemToDelete.force;
                       
                       // Remove the item by matching all its properties (normalize dates for comparison)
                       const newData = (rosterData?.locks || []).filter((item: any) => {
                         const itemFromDate = normalizeDate(item.from_date);
                         const itemToDate = normalizeDate(item.to_date);
-                        const itemForce = typeof item.force === 'string' ? item.force === 'Force (Must)' : !!item.force;
+                        const itemForce = typeof item.force === 'string' ? item.force === 'Must' : !!item.force;
                         return !(
                           item.employee === itemToDelete.employee &&
                           itemFromDate === deleteFromDate &&
@@ -2044,10 +2050,10 @@ export const RosterGenerator: React.FC = () => {
           {/* Schedule Generation & Review */}
           {activeTab === 'schedule' && (
             <div>
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Generate Schedule</h3>
-              <p className="text-gray-600 mb-4">
-                Run the solver to build the monthly roster, review the assignments, and commit when you’re satisfied.
-              </p>
+              <div className="mb-4">
+                <h3 className="text-xl font-bold text-gray-900">Generate Schedule</h3>
+                <p className="text-gray-600">Run the solver to build the monthly roster, review the assignments, and commit when satisfied.</p>
+              </div>
 
               {!selectedYear || !selectedMonth ? (
                 <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
@@ -2096,24 +2102,146 @@ export const RosterGenerator: React.FC = () => {
 
                   {generatedSchedule && selectedYear && selectedMonth ? (
                     <>
-                      <ScheduleTable
-                        schedule={generatedSchedule}
-                        year={selectedYear}
-                        month={selectedMonth}
-                        employees={generatedEmployees || rosterData?.employees}
-                        editable={true}
-                        onScheduleChange={(updatedSchedule) => {
-                          setGeneratedSchedule(updatedSchedule);
-                        }}
-                      />
-
-                      <ScheduleAnalysis
-                        schedule={generatedSchedule}
-                        employees={generatedEmployees || rosterData?.employees}
-                        metrics={scheduleMetrics}
-                        year={selectedYear}
-                        month={selectedMonth}
-                      />
+                      {(() => {
+                        // Calculate dynamic pending_off when schedule is edited
+                        if (!generatedEmployees || !originalGeneratedSchedule) {
+                          return (
+                            <div className="overflow-x-auto max-w-full">
+                              <ScheduleTable
+                                schedule={generatedSchedule}
+                                year={selectedYear}
+                                month={selectedMonth}
+                                employees={generatedEmployees || rosterData?.employees}
+                                editable={true}
+                                onScheduleChange={(updatedSchedule) => {
+                                  setGeneratedSchedule(updatedSchedule);
+                                }}
+                              />
+                            </div>
+                          );
+                        }
+                        
+                        // Check if schedule has been edited (different from original)
+                        const scheduleChanged = JSON.stringify(generatedSchedule) !== JSON.stringify(originalGeneratedSchedule);
+                        if (!scheduleChanged) {
+                          return (
+                            <div className="overflow-x-auto max-w-full">
+                              <ScheduleTable
+                                schedule={generatedSchedule}
+                                year={selectedYear}
+                                month={selectedMonth}
+                                employees={generatedEmployees}
+                                editable={true}
+                                onScheduleChange={(updatedSchedule) => {
+                                  setGeneratedSchedule(updatedSchedule);
+                                }}
+                              />
+                            </div>
+                          );
+                        }
+                        
+                        // Calculate initial pending_off by reverse-calculating from original schedule
+                        const originalScheduleEntries = originalGeneratedSchedule.filter((entry: any) => {
+                          const date = new Date(entry.date);
+                          return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
+                        });
+                        
+                        const originalCalculated = calculatePendingOff(originalScheduleEntries, {}, {}, selectedYear, selectedMonth);
+                        const originalEmployeesMap = new Map(generatedEmployees.map((e: any) => [e.employee, e]));
+                        
+                        // Reverse-calculate initial pending_off
+                        const initialPendingOff: Record<string, number> = {};
+                        originalCalculated.forEach(calc => {
+                          const original = originalEmployeesMap.get(calc.employee);
+                          if (original) {
+                            const finalPendingOff = original.pending_off || 0;
+                            const addedThisMonth = calc.weekend_shifts + calc.night_shifts - calc.DOs_given;
+                            initialPendingOff[calc.employee] = Math.max(0, finalPendingOff - addedThisMonth);
+                          } else {
+                            initialPendingOff[calc.employee] = 0;
+                          }
+                        });
+                        
+                        // For any employees not in calculated, use their original pending_off
+                        generatedEmployees.forEach((emp: any) => {
+                          if (!(emp.employee in initialPendingOff)) {
+                            initialPendingOff[emp.employee] = emp.pending_off || 0;
+                          }
+                        });
+                        
+                        // Calculate from current (edited) schedule
+                        const currentScheduleEntries = generatedSchedule.filter((entry: any) => {
+                          const date = new Date(entry.date);
+                          return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
+                        });
+                        
+                        const recalculated = calculatePendingOff(currentScheduleEntries, initialPendingOff, {}, selectedYear, selectedMonth);
+                        const dynamicEmployees = recalculated.map(e => ({
+                          employee: e.employee,
+                          pending_off: e.pending_off,
+                          total_working_days: e.total_working_days,
+                          night_shifts: e.night_shifts,
+                          afternoon_shifts: 0, // Not used in display
+                          weekend_shifts: e.weekend_shifts,
+                          DOs_given: e.DOs_given
+                        }));
+                        
+                        return (
+                          <>
+                            <div className="overflow-x-auto max-w-full">
+                              <ScheduleTable
+                                schedule={generatedSchedule}
+                                year={selectedYear}
+                                month={selectedMonth}
+                                employees={dynamicEmployees}
+                                editable={true}
+                                onScheduleChange={(updatedSchedule) => {
+                                  setGeneratedSchedule(updatedSchedule);
+                                }}
+                              />
+                            </div>
+                            
+                            <ScheduleAnalysis
+                              schedule={generatedSchedule}
+                              employees={dynamicEmployees}
+                              metrics={scheduleMetrics}
+                              year={selectedYear}
+                              month={selectedMonth}
+                            />
+                          </>
+                        );
+                      })()}
+                      
+                      {(() => {
+                        // If schedule hasn't been edited, show ScheduleAnalysis with original employees
+                        if (!generatedEmployees || !originalGeneratedSchedule) {
+                          return (
+                            <ScheduleAnalysis
+                              schedule={generatedSchedule}
+                              employees={generatedEmployees || rosterData?.employees}
+                              metrics={scheduleMetrics}
+                              year={selectedYear}
+                              month={selectedMonth}
+                            />
+                          );
+                        }
+                        
+                        const scheduleChanged = JSON.stringify(generatedSchedule) !== JSON.stringify(originalGeneratedSchedule);
+                        if (!scheduleChanged) {
+                          return (
+                            <ScheduleAnalysis
+                              schedule={generatedSchedule}
+                              employees={generatedEmployees}
+                              metrics={scheduleMetrics}
+                              year={selectedYear}
+                              month={selectedMonth}
+                            />
+                          );
+                        }
+                        
+                        // Schedule has been edited - already rendered with dynamic employees above
+                        return null;
+                      })()}
 
                       <div className="mt-8 border-t border-gray-200 pt-6">
                         <h3 className="text-xl font-bold text-gray-900 mb-4">Ready to Use This Schedule?</h3>
@@ -2125,7 +2253,7 @@ export const RosterGenerator: React.FC = () => {
                             Commit Schedule
                           </button>
                           <p className="text-sm text-gray-600">
-                            After committing, this schedule will be available in Monthly Roster and Reports pages for your staff.
+                            After committing, this schedule will be available to your staff in All Rosters page.
                           </p>
                         </div>
                       </div>
@@ -2260,9 +2388,9 @@ const AddLockForm: React.FC<{
         <select value={shift} onChange={(e) => setShift(e.target.value)} className="px-3 py-2 border rounded">
           {availableShiftTypes.length > 0 ? availableShiftTypes.map(st => <option key={st.code} value={st.code}>{st.code}</option>) : <option>Loading...</option>}
         </select>
-        <select value={force ? 'Force' : 'Forbid'} onChange={(e) => setForce(e.target.value === 'Force')} className="px-3 py-2 border rounded">
-          <option value="Force">Force (Must)</option>
-          <option value="Forbid">Forbid (Cannot)</option>
+        <select value={force ? 'Must' : 'Cannot'} onChange={(e) => setForce(e.target.value === 'Must')} className="px-3 py-2 border rounded">
+          <option value="Must">Must</option>
+          <option value="Cannot">Cannot</option>
         </select>
       </div>
       <div className="mt-4 flex space-x-2">

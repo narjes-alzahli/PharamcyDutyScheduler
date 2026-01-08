@@ -768,6 +768,7 @@ export const UserManagement: React.FC = () => {
   const [selectedEmployee, setSelectedEmployee] = useState('');
   const [editingEmployeeName, setEditingEmployeeName] = useState('');
   const [editingUsername, setEditingUsername] = useState('');
+  const [editingPendingOff, setEditingPendingOff] = useState<number>(0);
   const [newPassword, setNewPassword] = useState('');
   const [employeeType, setEmployeeType] = useState('Staff');
   const [showEditUser, setShowEditUser] = useState(false);
@@ -1101,6 +1102,7 @@ export const UserManagement: React.FC = () => {
         old_username: oldUsername,
         password: newPassword || undefined,
         employee_type: employeeType,
+        pending_off: employeeType === 'Staff' ? editingPendingOff : undefined,
       });
       
       setNotification({ message: '✅ User account updated successfully!', type: 'success' });
@@ -1418,7 +1420,7 @@ export const UserManagement: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-3xl font-bold text-gray-900 mb-6">User Management</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
       
       {/* Auto-dismissing notification toast */}
       {notification && (
@@ -1832,7 +1834,7 @@ export const UserManagement: React.FC = () => {
                       <td style={{ width: `${shiftWidths.to_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date || req.from_date)}</td>
                       <td style={{ width: `${shiftWidths.shift || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.shift}</td>
                       <td style={{ width: `${shiftWidths.type || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">
-                        {req.force ? 'Force (Must)' : 'Forbid (Cannot)'}
+                        {req.force ? 'Must' : 'Cannot'}
                       </td>
                       <td style={{ width: `${shiftWidths.reason || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
                       <td style={{ width: `${shiftWidths.status || 150}px` }} className="px-4 py-3 text-sm border border-gray-300">
@@ -2057,6 +2059,7 @@ export const UserManagement: React.FC = () => {
                             setEditingEmployeeName(user.employee_name);
                             setEditingUsername(user.username);
                             setEmployeeType(user.employee_type);
+                            setEditingPendingOff(user.pending_off !== null && user.pending_off !== undefined ? Number(user.pending_off) : 0);
                             setNewPassword('');
                             setShowCreateUser(false);
                             setShowEditUser(true);
@@ -2178,6 +2181,23 @@ export const UserManagement: React.FC = () => {
                 </select>
               </div>
 
+              {employeeType === 'Staff' && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pending Off
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={editingPendingOff}
+                    onChange={(e) => setEditingPendingOff(parseInt(e.target.value) || 0)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    placeholder="0"
+                  />
+                  <p className="mt-2 text-xs text-gray-500">Number of pending off days for this employee</p>
+                </div>
+              )}
+
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
@@ -2186,6 +2206,7 @@ export const UserManagement: React.FC = () => {
                     setSelectedEmployee('');
                     setEditingEmployeeName('');
                     setEditingUsername('');
+                    setEditingPendingOff(0);
                     setNewPassword('');
                     setEmployeeType('Staff');
                     setUsernameError(null);

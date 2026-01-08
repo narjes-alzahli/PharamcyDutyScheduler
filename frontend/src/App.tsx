@@ -8,7 +8,6 @@ import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { SchedulePage } from './pages/Schedule';
 import { RosterGenerator } from './pages/RosterGenerator';
-import { ReportsPage } from './pages/Reports';
 import { AllRostersPage } from './pages/AllRosters';
 import { RosterRequests } from './pages/RosterRequests';
 import { UserManagement } from './pages/UserManagement';
@@ -63,16 +62,6 @@ const AppRoutes: React.FC = () => {
           <ProtectedRoute>
             <Layout>
               <SchedulePage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/reports"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <ReportsPage />
             </Layout>
           </ProtectedRoute>
         }

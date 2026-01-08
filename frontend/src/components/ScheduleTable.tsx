@@ -307,13 +307,13 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   const employeesInSchedule = Array.from(new Set(monthData.map(e => e.employee)));
   
   // Get employee order from employeeData (employee management order)
+  // Show ALL employees from employeeData, even if they don't have shifts in the schedule
   let employees: string[];
   if (employeeData && employeeData.length > 0) {
-    // Use the order from employee management, but only include employees that appear in the schedule
-    const employeeOrder = employeeData.map(emp => emp.employee);
-    employees = employeeOrder.filter(emp => employeesInSchedule.includes(emp));
+    // Use the order from employee management - include ALL employees
+    employees = employeeData.map(emp => emp.employee);
     // Add any employees in schedule but not in employeeData (shouldn't happen, but be safe)
-    const missingEmployees = employeesInSchedule.filter(emp => !employeeOrder.includes(emp));
+    const missingEmployees = employeesInSchedule.filter(emp => !employees.includes(emp));
     employees = [...employees, ...missingEmployees];
   } else {
     // Fallback: sort alphabetically if no employeeData provided
@@ -391,10 +391,10 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
         <table className="min-w-full border-2 border-black text-sm">
           <thead>
             <tr className="bg-gray-100">
-              <th className="border border-black px-2 py-2 text-left font-bold sticky left-0 bg-gray-100 z-10">
+              <th className="border border-black px-1 py-1 text-left font-bold sticky left-0 bg-gray-100 z-10 text-xs">
                 Employee
               </th>
-              <th className="border border-black px-2 py-2 text-center font-bold">
+              <th className="border border-black px-1 py-1 text-center font-bold text-xs">
                 P/O
               </th>
               {dates.map(dateStr => {
@@ -402,12 +402,12 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                 return (
                   <th
                     key={dateStr}
-                    className="border border-black px-1 py-1 text-center font-semibold min-w-[40px]"
+                    className="border border-black px-0.5 py-0.5 text-center font-semibold min-w-[28px]"
                     title={`${getDayOfWeek(dateStr)} ${formatDate(dateStr)}`}
                     style={weekend ? { backgroundColor: derivedWeekendHeaderColor } : undefined}
                   >
-                    <div className="text-xs">{formatDate(dateStr)}</div>
-                    <div className="text-xs text-gray-500">{getDayOfWeek(dateStr)}</div>
+                    <div className="text-xs leading-tight">{formatDate(dateStr)}</div>
+                    <div className="text-xs text-gray-500 leading-tight">{getDayOfWeek(dateStr)}</div>
                   </th>
                 );
               })}
@@ -420,10 +420,10 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
               
               return (
               <tr key={employee}>
-                <td className="border border-black px-2 py-1 font-semibold sticky left-0 bg-white z-10">
+                <td className="border border-black px-1 py-1 font-semibold sticky left-0 bg-white z-10 text-xs">
                   {employee}
                 </td>
-                <td className="border border-black px-2 py-1 text-center font-bold">
+                <td className="border border-black px-1 py-1 text-center font-bold text-xs">
                   {pendingOffMap[employee] || 0}
                 </td>
                 {dates.map(dateStr => {
@@ -448,7 +448,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                   return (
                     <td
                       key={dateStr}
-                      className="border border-black px-1 py-1 text-center font-bold text-xs relative"
+                      className="border border-black px-0.5 py-0.5 text-center font-bold text-xs relative"
                       style={{
                         backgroundColor,
                         color: isDark ? '#000000' : '#000000',
@@ -458,7 +458,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                       {editable ? (
                         <div className="shift-dropdown-container relative">
                           <div
-                            className={`cursor-pointer transition-all min-h-[24px] flex items-center justify-center ${isEditing ? 'ring-2 ring-blue-500 rounded' : 'hover:scale-110 hover:bg-gray-100 hover:bg-opacity-50 rounded'} ${!displayText ? 'border border-dashed border-gray-300' : ''}`}
+                            className={`cursor-pointer transition-all min-h-[18px] flex items-center justify-center leading-tight ${isEditing ? 'ring-2 ring-blue-500 rounded' : 'hover:scale-110 hover:bg-gray-100 hover:bg-opacity-50 rounded'} ${!displayText ? 'border border-dashed border-gray-300' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               setEditingCell(isEditing ? null : { employee, date: dateStr });
@@ -502,7 +502,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                           )}
                         </div>
                       ) : (
-                        <div className="cursor-default">{displayText}</div>
+                        <div className="cursor-default leading-tight">{displayText}</div>
                       )}
                     </td>
                   );
@@ -514,7 +514,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
             {/* TOTAL MAIN row */}
             <tr className="font-bold">
               <td
-                className="border border-black px-2 py-1 text-center"
+                className="border border-black px-1 py-0.5 text-center text-xs"
                 colSpan={2}
                 style={{ backgroundColor: totalsColor }}
               >
@@ -531,7 +531,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                   return (
                     <td
                       key={dateStr}
-                      className="border border-black px-1 py-1 text-center font-bold"
+                      className="border border-black px-0.5 py-0.5 text-center font-bold text-xs"
                       style={{ backgroundColor: totalsColor }}
                     >
                       {/* Empty on weekends */}
@@ -547,7 +547,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                 return (
                   <td
                     key={dateStr}
-                    className="border border-black px-1 py-1 text-center font-bold"
+                    className="border border-black px-0.5 py-0.5 text-center font-bold text-xs"
                     style={{ backgroundColor: totalsColor }}
                   >
                     {mainCount}
@@ -559,7 +559,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
             {/* TOTAL IP row */}
             <tr className="font-bold">
               <td
-                className="border border-black px-2 py-1 text-center"
+                className="border border-black px-1 py-0.5 text-center text-xs"
                 colSpan={2}
                 style={{ backgroundColor: totalsColor }}
               >
@@ -576,7 +576,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                   return (
                     <td
                       key={dateStr}
-                      className="border border-black px-1 py-1 text-center font-bold"
+                      className="border border-black px-0.5 py-0.5 text-center font-bold text-xs"
                       style={{ backgroundColor: totalsColor }}
                     >
                       {/* Empty on weekends */}
@@ -592,7 +592,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                 return (
                   <td
                     key={dateStr}
-                    className="border border-black px-1 py-1 text-center font-bold"
+                    className="border border-black px-0.5 py-0.5 text-center font-bold text-xs"
                     style={{ backgroundColor: totalsColor }}
                   >
                     {ipCount}

@@ -14,13 +14,16 @@ export interface FairnessData {
   metrics: FairnessSummary;
   nightData: DistributionEntry[];
   afternoonData: DistributionEntry[];
+  m4Data: DistributionEntry[];
   weekendData: DistributionEntry[];
+  thursdayData: DistributionEntry[];
   workingData: DistributionEntry[];
 }
 
 const WORKING_SHIFTS = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
 const NIGHT_SHIFTS = ['N'];
 const AFTERNOON_SHIFTS = ['A'];
+const M4_SHIFTS = ['M4'];
 
 const isWeekend = (dateStr: string) => {
   const date = new Date(dateStr);
@@ -28,7 +31,19 @@ const isWeekend = (dateStr: string) => {
   return day === 5 || day === 6; // Friday or Saturday
 };
 
-const toDistribution = (counts: Record<string, number>, sortAscending = false): DistributionEntry[] => {
+const toDistribution = (counts: Record<string, number>, sortAscending = false, employeeOrder?: string[]): DistributionEntry[] => {
+  // If employee order is provided, include ALL employees from the order (even with 0 counts)
+  // Reverse the order so graphs start with the last employee
+  if (employeeOrder && employeeOrder.length > 0) {
+    const reversedOrder = [...employeeOrder].reverse();
+    const entries = reversedOrder.map(emp => ({
+      emp,
+      count: counts[emp] || 0
+    }));
+    return entries;
+  }
+
+  // Otherwise, only include employees with counts > 0
   const entries = Object.entries(counts)
     .filter(([, count]) => count > 0)
     .map(([emp, count]) => ({ emp, count }));
@@ -40,14 +55,21 @@ const toDistribution = (counts: Record<string, number>, sortAscending = false): 
   return entries;
 };
 
-export const calculateFairnessData = (schedule: Array<{ employee: string; date: string; shift: string }>): FairnessData => {
+export const calculateFairnessData = (
+  schedule: Array<{ employee: string; date: string; shift: string }>,
+  employeeOrder?: string[]
+): FairnessData => {
   const nightCounts: Record<string, number> = {};
   const afternoonCounts: Record<string, number> = {};
+  const m4Counts: Record<string, number> = {};
   const weekendCounts: Record<string, number> = {};
+  const thursdayCounts: Record<string, number> = {};
   const workingCounts: Record<string, number> = {};
 
   schedule.forEach((entry) => {
     const { employee, date, shift } = entry;
+    const dateObj = new Date(date);
+    const dayOfWeek = dateObj.getDay(); // 0 = Sunday, 4 = Thursday
 
     if (NIGHT_SHIFTS.includes(shift)) {
       nightCounts[employee] = (nightCounts[employee] || 0) + 1;
@@ -57,11 +79,20 @@ export const calculateFairnessData = (schedule: Array<{ employee: string; date: 
       afternoonCounts[employee] = (afternoonCounts[employee] || 0) + 1;
     }
 
+    if (M4_SHIFTS.includes(shift)) {
+      m4Counts[employee] = (m4Counts[employee] || 0) + 1;
+    }
+
     if (WORKING_SHIFTS.includes(shift)) {
       workingCounts[employee] = (workingCounts[employee] || 0) + 1;
 
       if (isWeekend(date)) {
         weekendCounts[employee] = (weekendCounts[employee] || 0) + 1;
+      }
+      
+      // Count Thursday shifts (day 4)
+      if (dayOfWeek === 4) {
+        thursdayCounts[employee] = (thursdayCounts[employee] || 0) + 1;
       }
     }
   });
@@ -95,10 +126,12 @@ export const calculateFairnessData = (schedule: Array<{ employee: string; date: 
       avgWork,
       fairnessScore,
     },
-    nightData: toDistribution(nightCounts),
-    afternoonData: toDistribution(afternoonCounts),
-    weekendData: toDistribution(weekendCounts),
-    workingData: toDistribution(workingCounts, true),
+    nightData: toDistribution(nightCounts, false, employeeOrder),
+    afternoonData: toDistribution(afternoonCounts, false, employeeOrder),
+    m4Data: toDistribution(m4Counts, false, employeeOrder),
+    weekendData: toDistribution(weekendCounts, false, employeeOrder),
+    thursdayData: toDistribution(thursdayCounts, false, employeeOrder),
+    workingData: toDistribution(workingCounts, true, employeeOrder),
   };
 };
 

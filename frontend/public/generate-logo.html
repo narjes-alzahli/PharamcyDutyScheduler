@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Pharmacy Logo</title>
+</head>
+<body>
+    <h2>Right-click each canvas below and "Save Image As" to save as PNG:</h2>
+    
+    <h3>512x512 (for logo512.png):</h3>
+    <canvas id="canvas512" width="512" height="512"></canvas>
+    
+    <h3>192x192 (for logo192.png):</h3>
+    <canvas id="canvas192" width="192" height="192"></canvas>
+    
+    <script>
+        function drawLogo(canvas, size) {
+            const ctx = canvas.getContext('2d');
+            
+            // Draw background
+            ctx.fillStyle = '#4A90E2';
+            ctx.roundRect(0, 0, size, size, size * 0.125);
+            ctx.fill();
+            
+            // Draw pharmacy emoji (pill)
+            ctx.font = `${size * 0.55}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'white';
+            ctx.fillText('💊', size / 2, size / 2 - size * 0.1);
+            
+            // Draw text
+            ctx.font = `bold ${size * 0.12}px Arial`;
+            ctx.fillText('Dawami Plus', size / 2, size / 2 + size * 0.2);
+        }
+        
+        // Polyfill for roundRect if needed
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, width, height, radius) {
+                this.beginPath();
+                this.moveTo(x + radius, y);
+                this.lineTo(x + width - radius, y);
+                this.quadraticCurveTo(x + width, y, x + width, y + radius);
+                this.lineTo(x + width, y + height - radius);
+                this.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                this.lineTo(x + radius, y + height);
+                this.quadraticCurveTo(x, y + height, x, y + height - radius);
+                this.lineTo(x, y + radius);
+                this.quadraticCurveTo(x, y, x + radius, y);
+                this.closePath();
+            };
+        }
+        
+        drawLogo(document.getElementById('canvas512'), 512);
+        drawLogo(document.getElementById('canvas192'), 192);
+    </script>
+</body>
+</html>
+

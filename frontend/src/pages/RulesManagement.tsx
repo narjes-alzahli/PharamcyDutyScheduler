@@ -199,11 +199,8 @@ export const RulesManagement: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Rules Management</h1>
-
-      </div>
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Rules Management</h2>
 
       {notification && (
         <div className={`mb-4 p-4 rounded-lg ${

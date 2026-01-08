@@ -147,6 +147,7 @@ class RosterScoring:
         # Count shifts per non-clinician employee
         night_counts = []
         afternoon_counts = []
+        m4_counts = []
         total_working_counts = []
         weekend_counts = []
         
@@ -162,6 +163,12 @@ class RosterScoring:
             afternoon_count = model.NewIntVar(0, len(dates), f"afternoon_count_{emp}")
             model.Add(afternoon_count == sum(afternoon_vars))
             afternoon_counts.append(afternoon_count)
+            
+            # M4 shifts
+            m4_vars = [x[(emp, day, "M4")] for day in dates]
+            m4_count = model.NewIntVar(0, len(dates), f"m4_count_{emp}")
+            model.Add(m4_count == sum(m4_vars))
+            m4_counts.append(m4_count)
             
             # Total working days (all shifts except DO)
             working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
@@ -203,6 +210,16 @@ class RosterScoring:
             afternoon_fairness = model.NewIntVar(0, len(dates), "afternoon_fairness")
             model.Add(afternoon_fairness == max_afternoons - min_afternoons)
             fairness_vars.append(afternoon_fairness)
+            
+        if m4_counts:
+            max_m4 = model.NewIntVar(0, len(dates), "max_m4")
+            min_m4 = model.NewIntVar(0, len(dates), "min_m4")
+            for count in m4_counts:
+                model.Add(max_m4 >= count)
+                model.Add(min_m4 <= count)
+            m4_fairness = model.NewIntVar(0, len(dates), "m4_fairness")
+            model.Add(m4_fairness == max_m4 - min_m4)
+            fairness_vars.append(m4_fairness)
             
         if total_working_counts:
             max_working = model.NewIntVar(0, len(dates) * 8, "max_working")
