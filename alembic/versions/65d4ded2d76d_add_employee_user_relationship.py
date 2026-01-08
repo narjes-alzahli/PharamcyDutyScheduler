@@ -54,10 +54,21 @@ def upgrade() -> None:
                    autoincrement=True)
     
     # Update indexes (works on all databases)
+    # Check if indexes exist before dropping (for existing databases)
+    indexes = inspector.get_indexes('leave_types')
+    if any(idx['name'] == 'ix_leave_types_code' for idx in indexes):
     op.drop_index('ix_leave_types_code', table_name='leave_types')
     op.create_index(op.f('ix_leave_types_code'), 'leave_types', ['code'], unique=True)
+    
+    if 'shift_requests' in inspector.get_table_names():
+        indexes = inspector.get_indexes('shift_requests')
+        if any(idx['name'] == 'ix_shift_requests_shift_type_id' for idx in indexes):
     op.drop_index('ix_shift_requests_shift_type_id', table_name='shift_requests')
+        if any(idx['name'] == 'ix_shift_requests_user_id' for idx in indexes):
     op.drop_index('ix_shift_requests_user_id', table_name='shift_requests')
+    
+    indexes = inspector.get_indexes('shift_types')
+    if any(idx['name'] == 'ix_shift_types_code' for idx in indexes):
     op.drop_index('ix_shift_types_code', table_name='shift_types')
     op.create_index(op.f('ix_shift_types_code'), 'shift_types', ['code'], unique=True)
 
