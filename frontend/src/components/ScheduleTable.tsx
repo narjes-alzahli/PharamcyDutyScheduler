@@ -464,7 +464,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                               setEditingCell(isEditing ? null : { employee, date: dateStr });
                             }}
                             title={displayText ? `${employee} - ${getDynamicShiftLabel(shift)}` : `${employee} - Click to add shift`}
-                          >
+                    >
                             {displayText || (isEditing ? '' : <span className="text-gray-400 text-xs">+</span>)}
                           </div>
                           {isEditing && (

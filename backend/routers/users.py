@@ -136,8 +136,8 @@ async def update_user(
     if update.old_username:
         user = db.query(User).filter(User.username == update.old_username).first()
     else:
-        username = re.sub(r'\s+', '_', update.employee_name.strip().lower())
-        user = db.query(User).filter(User.username == username).first()
+        generated_username = re.sub(r'\s+', '_', update.employee_name.strip().lower())
+        user = db.query(User).filter(User.username == generated_username).first()
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
