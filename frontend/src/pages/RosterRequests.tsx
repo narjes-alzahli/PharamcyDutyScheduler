@@ -416,28 +416,21 @@ export const RosterRequests: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="pb-16">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
-          <header className="flex flex-col gap-2">
-            <h2 className="text-2xl font-bold text-gray-900">Roster Requests</h2>
-          </header>
-          <LoadingSkeleton type="list" rows={5} />
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Requests</h2>
+        <LoadingSkeleton type="list" rows={5} />
       </div>
     );
   }
 
   return (
-    <div className="pb-16">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-2">
-          <h2 className="text-2xl font-bold text-gray-900 sm:text-3xl">Roster Requests</h2>
-        </header>
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Requests</h2>
 
       {/* Auto-dismissing notification toast */}
       {notification && (
         <div
-          className={`fixed left-4 right-4 top-20 z-50 px-4 py-3 rounded-lg shadow-lg sm:left-auto sm:right-6 ${
+          className={`fixed left-4 right-4 top-20 z-50 px-4 py-3 rounded-lg shadow-lg sm:left-auto sm:right-6 whitespace-pre-wrap ${
             notification.type === 'success'
               ? 'bg-green-500 text-white'
               : 'bg-red-500 text-white'
@@ -475,7 +468,7 @@ export const RosterRequests: React.FC = () => {
           </nav>
         </div>
 
-          <div className="px-4 py-6 sm:px-6 sm:py-8">
+        <div className="px-4 py-6 sm:px-6 sm:py-8">
           {/* Leave Requests Tab */}
           {activeTab === 'leave' && (
             <div>
@@ -1037,7 +1030,6 @@ export const RosterRequests: React.FC = () => {
           )}
         </div>
       </div>
-    </div>
     </div>
   );
 };

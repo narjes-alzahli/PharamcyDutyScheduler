@@ -95,6 +95,81 @@ def parse_request_id(request_id: str) -> Optional[int]:
     return None
 
 
+def check_date_overlap(new_from: date, new_to: date, existing_from: date, existing_to: date) -> bool:
+    """Check if two date ranges overlap."""
+    return new_from <= existing_to and new_to >= existing_from
+
+
+def check_request_overlaps(
+    db: Session,
+    user_id: int,
+    from_date: date,
+    to_date: date,
+    exclude_leave_request_id: Optional[int] = None,
+    exclude_shift_request_id: Optional[int] = None
+) -> list:
+    """Check for overlapping leave and shift requests (excluding rejected ones).
+    
+    Returns a list of conflict messages, empty if no conflicts.
+    """
+    conflicts = []
+    
+    # Check leave requests (excluding rejected and the one being updated)
+    leave_requests = db.query(LeaveRequestModel).filter(
+        LeaveRequestModel.user_id == user_id,
+        LeaveRequestModel.status != RequestStatus.REJECTED
+    ).all()
+    
+    for req in leave_requests:
+        if exclude_leave_request_id and req.id == exclude_leave_request_id:
+            continue
+        if check_date_overlap(from_date, to_date, req.from_date, req.to_date):
+            leave_type_code = req.leave_type.code if req.leave_type else 'Unknown'
+            conflicts.append({
+                'type': 'Leave',
+                'code': leave_type_code,
+                'from_date': req.from_date.isoformat(),
+                'to_date': req.to_date.isoformat()
+            })
+    
+    # Check shift requests (excluding rejected and the one being updated)
+    shift_requests = db.query(ShiftRequestModel).options(
+        joinedload(ShiftRequestModel.shift_type)
+    ).filter(
+        ShiftRequestModel.user_id == user_id,
+        ShiftRequestModel.status != RequestStatus.REJECTED
+    ).all()
+    
+    for req in shift_requests:
+        if exclude_shift_request_id and req.id == exclude_shift_request_id:
+            continue
+        if check_date_overlap(from_date, to_date, req.from_date, req.to_date):
+            shift_type_code = req.shift_type.code if req.shift_type else 'Unknown'
+            conflicts.append({
+                'type': 'Shift',
+                'code': shift_type_code,
+                'from_date': req.from_date.isoformat(),
+                'to_date': req.to_date.isoformat()
+            })
+    
+    return conflicts
+
+
+def format_overlap_error(conflicts: list) -> str:
+    """Format overlap conflicts into a detailed error message."""
+    if not conflicts:
+        return ""
+    
+    messages = ["You have existing requests that overlap with the requested date range:"]
+    for conflict in conflicts:
+        messages.append(
+            f"- {conflict['type']} request ({conflict['code']}): "
+            f"{conflict['from_date']} to {conflict['to_date']}"
+        )
+    
+    return "\n".join(messages)
+
+
 
 
 
@@ -169,6 +244,12 @@ async def create_leave_request(
     user = db.query(User).filter(User.employee_name == current_user['employee_name']).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check for overlapping requests
+    conflicts = check_request_overlaps(db, user.id, from_date, to_date)
+    if conflicts:
+        error_message = format_overlap_error(conflicts)
+        raise HTTPException(status_code=400, detail=error_message)
     
     # Find leave type
     leave_type = db.query(LeaveType).filter(LeaveType.code == request.leave_type).first()
@@ -273,6 +354,12 @@ async def update_leave_request(
     
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
+
+    # Check for overlapping requests (excluding the current request being updated)
+    conflicts = check_request_overlaps(db, req.user_id, from_date, to_date, exclude_leave_request_id=req.id)
+    if conflicts:
+        error_message = format_overlap_error(conflicts)
+        raise HTTPException(status_code=400, detail=error_message)
 
     # Update leave type if changed
     leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
@@ -411,14 +498,20 @@ async def create_shift_request(
 
     force = request.request_type == "Must" or request.request_type == "Force (Must)"  # Support both new and legacy formats
     
+    user = db.query(User).filter(User.employee_name == current_user['employee_name']).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check for overlapping requests
+    conflicts = check_request_overlaps(db, user.id, from_date, to_date)
+    if conflicts:
+        error_message = format_overlap_error(conflicts)
+        raise HTTPException(status_code=400, detail=error_message)
+    
     # Find shift type by code
     shift_type = db.query(ShiftType).filter(ShiftType.code == request.shift).first()
     if not shift_type:
         raise HTTPException(status_code=400, detail=f"Shift type '{request.shift}' not found")
-    
-    user = db.query(User).filter(User.employee_name == current_user['employee_name']).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
     
     new_request = ShiftRequestModel(
         user_id=user.id,
@@ -513,6 +606,12 @@ async def update_shift_request(
     
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
+
+    # Check for overlapping requests (excluding the current request being updated)
+    conflicts = check_request_overlaps(db, req.user_id, from_date, to_date, exclude_shift_request_id=req.id)
+    if conflicts:
+        error_message = format_overlap_error(conflicts)
+        raise HTTPException(status_code=400, detail=error_message)
 
     force = update.request_type == "Must" or update.request_type == "Force (Must)"  # Support both new and legacy formats
 

@@ -295,7 +295,6 @@ export const RulesManagement: React.FC = () => {
                             className="w-6 h-6 rounded border border-gray-300"
                             style={{ backgroundColor: type.color_hex }}
                           />
-                          <span className="text-xs text-gray-500 font-mono">{type.color_hex}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm border border-gray-300">
@@ -405,7 +404,6 @@ export const RulesManagement: React.FC = () => {
                             className="w-6 h-6 rounded border border-gray-300"
                             style={{ backgroundColor: type.color_hex }}
                           />
-                          <span className="text-xs text-gray-500 font-mono">{type.color_hex}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm border border-gray-300">

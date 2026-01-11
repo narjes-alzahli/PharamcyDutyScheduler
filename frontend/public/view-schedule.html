@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schedule View</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+      background-color: #f3f4f6;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 100%;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: bold;
+      color: #111827;
+    }
+    .buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 500;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    .btn-back {
+      background-color: #6b7280;
+      color: white;
+    }
+    .btn-back:hover {
+      background-color: #4b5563;
+    }
+    .btn-download {
+      background-color: #dc2626;
+      color: white;
+      font-weight: bold;
+    }
+    .btn-download:hover {
+      background-color: #b91c1c;
+    }
+    .image-container {
+      text-align: center;
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: auto;
+      background-color: white;
+    }
+    .schedule-image {
+      width: auto;
+      min-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+    .loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .spinner {
+      border: 3px solid #f3f4f6;
+      border-top: 3px solid #2563eb;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .error {
+      background-color: #fee2e2;
+      border: 1px solid #fca5a5;
+      color: #991b1b;
+      padding: 16px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 id="title">Schedule</h1>
+      <div class="buttons">
+        <button class="btn-back" onclick="window.close()">Close</button>
+        <button class="btn-download" id="downloadBtn" onclick="downloadImage()" style="display: none;">Download</button>
+      </div>
+    </div>
+    <div id="error" style="display: none;"></div>
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>Loading schedule image...</p>
+    </div>
+    <div id="imageContainer" class="image-container" style="display: none;">
+      <img id="scheduleImage" class="schedule-image" alt="Schedule" />
+    </div>
+  </div>
+
+  <script>
+    // Get year and month from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const year = urlParams.get('year');
+    const month = urlParams.get('month');
+    
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    // Get image data from sessionStorage
+    let imageData = null;
+    if (year && month) {
+      const storageKey = `schedule_image_${year}_${month}`;
+      imageData = sessionStorage.getItem(storageKey);
+    }
+
+    function showError(message) {
+      const errorDiv = document.getElementById('error');
+      errorDiv.textContent = message;
+      errorDiv.style.display = 'block';
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    function showImage() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('imageContainer').style.display = 'block';
+      document.getElementById('downloadBtn').style.display = 'block';
+    }
+
+    function downloadImage() {
+      if (!imageData) return;
+      
+      const link = document.createElement('a');
+      link.href = imageData;
+      link.download = `schedule_${year}_${month.toString().padStart(2, '0')}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // Initialize
+    if (year && month) {
+      document.getElementById('title').textContent = 
+        `${monthNames[parseInt(month) - 1]} ${year} Schedule`;
+    }
+
+    if (!imageData) {
+      showError('No schedule image data found. Please generate the image again.');
+    } else {
+      const img = document.getElementById('scheduleImage');
+      img.onload = showImage;
+      img.onerror = () => showError('Failed to load schedule image.');
+      img.src = imageData;
+      
+      // Clean up sessionStorage after a short delay to allow download
+      setTimeout(() => {
+        if (year && month) {
+          const storageKey = `schedule_image_${year}_${month}`;
+          sessionStorage.removeItem(storageKey);
+        }
+      }, 5000);
+    }
+  </script>
+</body>
+</html>
+

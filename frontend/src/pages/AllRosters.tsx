@@ -34,6 +34,7 @@ export const AllRostersPage: React.FC = () => {
   const [originalSchedule, setOriginalSchedule] = useState<Schedule | null>(null);
   const [employeesFromAPI, setEmployeesFromAPI] = useState<any[]>([]);
   const scheduleCardRef = useRef<HTMLDivElement>(null);
+  const scheduleImageRef = useRef<HTMLDivElement>(null);
   const isManager = user?.employee_type === 'Manager';
 
   const monthNames = [
@@ -179,32 +180,221 @@ export const AllRostersPage: React.FC = () => {
     return a.month - b.month;
   });
 
-  const handleDownloadImage = async () => {
-    if (!scheduleCardRef.current || !selectedYear || !selectedMonth) {
-      return;
+  const generateScheduleImage = async (): Promise<string | null> => {
+    if (!scheduleImageRef.current || !selectedYear || !selectedMonth || !currentSchedule) {
+      return null;
     }
 
-    try {
-      setDownloading(true);
-      setDownloadError(null);
+    // Wait for DOM to be ready
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-      const dataUrl = await htmlToImage.toPng(scheduleCardRef.current, {
-        cacheBust: true,
-        pixelRatio: Math.min(3, (window.devicePixelRatio || 2) + 0.5),
-        backgroundColor: '#ffffff',
-        width: scheduleCardRef.current.scrollWidth + 80,
-        height: scheduleCardRef.current.scrollHeight + 80,
-        style: {
-          padding: '40px',
-        },
+    const container = scheduleImageRef.current;
+    if (!container) return null;
+
+    // Get the root div from ScheduleTable
+    const rootDiv = container.firstElementChild as HTMLElement;
+    if (!rootDiv) return null;
+
+    // Store original states to restore later
+    const buttonsToHide: HTMLElement[] = [];
+    const inputsToHide: HTMLElement[] = [];
+    const originalOverflows: Map<HTMLElement, string> = new Map();
+    const originalWidths: Map<HTMLElement, string> = new Map();
+
+    try {
+      // Temporarily hide buttons and color pickers
+      rootDiv.querySelectorAll('button').forEach(btn => {
+        const el = btn as HTMLElement;
+        buttonsToHide.push(el);
+        el.style.display = 'none';
+      });
+      
+      rootDiv.querySelectorAll('input[type="color"]').forEach(input => {
+        const el = input as HTMLElement;
+        const parent = el.parentElement;
+        if (parent && parent.classList.contains('absolute')) {
+          inputsToHide.push(parent as HTMLElement);
+          (parent as HTMLElement).style.display = 'none';
+        }
       });
 
+      // Expand table - temporarily modify styles
+      const tableWrapper = rootDiv.querySelector('.overflow-x-auto') as HTMLElement;
+      if (tableWrapper) {
+        originalOverflows.set(tableWrapper, tableWrapper.style.overflow || '');
+        originalWidths.set(tableWrapper, tableWrapper.style.width || '');
+        tableWrapper.style.overflow = 'visible';
+        tableWrapper.style.width = 'auto';
+        tableWrapper.style.maxWidth = 'none';
+      }
+
+      // Find the inner wrapper div (inline-block min-w-full)
+      const innerWrapper = tableWrapper?.querySelector('.inline-block') as HTMLElement;
+      if (innerWrapper) {
+        originalWidths.set(innerWrapper, innerWrapper.style.width || '');
+        innerWrapper.style.width = 'auto';
+        innerWrapper.style.minWidth = 'max-content';
+        innerWrapper.style.maxWidth = 'none';
+      }
+
+      const table = rootDiv.querySelector('table') as HTMLTableElement;
+      if (table) {
+        originalWidths.set(table, table.style.width || '');
+        table.style.width = 'auto';
+        table.style.minWidth = 'max-content';
+        table.style.maxWidth = 'none';
+        table.classList.remove('min-w-full');
+        
+        table.querySelectorAll('th, td').forEach(cell => {
+          const el = cell as HTMLElement;
+          el.style.whiteSpace = 'nowrap';
+        });
+      }
+
+      // Create wrapper div with title - NO width constraints
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = `
+        background: white;
+        padding: 40px;
+        font-family: system-ui, -apple-system, sans-serif;
+        width: max-content;
+        max-width: none;
+      `;
+      document.body.appendChild(wrapper);
+
+      // Add title
+      const title = document.createElement('h2');
+      title.textContent = `${monthNames[selectedMonth - 1]} ${selectedYear} Schedule`;
+      title.style.cssText = 'font-size: 28px; font-weight: bold; color: #111827; margin: 0 0 30px 0; text-align: center;';
+      wrapper.appendChild(title);
+
+      // Move rootDiv temporarily to wrapper
+      const parent = rootDiv.parentElement;
+      wrapper.appendChild(rootDiv);
+
+      // Wait for layout to settle and table to expand
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Constrain legend width to match table width
+      const legendDiv = rootDiv.querySelector('.mt-6.bg-white') as HTMLElement;
+      let legendOriginalWidth = '';
+      if (legendDiv && table) {
+        const tableWidth = table.scrollWidth;
+        legendOriginalWidth = legendDiv.style.width || '';
+        legendDiv.style.width = `${tableWidth}px`;
+        legendDiv.style.maxWidth = `${tableWidth}px`;
+        legendDiv.style.boxSizing = 'border-box';
+      }
+
+      // Wait for legend width adjustment
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Get actual dimensions after expansion
+      const wrapperWidth = wrapper.scrollWidth;
+      const wrapperHeight = wrapper.scrollHeight;
+
+      // Capture at full size to avoid cropping, but use lower pixelRatio for smaller file size
+      // pixelRatio: 1.25 provides good balance between quality and file size
+      const dataUrl = await htmlToImage.toPng(wrapper, {
+        backgroundColor: '#ffffff',
+        pixelRatio: 1.25,
+        cacheBust: true,
+        width: wrapperWidth,
+        height: wrapperHeight,
+      });
+
+      // Restore legend width
+      if (legendDiv) {
+        legendDiv.style.width = legendOriginalWidth;
+        legendDiv.style.maxWidth = '';
+        legendDiv.style.boxSizing = '';
+      }
+
+      // Move rootDiv back to original parent
+      if (parent) {
+        parent.appendChild(rootDiv);
+      }
+      
+      // Remove wrapper
+      document.body.removeChild(wrapper);
+
+      // Restore original states
+      buttonsToHide.forEach(btn => btn.style.display = '');
+      inputsToHide.forEach(input => input.style.display = '');
+      originalOverflows.forEach((value, el) => el.style.overflow = value || '');
+      originalWidths.forEach((value, el) => el.style.width = value || '');
+
+      return dataUrl && dataUrl !== 'data:,' ? dataUrl : null;
+    } catch (error) {
+      console.error('Image generation error:', error);
+      
+      // Restore original states on error
+      buttonsToHide.forEach(btn => btn.style.display = '');
+      inputsToHide.forEach(input => input.style.display = '');
+      originalOverflows.forEach((value, el) => el.style.overflow = value || '');
+      originalWidths.forEach((value, el) => el.style.width = value || '');
+      
+      // Ensure rootDiv is back in original position
+      const parent = container;
+      if (parent && !parent.contains(rootDiv)) {
+        parent.appendChild(rootDiv);
+      }
+      
+      return null;
+    }
+  };
+
+  const handleViewImage = async () => {
+    if (!selectedYear || !selectedMonth) return;
+
+    setDownloading(true);
+    setDownloadError(null);
+
+    try {
+      const imageDataUrl = await generateScheduleImage();
+      
+      if (!imageDataUrl) {
+        setDownloadError('Failed to generate schedule image. Please try again.');
+        return;
+      }
+
+      // Store image data in sessionStorage to avoid URL length issues
+      const storageKey = `schedule_image_${selectedYear}_${selectedMonth}`;
+      sessionStorage.setItem(storageKey, imageDataUrl);
+      
+      // Open view page with just year and month in URL
+      const viewUrl = `${window.location.origin}/view-schedule.html?year=${selectedYear}&month=${selectedMonth}`;
+      window.open(viewUrl, '_blank');
+    } catch (error) {
+      console.error('View image error:', error);
+      setDownloadError('Failed to prepare schedule image. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleDownloadImage = async () => {
+    if (!selectedYear || !selectedMonth) return;
+
+    setDownloading(true);
+    setDownloadError(null);
+
+    try {
+      const imageDataUrl = await generateScheduleImage();
+      
+      if (!imageDataUrl) {
+        setDownloadError('Failed to download schedule image. Please try again.');
+        return;
+      }
+
       const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = `schedule_${selectedYear}_${selectedMonth.toString().padStart(2, '0')}.png`;
+      link.href = imageDataUrl;
+      link.download = `schedule_${selectedYear}_${String(selectedMonth).padStart(2, '0')}.png`;
+      document.body.appendChild(link);
       link.click();
-    } catch (err) {
-      console.error('Failed to download schedule image', err);
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('Download image error:', error);
       setDownloadError('Failed to download schedule image. Please try again.');
     } finally {
       setDownloading(false);
@@ -406,8 +596,8 @@ export const AllRostersPage: React.FC = () => {
   ] as const;
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">All Rosters</h2>
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">All Rosters</h2>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
@@ -482,32 +672,45 @@ export const AllRostersPage: React.FC = () => {
                         </button>
                       </>
                     ) : (
-                      <button
-                        onClick={handleDownloadImage}
-                        disabled={downloading}
-                        className={`px-4 py-2 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors ${
-                          downloading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
-                        }`}
-                      >
-                        {downloading ? 'Preparing Image...' : 'Download Schedule'}
-                      </button>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={handleViewImage}
+                          disabled={downloading}
+                          className={`px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors ${
+                            downloading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-blue-700'
+                          }`}
+                        >
+                          {downloading ? 'Preparing...' : 'View Schedule'}
+                        </button>
+                        <button
+                          onClick={handleDownloadImage}
+                          disabled={downloading}
+                          className={`px-4 py-2 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors ${
+                            downloading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
+                          }`}
+                        >
+                          {downloading ? 'Preparing...' : 'Download'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
                 {downloadError && (
                   <p className="mb-3 text-sm text-red-600">{downloadError}</p>
                 )}
-                <ScheduleTable
-                  schedule={currentSchedule.schedule}
-                  year={selectedYear}
-                  month={selectedMonth}
-                  employees={employeesFromAPI.length > 0 ? employeesFromAPI : (dynamicEmployees && hasUnsavedChanges ? dynamicEmployees.map(e => ({
-                    employee: e.employee,
-                    pending_off: e.pending_off
-                  })) : currentSchedule.employees)}
-                  editable={isManager}
-                  onScheduleChange={handleScheduleChange}
-                />
+                <div ref={scheduleImageRef} style={{ overflow: 'visible' }}>
+                  <ScheduleTable
+                    schedule={currentSchedule.schedule}
+                    year={selectedYear}
+                    month={selectedMonth}
+                    employees={employeesFromAPI.length > 0 ? employeesFromAPI : (dynamicEmployees && hasUnsavedChanges ? dynamicEmployees.map(e => ({
+                      employee: e.employee,
+                      pending_off: e.pending_off
+                    })) : currentSchedule.employees)}
+                    editable={isManager}
+                    onScheduleChange={handleScheduleChange}
+                  />
+                </div>
               </div>
 
               {/* Reports & Visualization Tabs Section */}
