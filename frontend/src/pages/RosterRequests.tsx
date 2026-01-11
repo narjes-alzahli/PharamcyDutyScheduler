@@ -411,9 +411,6 @@ export const RosterRequests: React.FC = () => {
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-2">
             <h2 className="text-2xl font-bold text-gray-900">Roster Requests</h2>
-            <p className="text-sm text-gray-600 sm:text-base">
-              Submit new leave or shift preferences and track existing requests in one place.
-            </p>
           </header>
           <LoadingSkeleton type="list" rows={5} />
         </div>
@@ -426,9 +423,6 @@ export const RosterRequests: React.FC = () => {
       <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-2">
           <h2 className="text-2xl font-bold text-gray-900 sm:text-3xl">Roster Requests</h2>
-          <p className="text-sm text-gray-600 sm:text-base">
-            Submit new leave or shift preferences and track existing requests in one place.
-          </p>
         </header>
 
       {/* Auto-dismissing notification toast */}
