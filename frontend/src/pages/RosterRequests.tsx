@@ -63,13 +63,16 @@ export const RosterRequests: React.FC = () => {
     if (!authLoading) {
     loadRequests();
       loadLeaveTypes();
-    // Set default dates to today in YYYY-MM-DD format
+    // Set default dates: from date = today, to date = 7 days from today
     const today = new Date();
     const todayYYYYMMDD = today.toISOString().split('T')[0];
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+    const nextWeekYYYYMMDD = nextWeek.toISOString().split('T')[0];
     setLeaveFromDate(todayYYYYMMDD);
-    setLeaveToDate(todayYYYYMMDD);
+    setLeaveToDate(nextWeekYYYYMMDD);
     setShiftFromDate(todayYYYYMMDD);
-    setShiftToDate(todayYYYYMMDD);
+    setShiftToDate(nextWeekYYYYMMDD);
     }
   }, [user, authLoading]);
 
@@ -151,8 +154,11 @@ export const RosterRequests: React.FC = () => {
   const resetLeaveForm = () => {
     const today = new Date();
     const todayYYYYMMDD = today.toISOString().split('T')[0];
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+    const nextWeekYYYYMMDD = nextWeek.toISOString().split('T')[0];
     setLeaveFromDate(todayYYYYMMDD);
-    setLeaveToDate(todayYYYYMMDD);
+    setLeaveToDate(nextWeekYYYYMMDD);
     setLeaveType('DO');
     setLeaveReason('');
     setEditingLeaveId(null);
@@ -161,8 +167,11 @@ export const RosterRequests: React.FC = () => {
   const resetShiftForm = () => {
     const today = new Date();
     const todayYYYYMMDD = today.toISOString().split('T')[0];
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+    const nextWeekYYYYMMDD = nextWeek.toISOString().split('T')[0];
     setShiftFromDate(todayYYYYMMDD);
-    setShiftToDate(todayYYYYMMDD);
+    setShiftToDate(nextWeekYYYYMMDD);
     setShiftType('M');
     setRequestType('Must');
     setShiftReason('');
@@ -486,10 +495,15 @@ export const RosterRequests: React.FC = () => {
                     </label>
                     <CalendarDatePicker
                       value={leaveFromDate}
-                      onChange={setLeaveFromDate}
+                      onChange={(date) => {
+                        setLeaveFromDate(date);
+                        // If from date is after to date, update to date to match from date
+                        if (date && leaveToDate && date > leaveToDate) {
+                          setLeaveToDate(date);
+                        }
+                      }}
                       placeholder="Select from date"
                       required
-                      max={leaveToDate || undefined}
                     />
                   </div>
 
@@ -747,10 +761,15 @@ export const RosterRequests: React.FC = () => {
                     </label>
                     <CalendarDatePicker
                       value={shiftFromDate}
-                      onChange={setShiftFromDate}
+                      onChange={(date) => {
+                        setShiftFromDate(date);
+                        // If from date is after to date, update to date to match from date
+                        if (date && shiftToDate && date > shiftToDate) {
+                          setShiftToDate(date);
+                        }
+                      }}
                       placeholder="Select from date"
                       required
-                      max={shiftToDate || undefined}
                     />
                   </div>
 

@@ -182,7 +182,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                 title="Thursday Shift Distribution"
                 colorMap={employeeColorMap}
                 emptyMessage="No Thursday shifts assigned"
-              />
+                  />
               <PieChart
                 data={fairnessData.workingData}
                 title="Total Working Days Distribution"

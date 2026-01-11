@@ -1252,22 +1252,22 @@ export const RosterGenerator: React.FC = () => {
                   </div>
                   
                   <div className="overflow-x-auto w-full">
-                    <EditableTable
-                      data={rosterData.employees}
-                      columns={[
+                  <EditableTable
+                    data={rosterData.employees}
+                    columns={[
                         { key: 'employee', label: 'Employee', type: 'text', readOnly: true },
                         { key: 'skill_M', label: 'M', type: 'checkbox' },
                         { key: 'skill_IP', label: 'IP', type: 'checkbox' },
                         { key: 'skill_A', label: 'A', type: 'checkbox' },
                         { key: 'skill_N', label: 'N', type: 'checkbox' },
-                        { key: 'skill_M3', label: 'M3', type: 'checkbox' },
-                        { key: 'skill_M4', label: 'M4', type: 'checkbox' },
+                      { key: 'skill_M3', label: 'M3', type: 'checkbox' },
+                      { key: 'skill_M4', label: 'M4', type: 'checkbox' },
                         { key: 'skill_H', label: 'H', type: 'checkbox' },
                         { key: 'skill_CL', label: 'CL', type: 'checkbox' },
                         { key: 'pending_off', label: 'P/O', type: 'number', min: -50, max: 50 },
-                      ]}
-                      onDataChange={handleEmployeesChange}
-                      draggable={true}
+                    ]}
+                    onDataChange={handleEmployeesChange}
+                    draggable={true}
                     onDeleteRow={async (index) => {
                       const employeeToDelete = rosterData.employees[index];
                       const newData = rosterData.employees.filter((_: any, i: number) => i !== index);
@@ -2107,16 +2107,16 @@ export const RosterGenerator: React.FC = () => {
                         if (!generatedEmployees || !originalGeneratedSchedule) {
                           return (
                             <div className="overflow-x-auto max-w-full">
-                              <ScheduleTable
-                                schedule={generatedSchedule}
-                                year={selectedYear}
-                                month={selectedMonth}
-                                employees={generatedEmployees || rosterData?.employees}
-                                editable={true}
-                                onScheduleChange={(updatedSchedule) => {
-                                  setGeneratedSchedule(updatedSchedule);
-                                }}
-                              />
+                            <ScheduleTable
+                              schedule={generatedSchedule}
+                              year={selectedYear}
+                              month={selectedMonth}
+                              employees={generatedEmployees || rosterData?.employees}
+                              editable={true}
+                              onScheduleChange={(updatedSchedule) => {
+                                setGeneratedSchedule(updatedSchedule);
+                              }}
+                            />
                             </div>
                           );
                         }
@@ -2126,16 +2126,16 @@ export const RosterGenerator: React.FC = () => {
                         if (!scheduleChanged) {
                           return (
                             <div className="overflow-x-auto max-w-full">
-                              <ScheduleTable
-                                schedule={generatedSchedule}
-                                year={selectedYear}
-                                month={selectedMonth}
-                                employees={generatedEmployees}
-                                editable={true}
-                                onScheduleChange={(updatedSchedule) => {
-                                  setGeneratedSchedule(updatedSchedule);
-                                }}
-                              />
+                            <ScheduleTable
+                              schedule={generatedSchedule}
+                              year={selectedYear}
+                              month={selectedMonth}
+                              employees={generatedEmployees}
+                              editable={true}
+                              onScheduleChange={(updatedSchedule) => {
+                                setGeneratedSchedule(updatedSchedule);
+                              }}
+                            />
                             </div>
                           );
                         }
@@ -2189,16 +2189,16 @@ export const RosterGenerator: React.FC = () => {
                         return (
                           <>
                             <div className="overflow-x-auto max-w-full">
-                              <ScheduleTable
-                                schedule={generatedSchedule}
-                                year={selectedYear}
-                                month={selectedMonth}
-                                employees={dynamicEmployees}
-                                editable={true}
-                                onScheduleChange={(updatedSchedule) => {
-                                  setGeneratedSchedule(updatedSchedule);
-                                }}
-                              />
+                            <ScheduleTable
+                              schedule={generatedSchedule}
+                              year={selectedYear}
+                              month={selectedMonth}
+                              employees={dynamicEmployees}
+                              editable={true}
+                              onScheduleChange={(updatedSchedule) => {
+                                setGeneratedSchedule(updatedSchedule);
+                              }}
+                            />
                             </div>
                             
                             <ScheduleAnalysis
