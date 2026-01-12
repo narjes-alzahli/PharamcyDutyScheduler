@@ -19,6 +19,7 @@ interface ScheduleTableProps {
   month: number;
   employees?: Employee[];
   editable?: boolean;
+  canChangeColors?: boolean;
   onScheduleChange?: (updatedSchedule: ScheduleEntry[]) => void;
 }
 
@@ -86,6 +87,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   month, 
   employees: employeeData,
   editable = false,
+  canChangeColors = false,
   onScheduleChange
 }) => {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
@@ -303,20 +305,27 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     );
   }
 
-  // Get all unique employees from schedule data
+  // Get all unique employees from schedule data (employees who actually have shifts)
   const employeesInSchedule = Array.from(new Set(monthData.map(e => e.employee)));
   
-  // Get employee order from employeeData (employee management order)
-  // Show ALL employees from employeeData, even if they don't have shifts in the schedule
+  // For committed schedules: only show employees who have at least one shift
+  // But preserve historical employees who might not be in current employeeData
   let employees: string[];
   if (employeeData && employeeData.length > 0) {
-    // Use the order from employee management - include ALL employees
-    employees = employeeData.map(emp => emp.employee);
-    // Add any employees in schedule but not in employeeData (shouldn't happen, but be safe)
-    const missingEmployees = employeesInSchedule.filter(emp => !employees.includes(emp));
-    employees = [...employees, ...missingEmployees];
+    // Start with employees from employeeData who have shifts in the schedule
+    const employeesWithShifts = employeeData
+      .map(emp => emp.employee)
+      .filter(emp => employeesInSchedule.includes(emp));
+    
+    // Add any employees in schedule but not in employeeData (historical employees)
+    const historicalEmployees = employeesInSchedule.filter(emp => 
+      !employeeData.some(e => e.employee === emp)
+    );
+    
+    // Combine: current employees with shifts + historical employees
+    employees = [...employeesWithShifts, ...historicalEmployees];
   } else {
-    // Fallback: sort alphabetically if no employeeData provided
+    // Fallback: only show employees who have shifts in the schedule
     employees = employeesInSchedule.sort();
   }
 
@@ -607,18 +616,20 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
 
       {/* Legend with Color Pickers */}
       <div className="mt-6 bg-white p-4 rounded-lg shadow">
-        <div className="flex justify-between items-center mb-3">
-          <button
-            onClick={() => {
-              if (window.confirm('Reset all colors to defaults?')) {
-                setCustomColors({ ...defaultShiftColors, ...defaultSpecialColors });
-              }
-            }}
-            className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-          >
-            Reset Colors
-          </button>
-        </div>
+        {canChangeColors && (
+          <div className="flex justify-between items-center mb-3">
+            <button
+              onClick={() => {
+                if (window.confirm('Reset all colors to defaults?')) {
+                  setCustomColors({ ...defaultShiftColors, ...defaultSpecialColors });
+                }
+              }}
+              className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+            >
+              Reset Colors
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
           {[
             // Only show shifts that are: 1) in shiftTypes, 2) in leaveTypes, or 3) actually used in schedule
@@ -682,10 +693,14 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
               <div key={key} className="flex items-center space-x-2 group">
                 <div className="relative color-picker-container">
                   <div
-                    className="w-6 h-6 border border-gray-300 rounded cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all"
+                    className={`w-6 h-6 border border-gray-300 rounded transition-all ${
+                      canChangeColors 
+                        ? 'cursor-pointer hover:ring-2 hover:ring-primary-500' 
+                        : 'cursor-default'
+                    }`}
                     style={{ backgroundColor: currentColor }}
-                    onClick={() => setEditingColor(isEditing ? null : key)}
-                    title="Click to change color"
+                    onClick={() => canChangeColors && setEditingColor(isEditing ? null : key)}
+                    title={canChangeColors ? "Click to change color" : ""}
                   />
                   {isEditing && (
                     <div className="absolute top-8 left-0 z-50 bg-white border border-gray-300 rounded-lg shadow-lg p-2 color-picker-container">

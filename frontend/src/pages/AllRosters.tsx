@@ -26,6 +26,7 @@ export const AllRostersPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false); // Separate loading state for individual schedule
   const [error, setError] = useState<string | null>(null);
+  const [viewing, setViewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -347,7 +348,7 @@ export const AllRostersPage: React.FC = () => {
   const handleViewImage = async () => {
     if (!selectedYear || !selectedMonth) return;
 
-    setDownloading(true);
+    setViewing(true);
     setDownloadError(null);
 
     try {
@@ -369,7 +370,7 @@ export const AllRostersPage: React.FC = () => {
       console.error('View image error:', error);
       setDownloadError('Failed to prepare schedule image. Please try again.');
     } finally {
-      setDownloading(false);
+      setViewing(false);
     }
   };
 
@@ -448,8 +449,9 @@ export const AllRostersPage: React.FC = () => {
       // Reload the schedule to get the updated version
       await loadSchedule(selectedYear, selectedMonth);
       
+      // Show success message in the same spot as "Unsaved changes"
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 5000);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || err.message || 'Failed to save schedule changes';
       setError(errorMessage);
@@ -639,7 +641,7 @@ export const AllRostersPage: React.FC = () => {
                     <h3 className="text-xl font-bold text-gray-900">
                       {monthNames[selectedMonth - 1]} {selectedYear} Schedule
                     </h3>
-                    {isManager && !hasUnsavedChanges && (
+                    {isManager && !hasUnsavedChanges && !saveSuccess && (
                       <span className="text-sm text-gray-500 italic">Click any cell to edit</span>
                     )}
                     {isManager && hasUnsavedChanges && (
@@ -675,19 +677,15 @@ export const AllRostersPage: React.FC = () => {
                       <div className="flex gap-3">
                         <button
                           onClick={handleViewImage}
-                          disabled={downloading}
-                          className={`px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors ${
-                            downloading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-blue-700'
-                          }`}
+                          disabled={viewing || downloading}
+                          className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
-                          {downloading ? 'Preparing...' : 'View Schedule'}
+                          {viewing ? 'Preparing...' : 'View Schedule'}
                         </button>
                         <button
                           onClick={handleDownloadImage}
-                          disabled={downloading}
-                          className={`px-4 py-2 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors ${
-                            downloading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-red-700'
-                          }`}
+                          disabled={viewing || downloading}
+                          className="px-4 py-2 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors hover:bg-red-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
                           {downloading ? 'Preparing...' : 'Download'}
                         </button>
@@ -708,6 +706,7 @@ export const AllRostersPage: React.FC = () => {
                       pending_off: e.pending_off
                     })) : currentSchedule.employees)}
                     editable={isManager}
+                    canChangeColors={isManager}
                     onScheduleChange={handleScheduleChange}
                   />
                 </div>

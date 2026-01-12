@@ -172,11 +172,11 @@
     }
 
     // Initialize
-    if (year && month) {
-      document.getElementById('title').textContent = 
-        `${monthNames[parseInt(month) - 1]} ${year} Schedule`;
-    }
-
+      if (year && month) {
+        document.getElementById('title').textContent = 
+          `${monthNames[parseInt(month) - 1]} ${year} Schedule`;
+      }
+      
     if (!imageData) {
       showError('No schedule image data found. Please generate the image again.');
     } else {
