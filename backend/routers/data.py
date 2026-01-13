@@ -22,7 +22,8 @@ from backend.roster_data_loader import (
     save_month_demands as save_month_demands_to_file, 
     generate_month_demands,
     save_month_holidays,
-    load_month_holidays
+    load_month_holidays,
+    get_holiday_demands
 )
 from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills
 from sqlalchemy.orm import Session
@@ -788,7 +789,8 @@ async def generate_demands(
         request.year,
         request.month,
         request.base_demand,
-        request.weekend_demand
+        request.weekend_demand,
+        holidays=existing_holidays_dates  # Pass holidays to set holiday-specific demands
     )
     
     # Save holidays separately (not in demands)
@@ -891,6 +893,34 @@ async def save_month_demands(
                 raise HTTPException(status_code=400, detail="Missing required 'date' column")
             else:
                 demands_df[col] = 0
+    
+    # Load holidays to check which days need holiday-specific demands
+    existing_holidays = load_month_holidays(year, month)
+    # Convert date strings to date objects for matching
+    existing_holidays_dates = {}
+    for date_str, holiday_name in existing_holidays.items():
+        try:
+            date_val = pd.to_datetime(date_str, errors='coerce').date()
+            if date_val:
+                existing_holidays_dates[date_val] = holiday_name
+        except:
+            continue
+    
+    # Override demands for holidays with holiday-specific values
+    if existing_holidays_dates:
+        holiday_demands = get_holiday_demands()
+        for idx, row in demands_df.iterrows():
+            date_val = row['date']
+            if date_val in existing_holidays_dates:
+                # Override with holiday demands
+                demands_df.at[idx, 'need_M'] = holiday_demands.get('M', 0)
+                demands_df.at[idx, 'need_IP'] = holiday_demands.get('IP', 0)
+                demands_df.at[idx, 'need_A'] = holiday_demands.get('A', 0)
+                demands_df.at[idx, 'need_N'] = holiday_demands.get('N', 0)
+                demands_df.at[idx, 'need_M3'] = holiday_demands.get('M3', 0)
+                demands_df.at[idx, 'need_M4'] = holiday_demands.get('M4', 0)
+                demands_df.at[idx, 'need_H'] = holiday_demands.get('H', 0)
+                demands_df.at[idx, 'need_CL'] = holiday_demands.get('CL', 0)
     
     # Save demands to database (without holiday column)
     save_month_demands_to_file(year, month, demands_df, db)

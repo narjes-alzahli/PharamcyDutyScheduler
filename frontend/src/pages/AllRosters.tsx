@@ -188,7 +188,7 @@ export const AllRostersPage: React.FC = () => {
 
     // Wait for DOM to be ready
     await new Promise(resolve => setTimeout(resolve, 500));
-
+      
     const container = scheduleImageRef.current;
     if (!container) return null;
 
@@ -239,18 +239,18 @@ export const AllRostersPage: React.FC = () => {
       }
 
       const table = rootDiv.querySelector('table') as HTMLTableElement;
-      if (table) {
+        if (table) {
         originalWidths.set(table, table.style.width || '');
-        table.style.width = 'auto';
-        table.style.minWidth = 'max-content';
+          table.style.width = 'auto';
+          table.style.minWidth = 'max-content';
         table.style.maxWidth = 'none';
-        table.classList.remove('min-w-full');
+          table.classList.remove('min-w-full');
         
         table.querySelectorAll('th, td').forEach(cell => {
           const el = cell as HTMLElement;
           el.style.whiteSpace = 'nowrap';
-        });
-      }
+          });
+        }
 
       // Create wrapper div with title - NO width constraints
       const wrapper = document.createElement('div');
@@ -349,7 +349,7 @@ export const AllRostersPage: React.FC = () => {
     if (!selectedYear || !selectedMonth) return;
 
     setViewing(true);
-    setDownloadError(null);
+      setDownloadError(null);
 
     try {
       const imageDataUrl = await generateScheduleImage();
@@ -377,8 +377,8 @@ export const AllRostersPage: React.FC = () => {
   const handleDownloadImage = async () => {
     if (!selectedYear || !selectedMonth) return;
 
-    setDownloading(true);
-    setDownloadError(null);
+      setDownloading(true);
+      setDownloadError(null);
 
     try {
       const imageDataUrl = await generateScheduleImage();

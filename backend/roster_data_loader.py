@@ -421,14 +421,47 @@ def load_month_holidays(year: int, month: int, db: Session = None) -> Dict[str, 
     return {}
 
 
+def get_holiday_demands() -> Dict[str, int]:
+    """Get the standard demands for public holidays.
+    
+    Returns:
+        Dict with holiday-specific demand values:
+        - 1N, 1M, 1M3, 1A, 1IP, 2CL
+    """
+    return {
+        'N': 1,
+        'M': 1,
+        'M3': 1,
+        'A': 1,
+        'IP': 1,
+        'CL': 2,
+        'M4': 0,
+        'H': 0
+    }
+
+
 def generate_month_demands(year: int, month: int, base_demand: Dict[str, int], 
-                           weekend_demand: Dict[str, int]) -> pd.DataFrame:
+                           weekend_demand: Dict[str, int], 
+                           holidays: Dict[date, str] = None) -> pd.DataFrame:
     """Generate default demands for a month.
     
     Special handling for H shifts: They are always assigned to Monday and Wednesday,
     with 2 shifts on each of those days. This is fixed and not configurable.
+    
+    Special handling for holidays: Public holidays use fixed demand values:
+    1N, 1M, 1M3, 1A, 1IP, 2CL
+    
+    Args:
+        year: Year
+        month: Month (1-12)
+        base_demand: Base demand for weekdays
+        weekend_demand: Demand for weekends
+        holidays: Optional dict mapping date objects to holiday names
     """
     import calendar
+    
+    if holidays is None:
+        holidays = {}
     
     # Get all dates in the month
     num_days = calendar.monthrange(year, month)[1]
@@ -440,35 +473,56 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
     if 'H' in base_demand_no_h:
         del base_demand_no_h['H']
     
+    # Get holiday demands
+    holiday_demands = get_holiday_demands()
+    
     records = []
     for d in dates:
-        weekday = d.weekday()  # 0 = Monday, 6 = Sunday
-        # In Oman: Weekdays = Sunday(6), Monday(0), Tuesday(1), Wednesday(2), Thursday(3)
-        # Weekends = Friday(4), Saturday(5)
-        is_weekend = weekday in [4, 5]  # Friday (4) or Saturday (5)
+        # Check if this date is a holiday
+        is_holiday = d in holidays
         
-        demand = weekend_demand if is_weekend else base_demand_no_h
-        
-        # H shifts are always 1 on Monday (weekday 0) and Wednesday (weekday 2), 0 otherwise
-        if weekday == 0:  # Monday
-            h_count = 1
-        elif weekday == 2:  # Wednesday
-            h_count = 1
+        if is_holiday:
+            # Use holiday-specific demands
+            record = {
+                'date': d,
+                'need_M': holiday_demands.get('M', 0),
+                'need_IP': holiday_demands.get('IP', 0),
+                'need_A': holiday_demands.get('A', 0),
+                'need_N': holiday_demands.get('N', 0),
+                'need_M3': holiday_demands.get('M3', 0),
+                'need_M4': holiday_demands.get('M4', 0),
+                'need_H': holiday_demands.get('H', 0),
+                'need_CL': holiday_demands.get('CL', 0)
+            }
         else:
-            h_count = 0
+            # Normal logic for non-holidays
+            weekday = d.weekday()  # 0 = Monday, 6 = Sunday
+            # In Oman: Weekdays = Sunday(6), Monday(0), Tuesday(1), Wednesday(2), Thursday(3)
+            # Weekends = Friday(4), Saturday(5)
+            is_weekend = weekday in [4, 5]  # Friday (4) or Saturday (5)
+            
+            demand = weekend_demand if is_weekend else base_demand_no_h
+            
+            # H shifts are always 1 on Monday (weekday 0) and Wednesday (weekday 2), 0 otherwise
+            if weekday == 0:  # Monday
+                h_count = 1
+            elif weekday == 2:  # Wednesday
+                h_count = 1
+            else:
+                h_count = 0
+            
+            record = {
+                'date': d,
+                'need_M': demand.get('M', 0),
+                'need_IP': demand.get('IP', 0),
+                'need_A': demand.get('A', 0),
+                'need_N': demand.get('N', 0),
+                'need_M3': demand.get('M3', 0),
+                'need_M4': demand.get('M4', 0),
+                'need_H': h_count,
+                'need_CL': demand.get('CL', 0)
+            }
         
-        record = {
-            'date': d,
-            'need_M': demand.get('M', 0),
-            'need_IP': demand.get('IP', 0),
-            'need_A': demand.get('A', 0),
-            'need_N': demand.get('N', 0),
-            'need_M3': demand.get('M3', 0),
-            'need_M4': demand.get('M4', 0),
-            'need_H': h_count,
-            'need_CL': demand.get('CL', 0)
-            # Note: holiday column removed - not needed for solver, handled separately for pending_off
-        }
         records.append(record)
     
     return pd.DataFrame(records)

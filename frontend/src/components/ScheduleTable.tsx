@@ -617,18 +617,18 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
       {/* Legend with Color Pickers */}
       <div className="mt-6 bg-white p-4 rounded-lg shadow">
         {canChangeColors && (
-          <div className="flex justify-between items-center mb-3">
-            <button
-              onClick={() => {
-                if (window.confirm('Reset all colors to defaults?')) {
-                  setCustomColors({ ...defaultShiftColors, ...defaultSpecialColors });
-                }
-              }}
-              className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-            >
-              Reset Colors
-            </button>
-          </div>
+        <div className="flex justify-between items-center mb-3">
+          <button
+            onClick={() => {
+              if (window.confirm('Reset all colors to defaults?')) {
+                setCustomColors({ ...defaultShiftColors, ...defaultSpecialColors });
+              }
+            }}
+            className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Reset Colors
+          </button>
+        </div>
         )}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
           {[

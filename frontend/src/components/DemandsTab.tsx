@@ -40,6 +40,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   const [editingHoliday, setEditingHoliday] = useState<string | null>(null);
   const [holidayInput, setHolidayInput] = useState<string>('');
+  const deletingHolidayRef = useRef<boolean>(false);
   const [addingShift, setAddingShift] = useState<string | null>(null); // date for which we're adding a shift
   const [weekdayConfig, setWeekdayConfig] = useState([
     { Shift: 'M', Count: 6 },
@@ -304,23 +305,80 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   const handleHolidayChange = async (date: string, holiday: string) => {
     if (!selectedYear || !selectedMonth) return;
     
-    // Update local state for UI
-    const updatedDemands = monthDemands.map(demand => {
-      if (demand.date === date) {
-        return {
-          ...demand,
-          holiday: holiday
-        };
-      }
-      return demand;
-    });
+    const isDeletingHoliday = !holiday || !holiday.trim();
+    let updatedDemands: any[];
     
+    // If deleting holiday, regenerate default demands for that date
+    if (isDeletingHoliday) {
+      // Calculate default demands based on weekday/weekend
+      const dateObj = new Date(date);
+      const weekday = dateObj.getDay(); // 0 = Sunday, 6 = Saturday
+      // In Oman: Weekdays = Sunday(0), Monday(1), Tuesday(2), Wednesday(3), Thursday(4)
+      // Weekends = Friday(5), Saturday(6)
+      const isWeekend = weekday === 5 || weekday === 6; // Friday or Saturday
+      
+      // Get the appropriate config (weekday or weekend)
+      const config = isWeekend ? weekendConfig : weekdayConfig;
+      
+      // Build default demands object
+      const defaultDemands: Record<string, number> = {
+        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0
+      };
+      
+      // Set values from config
+      config.forEach(item => {
+        if (item.Shift !== 'H') {
+          defaultDemands[item.Shift] = item.Count;
+        }
+      });
+      
+      // H shifts are fixed: 1 on Monday (weekday 1), 1 on Wednesday (weekday 3), 0 otherwise
+      if (weekday === 1) { // Monday
+        defaultDemands['H'] = 1;
+      } else if (weekday === 3) { // Wednesday
+        defaultDemands['H'] = 1;
+      } else {
+        defaultDemands['H'] = 0;
+      }
+      
+      // Update the demand for this date with default values
+      updatedDemands = monthDemands.map(demand => {
+        if (demand.date === date) {
+          return {
+            ...demand,
+            holiday: '', // Clear holiday
+            need_M: defaultDemands['M'],
+            need_IP: defaultDemands['IP'],
+            need_A: defaultDemands['A'],
+            need_N: defaultDemands['N'],
+            need_M3: defaultDemands['M3'],
+            need_M4: defaultDemands['M4'],
+            need_H: defaultDemands['H'],
+            need_CL: defaultDemands['CL'],
+          };
+        }
+        return demand;
+      });
+    } else {
+      // Just updating holiday name, not deleting
+      updatedDemands = monthDemands.map(demand => {
+        if (demand.date === date) {
+          return {
+            ...demand,
+            holiday: holiday
+          };
+        }
+        return demand;
+      });
+    }
+    
+    // Update UI immediately
     setMonthDemands(updatedDemands);
     setEditingHoliday(null);
     
     // Save holidays separately (not in demands)
     try {
-      // Build holidays object from current demands
+      // Build holidays object from updated demands (excluding empty ones)
       const holidays: Record<string, string> = {};
       updatedDemands.forEach(demand => {
         if (demand.holiday && demand.holiday.trim()) {
@@ -331,11 +389,21 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       // Save holidays separately
       await api.post(`/api/data/holidays/month/${selectedYear}/${selectedMonth}`, holidays);
       
-      // Also update demands (without holiday column) to ensure consistency
+      // Save demands - backend will automatically apply holiday-specific demands for holiday days
       const demandsWithoutHoliday = stripDayNames(updatedDemands.map(({ holiday, ...rest }) => rest));
       await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demandsWithoutHoliday);
       
-      showToast({ type: 'success', message: '✅ Holiday saved!' });
+      // Reload demands from backend to get the updated values
+      // This ensures the UI shows the correct demands immediately
+      const response = await api.get(`/api/data/demands/month/${selectedYear}/${selectedMonth}`);
+      const reloadedDemands = response.data || [];
+      setMonthDemands(addDayNames(reloadedDemands));
+      
+      if (isDeletingHoliday) {
+        showToast({ type: 'success', message: '✅ Holiday deleted! Demands reset to default.' });
+      } else {
+        showToast({ type: 'success', message: '✅ Holiday saved! Demands updated.' });
+      }
     } catch (error: any) {
       console.error('Failed to save holiday to backend:', error);
       showToast({ 
@@ -595,7 +663,11 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                               value={holidayInput}
                               onChange={(e) => setHolidayInput(e.target.value)}
                               onBlur={() => {
-                                handleHolidayChange(date, holidayInput);
+                                // Don't save if we're deleting (X button was clicked)
+                                if (!deletingHolidayRef.current) {
+                                  handleHolidayChange(date, holidayInput);
+                                }
+                                deletingHolidayRef.current = false;
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
@@ -610,9 +682,18 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                               autoFocus
                             />
                             <button
-                              onClick={() => {
+                              onMouseDown={(e) => {
+                                e.preventDefault(); // Prevent input blur
+                                e.stopPropagation();
+                                deletingHolidayRef.current = true; // Mark that we're deleting
+                              }}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                deletingHolidayRef.current = true;
                                 handleHolidayChange(date, '');
                                 setHolidayInput('');
+                                setEditingHoliday(null);
                               }}
                               className="text-[10px] px-1 py-0.5 bg-red-100 text-red-700 rounded hover:bg-red-200"
                             >
