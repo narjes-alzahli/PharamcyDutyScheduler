@@ -295,7 +295,6 @@ class RosterConfig:
             "unfilled_coverage": 1000.0,
             "overstaffing": 10.0,
             "fairness": 5.0,
-            "area_switching": 1.0,
             "do_after_n": 1.0,
             "a_to_n_penalty": 5.0
         }

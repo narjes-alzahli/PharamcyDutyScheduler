@@ -44,14 +44,7 @@ class RosterScoring:
         if fairness_vars:
             objectives.append(sum(fairness_vars) * self.weights.get("fairness", 5.0))
         
-        # 3. Area switching penalty
-        area_vars = self._add_area_switching_variables(
-            model, x, employees, dates
-        )
-        if area_vars:
-            objectives.append(sum(area_vars) * self.weights.get("area_switching", 1.0))
-        
-        # 4. DO after N preference removed - DO is now only assigned when requested in time off
+        # 3. DO after N preference removed - DO is now only assigned when requested in time off
         # (No longer preferring DO after N shifts)
         
         if objectives:
@@ -242,35 +235,6 @@ class RosterScoring:
             fairness_vars.append(weekend_fairness)
         
         return fairness_vars
-    
-    def _add_area_switching_variables(
-        self,
-        model: cp_model.CpModel,
-        x: Dict[Tuple[str, date, str], cp_model.IntVar],
-        employees: List[str],
-        dates: List[date]
-    ) -> List[cp_model.IntVar]:
-        """Add variables to penalize area switching."""
-        switching_vars = []
-        
-        for emp in employees:
-            for i in range(len(dates) - 1):
-                day1, day2 = dates[i], dates[i + 1]
-                
-                # Penalize switching between different areas
-                areas = {
-                    "M": "main", "IP": "ip", "A": "main", "N": "main", 
-                    "M3": "main", "M4": "main", "H": "harat", "CL": "clinic"
-                }
-                
-                for shift1 in areas:
-                    for shift2 in areas:
-                        if areas[shift1] != areas[shift2]:
-                            switch_var = model.NewBoolVar(f"switch_{emp}_{day1}_{shift1}_{day2}_{shift2}")
-                            model.Add(switch_var >= x[(emp, day1, shift1)] + x[(emp, day2, shift2)] - 1)
-                            switching_vars.append(switch_var)
-        
-        return switching_vars
     
     def _add_do_after_n_variables(
         self,

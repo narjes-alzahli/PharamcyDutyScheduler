@@ -42,7 +42,6 @@ class SolveRequest(BaseModel):
     time_limit: int = 300
     unfilled_penalty: float = 1000.0
     fairness_weight: float = 5.0
-    switching_penalty: float = 1.0
 
 
 class SolveResponse(BaseModel):
@@ -302,7 +301,6 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 "weights": {
                     "unfilled_coverage": request.unfilled_penalty,
                     "fairness": request.fairness_weight,
-                    "area_switching": request.switching_penalty,
                     "do_after_n": 1.0
                 },
                 "rest_codes": rest_codes,
