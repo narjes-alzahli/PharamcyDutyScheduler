@@ -999,6 +999,45 @@ export const RosterGenerator: React.FC = () => {
     setShowAddLock(false);
   };
 
+  // Get available years (only future years, starting from 2026)
+  const availableYears = useMemo(() => {
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const years: number[] = [];
+    
+    // Start from 2026 (after December 2025)
+    const startYear = 2026;
+    // Show next 10 years
+    for (let year = startYear; year <= currentYear + 10; year++) {
+      years.push(year);
+    }
+    
+    return years;
+  }, []);
+
+  // Get available months based on selected year
+  const availableMonths = useMemo(() => {
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth() + 1; // 1-12
+    
+    if (!selectedYear) return [];
+    
+    // If selected year is current year, only show future months
+    if (selectedYear === currentYear) {
+      return monthNames
+        .map((month, index) => ({ month, number: index + 1 }))
+        .filter(({ number }) => number > currentMonth);
+    }
+    
+    // If selected year is in the future, show all months
+    if (selectedYear > currentYear) {
+      return monthNames.map((month, index) => ({ month, number: index + 1 }));
+    }
+    
+    return [];
+  }, [selectedYear]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1112,13 +1151,34 @@ export const RosterGenerator: React.FC = () => {
           <select
             value={selectedYear || ''}
             onChange={(e) => {
-              setSelectedYear(e.target.value ? parseInt(e.target.value) : null);
-              setSelectedMonth(null);
+              const newYear = e.target.value ? parseInt(e.target.value) : null;
+              setSelectedYear(newYear);
+              // Don't reset month - keep it if it's still valid for the new year
+              if (newYear && selectedMonth) {
+                const currentDate = new Date();
+                const currentYear = currentDate.getFullYear();
+                const currentMonth = currentDate.getMonth() + 1;
+                
+                // Check if current month is valid for new year
+                let isMonthStillValid = false;
+                if (newYear > currentYear) {
+                  // Future year - all months are valid
+                  isMonthStillValid = true;
+                } else if (newYear === currentYear) {
+                  // Current year - only future months are valid
+                  isMonthStillValid = selectedMonth > currentMonth;
+                }
+                
+                if (!isMonthStillValid) {
+                  // If current month is not valid for new year, clear it
+                  setSelectedMonth(null);
+                }
+              }
             }}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
           >
             <option value="">Select Year...</option>
-            {[2025, 2026, 2027].map(year => (
+            {availableYears.map((year: number) => (
               <option key={year} value={year}>{year}</option>
             ))}
           </select>
@@ -1132,8 +1192,8 @@ export const RosterGenerator: React.FC = () => {
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100"
           >
             <option value="">Select Month...</option>
-            {monthNames.map((month, index) => (
-              <option key={index + 1} value={index + 1}>{month}</option>
+            {availableMonths.map(({ month, number }: { month: string; number: number }) => (
+              <option key={number} value={number}>{month}</option>
             ))}
           </select>
         </div>
@@ -2176,15 +2236,38 @@ export const RosterGenerator: React.FC = () => {
                         });
                         
                         const recalculated = calculatePendingOff(currentScheduleEntries, initialPendingOff, {}, selectedYear, selectedMonth);
-                        const dynamicEmployees = recalculated.map(e => ({
-                          employee: e.employee,
-                          pending_off: e.pending_off,
-                          total_working_days: e.total_working_days,
-                          night_shifts: e.night_shifts,
-                          afternoon_shifts: 0, // Not used in display
-                          weekend_shifts: e.weekend_shifts,
-                          DOs_given: e.DOs_given
-                        }));
+                        
+                        // Create a map of employees with their skill information
+                        const employeesWithSkillsMap = new Map(
+                          (generatedEmployees || rosterData?.employees || []).map((emp: any) => [
+                            emp.employee,
+                            {
+                              skill_M: emp.skill_M,
+                              skill_IP: emp.skill_IP,
+                              skill_A: emp.skill_A,
+                              skill_N: emp.skill_N,
+                              skill_M3: emp.skill_M3,
+                              skill_M4: emp.skill_M4,
+                              skill_H: emp.skill_H,
+                              skill_CL: emp.skill_CL,
+                            }
+                          ])
+                        );
+                        
+                        // Merge skill information into dynamicEmployees
+                        const dynamicEmployees = recalculated.map(e => {
+                          const skills = employeesWithSkillsMap.get(e.employee) || {};
+                          return {
+                            employee: e.employee,
+                            pending_off: e.pending_off,
+                            total_working_days: e.total_working_days,
+                            night_shifts: e.night_shifts,
+                            afternoon_shifts: 0, // Not used in display
+                            weekend_shifts: e.weekend_shifts,
+                            DOs_given: e.DOs_given,
+                            ...skills, // Include all skill fields
+                          };
+                        });
                         
                         return (
                           <>

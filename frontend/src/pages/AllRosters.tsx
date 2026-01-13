@@ -10,9 +10,7 @@ import { isTokenExpired } from '../utils/tokenUtils';
 import Plot from 'react-plotly.js';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
 import { calculatePendingOff, PendingOffData } from '../utils/pendingOffCalculation';
-import { PieChart } from '../components/PieChart';
-import { createEmployeeColorMap } from '../utils/employeeColors';
-import { EmployeeLegend } from '../components/EmployeeLegend';
+import { FairnessLineGraph } from '../components/FairnessLineGraph';
 
 export const AllRostersPage: React.FC = () => {
   const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth } = useDate();
@@ -22,7 +20,7 @@ export const AllRostersPage: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [schedulesLoaded, setSchedulesLoaded] = useState(false); // Track if schedules list is loaded
   const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState<string>('overview');
   const [loading, setLoading] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false); // Separate loading state for individual schedule
   const [error, setError] = useState<string | null>(null);
@@ -506,19 +504,6 @@ export const AllRostersPage: React.FC = () => {
     if (!monthSchedule.length) return null;
     return calculateFairnessData(monthSchedule, employeeOrder);
   }, [monthSchedule, employeeOrder]);
-
-  // Create consistent color map for all employees
-  const employeeColorMap = useMemo(() => {
-    if (!fairnessData) return new Map<string, string>();
-    const allEmployees = new Set<string>();
-    fairnessData.nightData.forEach(d => allEmployees.add(d.emp));
-    fairnessData.afternoonData.forEach(d => allEmployees.add(d.emp));
-    fairnessData.m4Data?.forEach(d => allEmployees.add(d.emp));
-    fairnessData.weekendData.forEach(d => allEmployees.add(d.emp));
-    fairnessData.thursdayData?.forEach(d => allEmployees.add(d.emp));
-    fairnessData.workingData.forEach(d => allEmployees.add(d.emp));
-    return createEmployeeColorMap(Array.from(allEmployees));
-  }, [fairnessData]);
   
   // Calculate dynamic pending_off values from current schedule state
   const dynamicEmployees: PendingOffData[] | null = useMemo(() => {
@@ -568,6 +553,47 @@ export const AllRostersPage: React.FC = () => {
   
   const metrics = calculateMetrics();
 
+  // Determine which tabs to show based on available data
+  const availableTabs = useMemo(() => {
+    const allTabs = [
+      { id: 'overview', emoji: '', label: 'Overview' },
+      { id: 'fairness', emoji: '', label: 'Fairness Analysis' },
+      { id: 'pending-off', emoji: '', label: 'Employee Pending Off' },
+      { id: 'solver', emoji: '', label: 'Solver Metrics' },
+    ] as const;
+    
+    if (!currentSchedule) return allTabs;
+    
+    // Filter out tabs based on data availability
+    return allTabs.filter(tab => {
+      if (tab.id === 'pending-off') {
+        // Show if employees with pending_off data exist
+        const hasPendingOffData = currentSchedule.employees && 
+          currentSchedule.employees.length > 0 &&
+          currentSchedule.employees.some((emp: any) => emp.pending_off !== undefined && emp.pending_off !== null);
+        return hasPendingOffData;
+      }
+      if (tab.id === 'solver') {
+        // Show if metrics exist
+        return currentSchedule.metrics !== undefined && currentSchedule.metrics !== null;
+      }
+      // Always show overview and fairness tabs
+      return true;
+    });
+  }, [currentSchedule]);
+  
+  // Ensure activeTab is valid, switch to first available tab if current is hidden
+  useEffect(() => {
+    if (currentSchedule && availableTabs.length > 0) {
+      const tabIds = availableTabs.map(t => t.id);
+      if (!tabIds.includes(activeTab as typeof tabIds[number])) {
+        setActiveTab(tabIds[0]);
+      }
+    }
+  }, [currentSchedule, availableTabs, activeTab]);
+  
+  const tabs = availableTabs;
+
   // Show loading spinner while auth is loading or initial schedules list is loading
   // FIX: Show loading while auth is being verified
   // This prevents components from making API calls before auth is ready
@@ -589,13 +615,6 @@ export const AllRostersPage: React.FC = () => {
       </div>
     );
   }
-
-  const tabs = [
-    { id: 'overview', emoji: '', label: 'Overview' },
-    { id: 'fairness', emoji: '', label: 'Fairness Analysis' },
-    { id: 'pending-off', emoji: '', label: 'Employee Pending Off' },
-    { id: 'solver', emoji: '', label: 'Solver Metrics' },
-  ] as const;
 
   return (
     <div>
@@ -786,57 +805,11 @@ export const AllRostersPage: React.FC = () => {
                           <h3 className="text-xl font-bold text-gray-900">Fairness Analysis</h3>
                         </div>
 
-                        <div className="-mx-4 overflow-x-auto border-t border-gray-200 pt-4 md:mx-0 md:overflow-visible">
-                          {/* Employee Legend - Above Graphs */}
-                          {employeeColorMap.size > 0 && (
-                            <div className="mb-4">
-                              <EmployeeLegend
-                                employees={Array.from(employeeColorMap.keys())}
-                                employeeOrder={employeeOrder}
-                              />
-                            </div>
-                          )}
-                          
-                          {/* Pie Charts - 3x2 Grid (3 columns, 2 rows) */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                            <PieChart
-                              data={fairnessData.nightData}
-                              title="Night Shift Distribution"
-                              colorMap={employeeColorMap}
-                              emptyMessage="No night shifts assigned"
-                            />
-                            <PieChart
-                              data={fairnessData.afternoonData}
-                              title="Afternoon Shift Distribution"
-                              colorMap={employeeColorMap}
-                              emptyMessage="No afternoon shifts assigned"
-                            />
-                            <PieChart
-                              data={fairnessData.m4Data || []}
-                              title="M4 Shift Distribution"
-                              colorMap={employeeColorMap}
-                              emptyMessage="No M4 shifts assigned"
-                            />
-                            <PieChart
-                              data={fairnessData.weekendData}
-                              title="Weekend Shift Distribution"
-                              colorMap={employeeColorMap}
-                              emptyMessage="No weekend shifts assigned"
-                            />
-                            <PieChart
-                              data={fairnessData.thursdayData || []}
-                              title="Thursday Shift Distribution"
-                              colorMap={employeeColorMap}
-                              emptyMessage="No Thursday shifts assigned"
-                            />
-                            <PieChart
-                              data={fairnessData.workingData}
-                              title="Total Working Days Distribution"
-                              colorMap={employeeColorMap}
-                              emptyMessage="No working days assigned"
-                            />
-                          </div>
-                        </div>
+                        <FairnessLineGraph
+                          fairnessData={fairnessData}
+                          employeeOrder={employeeOrder}
+                          employees={employeesFromAPI}
+                        />
                       </div>
                     )}
 

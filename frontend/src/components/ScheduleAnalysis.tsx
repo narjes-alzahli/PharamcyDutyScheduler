@@ -1,9 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import Plot from 'react-plotly.js';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
-import { PieChart } from './PieChart';
-import { createEmployeeColorMap } from '../utils/employeeColors';
-import { EmployeeLegend } from './EmployeeLegend';
+import { FairnessLineGraph } from './FairnessLineGraph';
 
 interface ScheduleAnalysisProps {
   schedule: any[];
@@ -53,18 +51,6 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
   }, [employees]);
 
   const fairnessData = calculateFairnessData(schedule, employeeOrder);
-
-  // Create consistent color map for all employees
-  const employeeColorMap = useMemo(() => {
-    const allEmployees = new Set<string>();
-    fairnessData.nightData.forEach(d => allEmployees.add(d.emp));
-    fairnessData.afternoonData.forEach(d => allEmployees.add(d.emp));
-    fairnessData.m4Data?.forEach(d => allEmployees.add(d.emp));
-    fairnessData.weekendData.forEach(d => allEmployees.add(d.emp));
-    fairnessData.thursdayData?.forEach(d => allEmployees.add(d.emp));
-    fairnessData.workingData.forEach(d => allEmployees.add(d.emp));
-    return createEmployeeColorMap(Array.from(allEmployees));
-  }, [fairnessData]);
 
   const employeeDetails = employees || [];
   // Use employee order from schedule instead of sorting by pending_off
@@ -140,56 +126,12 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
           <span>{expandedSections.fairness ? '▼' : '▶'}</span>
         </button>
         {expandedSections.fairness && (
-          <div className="p-4 border-t border-gray-200 space-y-6">
-            {/* Employee Legend - Above Graphs */}
-            {employeeColorMap.size > 0 && (
-              <div className="mb-4">
-                <EmployeeLegend
-                  employees={Array.from(employeeColorMap.keys())}
-                  employeeOrder={employeeOrder}
-                />
-              </div>
-            )}
-            
-            {/* Charts Grid - 3x2 grid (3 columns, 2 rows) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              <PieChart
-                data={fairnessData.nightData}
-                title="Night Shift Distribution"
-                colorMap={employeeColorMap}
-                emptyMessage="No night shifts assigned"
-              />
-              <PieChart
-                data={fairnessData.afternoonData}
-                title="Afternoon Shift Distribution"
-                colorMap={employeeColorMap}
-                emptyMessage="No afternoon shifts assigned"
-              />
-              <PieChart
-                data={fairnessData.m4Data || []}
-                title="M4 Shift Distribution"
-                colorMap={employeeColorMap}
-                emptyMessage="No M4 shifts assigned"
-              />
-              <PieChart
-                data={fairnessData.weekendData}
-                title="Weekend Shift Distribution"
-                colorMap={employeeColorMap}
-                emptyMessage="No weekend shifts assigned"
-              />
-              <PieChart
-                data={fairnessData.thursdayData || []}
-                title="Thursday Shift Distribution"
-                colorMap={employeeColorMap}
-                emptyMessage="No Thursday shifts assigned"
-                  />
-              <PieChart
-                data={fairnessData.workingData}
-                title="Total Working Days Distribution"
-                colorMap={employeeColorMap}
-                emptyMessage="No working days assigned"
-              />
-            </div>
+          <div className="p-4 border-t border-gray-200">
+            <FairnessLineGraph
+              fairnessData={fairnessData}
+              employeeOrder={employeeOrder}
+              employees={employees}
+            />
           </div>
         )}
       </div>
