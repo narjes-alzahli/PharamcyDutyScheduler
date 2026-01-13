@@ -2,7 +2,7 @@
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from datetime import date, timedelta
 from sqlalchemy.orm import Session, joinedload
 
@@ -419,6 +419,61 @@ def load_month_holidays(year: int, month: int, db: Session = None) -> Dict[str, 
         return holidays
     
     return {}
+
+
+def load_previous_month_last_days(year: int, month: int, db: Session = None) -> Dict[Tuple[str, date], str]:
+    """Load the last 2 days of the immediately previous committed month.
+    
+    Args:
+        year: Year of the month being generated
+        month: Month being generated (1-12)
+        db: Database session (optional, will create one if not provided)
+    
+    Returns:
+        Dict mapping (employee_name, date) to shift code for the last 2 days of previous month.
+        Returns empty dict if previous month doesn't exist or isn't committed.
+    """
+    from backend.models import CommittedSchedule
+    from backend.database import SessionLocal
+    import calendar
+    
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        # Calculate previous month
+        if month == 1:
+            prev_year = year - 1
+            prev_month = 12
+        else:
+            prev_year = year
+            prev_month = month - 1
+        
+        # Get last 2 days of previous month
+        num_days_prev_month = calendar.monthrange(prev_year, prev_month)[1]
+        last_day_prev_month = date(prev_year, prev_month, num_days_prev_month)
+        second_last_day_prev_month = date(prev_year, prev_month, num_days_prev_month - 1)
+        
+        # Load committed schedules for these 2 days
+        prev_schedules = db.query(CommittedSchedule).filter(
+            CommittedSchedule.year == prev_year,
+            CommittedSchedule.month == prev_month,
+            CommittedSchedule.date.in_([second_last_day_prev_month, last_day_prev_month])
+        ).all()
+        
+        # Build dict: (employee_name, date) -> shift
+        result = {}
+        for schedule in prev_schedules:
+            result[(schedule.employee_name, schedule.date)] = schedule.shift
+        
+        return result
+    finally:
+        if close_db:
+            db.close()
 
 
 def get_holiday_demands() -> Dict[str, int]:
