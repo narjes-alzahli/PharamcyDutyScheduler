@@ -162,6 +162,13 @@ def init_db():
                 is_active=True
             ),
             ShiftType(
+                code="E",
+                description="Evening",
+                color_hex="#4575d3",
+                is_working_shift=True,
+                is_active=True
+            ),
+            ShiftType(
                 code="MS",
                 description="Medical Store",
                 color_hex="#ffffff",
