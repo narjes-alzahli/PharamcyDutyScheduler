@@ -126,7 +126,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             # Filter locks to only include STANDARD shifts (exclude non-standard like MS, C)
             # Non-standard shifts are handled via time_off as direct assignments, not constraints
             # DO is now a leave code, only assigned when requested in time off
-            STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"}
+            from backend.roster_data_loader import get_standard_working_shifts
+            STANDARD_WORKING_SHIFTS = get_standard_working_shifts(db) | {"O"}  # Include O (Off Duty)
             locks_df = roster_data['locks'].copy()
             if not locks_df.empty and 'shift' in locks_df.columns:
                 # Only keep standard shifts in locks - non-standard shifts are in time_off
@@ -265,7 +266,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 
                 # Standard working shifts that the solver can optimize and assign
                 # Non-standard shifts (like MS, C) should only be assigned when explicitly requested
-                STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+                from backend.roster_data_loader import get_standard_working_shifts
+                STANDARD_WORKING_SHIFTS = get_standard_working_shifts(db)
                 working_shift_codes = [st.code for st in all_shift_types 
                                       if st.is_working_shift == True and st.code in STANDARD_WORKING_SHIFTS]
                 # Only include standard shifts + O in all_shift_codes

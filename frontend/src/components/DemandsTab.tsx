@@ -34,6 +34,9 @@ const addDayNames = (demands: any[]) =>
 const stripDayNames = (demands: any[]) =>
   demands.map(({ day_name, ...rest }) => rest);
 
+// Standard shift types that have dedicated columns in demands
+const STANDARD_SHIFT_CODES = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E'];
+
 export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMonth, monthNames }) => {
   const [monthDemands, setMonthDemands] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +64,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   const [regenerating, setRegenerating] = useState(false);
   const { showToast } = useToast();
 
-  // Load shift types to get colors
+  // Load shift types to get colors (for display purposes)
   useEffect(() => {
     const loadShiftTypes = async () => {
       try {
@@ -107,10 +110,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
 
   const generateDefaults = useCallback(async (year: number, month: number) => {
     const base_demand = {
-      'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'CL': 2 // H: Fixed to 2 on Monday and Wednesday (not configurable)
+      'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'CL': 2, 'E': 0 // H: Fixed to 2 on Monday and Wednesday (not configurable)
     };
     const weekend_demand = {
-      'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'CL': 0
+      'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'CL': 0, 'E': 0
     };
     
     try {
@@ -322,7 +325,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       
       // Build default demands object
       const defaultDemands: Record<string, number> = {
-        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0
+        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0
       };
       
       // Set values from config
@@ -355,6 +358,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
             need_M4: defaultDemands['M4'],
             need_H: defaultDemands['H'],
             need_CL: defaultDemands['CL'],
+            need_E: defaultDemands['E'],
           };
         }
         return demand;
@@ -470,10 +474,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     setRegenerating(true);
     try {
       const base_demand: any = {
-        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0
+        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0
       };
       const weekend_demand: any = {
-        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0
+        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0
       };
       
       // Extract values from configs
@@ -704,118 +708,136 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
 
                         {/* Shift Needs Pills */}
                         <div className="flex flex-wrap gap-1 mb-1">
-                          {SHIFT_CODES.map(shiftCode => {
-                            const needKey = `need_${shiftCode}` as keyof typeof demand;
-                            const count = demand?.[needKey] as number || 0;
-                            const color = getShiftColor(shiftCode);
-                            const description = getShiftDescription(shiftCode);
+                          {(() => {
+                            // Only show standard shifts (those with dedicated columns in demands)
+                            // Filter to only those that have a demand value > 0
+                            return STANDARD_SHIFT_CODES
+                              .map(shiftCode => {
+                                const needKey = `need_${shiftCode}` as keyof typeof demand;
+                                const count = demand?.[needKey] as number || 0;
+                                const color = getShiftColor(shiftCode);
+                                const description = getShiftDescription(shiftCode);
 
-                            if (count === 0) return null;
+                                if (count === 0) return null;
 
-                            // Always use black text for better readability
-                            const textColor = '#000000';
-                            // Make color semi-transparent (60% opacity)
-                            // Convert hex to rgba for proper transparency
-                            const hexToRgba = (hex: string, alpha: number) => {
-                              const r = parseInt(hex.slice(1, 3), 16);
-                              const g = parseInt(hex.slice(3, 5), 16);
-                              const b = parseInt(hex.slice(5, 7), 16);
-                              return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                            };
-                            const transparentColor = hexToRgba(color, 0.6);
-                            
-                            return (
-                              <div
-                                key={shiftCode}
-                                className="flex items-center gap-0 rounded text-[10px] shadow-sm hover:shadow transition-shadow overflow-hidden border border-gray-400"
-                                style={{
-                                  backgroundColor: transparentColor,
-                                }}
-                              >
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const newValue = Math.max(0, count - 1);
-                                    handleDemandChange(date, shiftCode, newValue);
-                                  }}
-                                  className="px-1 py-0.5 font-medium transition-opacity hover:opacity-80"
-                                  style={{ color: textColor }}
-                                  title="Decrease"
-                                >
-                                  −
-                                </button>
-                                <div
-                                  className="px-1 py-0.5 font-semibold"
-                                  style={{
-                                    color: textColor,
-                                  }}
-                                  title={description}
-                                >
-                                  {count} {shiftCode}
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const newValue = count + 1;
-                                    if (newValue <= 20) {
-                                      handleDemandChange(date, shiftCode, newValue);
-                                    }
-                                  }}
-                                  className="px-1 py-0.5 font-medium transition-opacity hover:opacity-80"
-                                  style={{ color: textColor }}
-                                  title="Increase"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            );
-                          })}
+                                // Always use black text for better readability
+                                const textColor = '#000000';
+                                // Make color semi-transparent (60% opacity)
+                                // Convert hex to rgba for proper transparency
+                                const hexToRgba = (hex: string, alpha: number) => {
+                                  const r = parseInt(hex.slice(1, 3), 16);
+                                  const g = parseInt(hex.slice(3, 5), 16);
+                                  const b = parseInt(hex.slice(5, 7), 16);
+                                  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                                };
+                                const transparentColor = hexToRgba(color, 0.6);
+                                
+                                return (
+                                  <div
+                                    key={shiftCode}
+                                    className="flex items-center gap-0 rounded text-[10px] shadow-sm hover:shadow transition-shadow overflow-hidden border border-gray-400"
+                                    style={{
+                                      backgroundColor: transparentColor,
+                                    }}
+                                  >
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newValue = Math.max(0, count - 1);
+                                        handleDemandChange(date, shiftCode, newValue);
+                                      }}
+                                      className="px-1 py-0.5 font-medium transition-opacity hover:opacity-80"
+                                      style={{ color: textColor }}
+                                      title="Decrease"
+                                    >
+                                      −
+                                    </button>
+                                    <div
+                                      className="px-1 py-0.5 font-semibold"
+                                      style={{
+                                        color: textColor,
+                                      }}
+                                      title={description}
+                                    >
+                                      {count} {shiftCode}
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newValue = count + 1;
+                                        if (newValue <= 20) {
+                                          handleDemandChange(date, shiftCode, newValue);
+                                        }
+                                      }}
+                                      className="px-1 py-0.5 font-medium transition-opacity hover:opacity-80"
+                                      style={{ color: textColor }}
+                                      title="Increase"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                );
+                              });
+                          })()}
                         </div>
 
                         {/* Add Missing Shift Button */}
-                        {SHIFT_CODES.some(shiftCode => {
-                          const needKey = `need_${shiftCode}` as keyof typeof demand;
-                          return (demand?.[needKey] as number || 0) === 0;
-                        }) && (
-                          <div className="relative shift-dropdown-container mt-1">
-                            <button
-                              onClick={() => {
-                                setAddingShift(addingShift === date ? null : date);
-                              }}
-                              className="text-[10px] text-gray-400 hover:text-gray-600 px-1 py-0.5 rounded border border-dashed border-gray-300 hover:border-gray-400 w-full transition-colors"
-                            >
-                              + Add
-                            </button>
-                            {addingShift === date && (
-                              <div className="absolute z-10 mt-0.5 w-full bg-white border border-gray-200 rounded shadow-lg p-1 max-h-32 overflow-y-auto">
-                                {SHIFT_CODES.filter(shiftCode => {
-                                  const needKey = `need_${shiftCode}` as keyof typeof demand;
-                                  return (demand?.[needKey] as number || 0) === 0;
-                                }).map(shiftCode => {
-                                  const color = getShiftColor(shiftCode);
-                                  const description = getShiftDescription(shiftCode);
-                                  return (
-                                    <button
-                                      key={shiftCode}
-                                      onClick={() => {
-                                        handleDemandChange(date, shiftCode, 1);
-                                        setAddingShift(null);
-                                      }}
-                                      className="w-full text-left px-1.5 py-1 text-[10px] hover:bg-gray-100 rounded flex items-center gap-1.5"
-                                    >
-                                      <div
-                                        className="w-2.5 h-2.5 rounded border"
-                                        style={{ backgroundColor: `${color}80`, borderColor: color }}
-                                      />
-                                      <span className="font-medium">{shiftCode}</span>
-                                      <span className="text-gray-500">{description}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        {(() => {
+                          // Only show standard shift types (those with dedicated columns in demands)
+                          // Exclude "O" and "DO" which are not demand types
+                          const availableShiftTypes = STANDARD_SHIFT_CODES.filter(
+                            code => code !== 'O' && code !== 'DO'
+                          );
+                          
+                          // Check if there are any shift types not currently present
+                          const hasMissingShifts = availableShiftTypes.some(shiftCode => {
+                            const needKey = `need_${shiftCode}` as keyof typeof demand;
+                            return (demand?.[needKey] as number || 0) === 0;
+                          });
+                          
+                          return hasMissingShifts && (
+                            <div className="relative shift-dropdown-container mt-1">
+                              <button
+                                onClick={() => {
+                                  setAddingShift(addingShift === date ? null : date);
+                                }}
+                                className="text-[10px] text-gray-400 hover:text-gray-600 px-1 py-0.5 rounded border border-dashed border-gray-300 hover:border-gray-400 w-full transition-colors"
+                              >
+                                + Add
+                              </button>
+                              {addingShift === date && (
+                                <div className="absolute z-10 mt-0.5 w-full bg-white border border-gray-200 rounded shadow-lg p-1 max-h-32 overflow-y-auto">
+                                  {availableShiftTypes
+                                    .filter(shiftCode => {
+                                      const needKey = `need_${shiftCode}` as keyof typeof demand;
+                                      return (demand?.[needKey] as number || 0) === 0;
+                                    })
+                                    .map(shiftCode => {
+                                      const color = getShiftColor(shiftCode);
+                                      const description = getShiftDescription(shiftCode);
+                                      return (
+                                        <button
+                                          key={shiftCode}
+                                          onClick={() => {
+                                            handleDemandChange(date, shiftCode, 1);
+                                            setAddingShift(null);
+                                          }}
+                                          className="w-full text-left px-1.5 py-1 text-[10px] hover:bg-gray-100 rounded flex items-center gap-1.5"
+                                        >
+                                          <div
+                                            className="w-2.5 h-2.5 rounded border"
+                                            style={{ backgroundColor: `${color}80`, borderColor: color }}
+                                          />
+                                          <span className="font-medium">{shiftCode}</span>
+                                          <span className="text-gray-500">{description}</span>
+                                        </button>
+                                      );
+                                    })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -997,10 +1019,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                 try {
                   setLoading(true);
                   const base_demand = {
-                    'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2
+                    'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2, 'E': 0
                   };
                   const weekend_demand = {
-                    'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0
+                    'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0
                   };
                   const response = await api.post('/api/data/demands/generate', {
                     year: selectedYear,

@@ -52,6 +52,7 @@ class DemandData(BaseModel):
     need_M4: int = 0
     need_H: int = 0
     need_CL: int = 0
+    need_E: int = 0
 
 
 class TimeOffEntry(BaseModel):
@@ -886,7 +887,7 @@ async def save_month_demands(
         demands_df['date'] = demands_df['date'].dt.date
     
     # Ensure all required columns exist
-    required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL']
+    required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E']
     for col in required_columns:
         if col not in demands_df.columns:
             if col == 'date':
@@ -921,6 +922,7 @@ async def save_month_demands(
                 demands_df.at[idx, 'need_M4'] = holiday_demands.get('M4', 0)
                 demands_df.at[idx, 'need_H'] = holiday_demands.get('H', 0)
                 demands_df.at[idx, 'need_CL'] = holiday_demands.get('CL', 0)
+                demands_df.at[idx, 'need_E'] = holiday_demands.get('E', 0)
     
     # Save demands to database (without holiday column)
     save_month_demands_to_file(year, month, demands_df, db)

@@ -132,6 +132,7 @@ class EmployeeSkills(Base):
     skill_M4 = Column(Boolean, default=True)
     skill_H = Column(Boolean, default=False)
     skill_CL = Column(Boolean, default=True)
+    skill_E = Column(Boolean, default=True)
     clinic_only = Column(Boolean, default=False)
     maxN = Column(Integer, default=3)  # Maximum night shifts
     maxA = Column(Integer, default=3)  # Maximum afternoon shifts
@@ -161,6 +162,7 @@ class Demand(Base):
     need_M4 = Column(Integer, default=0)
     need_H = Column(Integer, default=0)
     need_CL = Column(Integer, default=0)
+    need_E = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

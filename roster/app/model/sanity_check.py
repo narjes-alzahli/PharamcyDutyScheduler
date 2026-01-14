@@ -37,7 +37,10 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
                     locks[(emp, day, shift)] = force
     
     # Standard working shifts (skills-based)
-    STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    # This is a fallback - in practice, working_shift_codes should be provided from backend
+    # Default standard shifts (should match database)
+    _DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
+    STANDARD_WORKING_SHIFTS = _DEFAULT_STANDARD_SHIFTS
     
     # Issue 1: Check coverage feasibility for each day/shift
     for day in dates:

@@ -4,6 +4,10 @@ from datetime import date
 from typing import Dict, List, Tuple, Any
 from ortools.sat.python import cp_model
 
+# Default standard working shifts (fallback when demands don't include all shifts)
+# These should match what's in the database - updated when standard shifts change
+_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"]
+
 
 class RosterScoring:
     """Handles scoring and objective function for roster optimization."""
@@ -67,7 +71,7 @@ class RosterScoring:
                 
             day_demand = demands[day]
             
-            for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
+            for shift_type in _DEFAULT_STANDARD_SHIFTS_LIST:
                 if shift_type in day_demand:
                     # Count assigned employees
                     assigned_vars = [x[(emp, day, shift_type)] for emp in employees]
@@ -102,7 +106,7 @@ class RosterScoring:
                 
             day_demand = demands[day]
             
-            for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
+            for shift_type in _DEFAULT_STANDARD_SHIFTS_LIST:
                 if shift_type in day_demand:
                     # Count assigned employees
                     assigned_vars = [x[(emp, day, shift_type)] for emp in employees]
@@ -164,7 +168,7 @@ class RosterScoring:
             m4_counts.append(m4_count)
             
             # Total working days (all shifts except DO)
-            working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
+            working_shifts = _DEFAULT_STANDARD_SHIFTS_LIST
             working_vars = []
             for day in dates:
                 for shift in working_shifts:
@@ -265,7 +269,7 @@ def calculate_roster_metrics(
         day_demand = demands[day]
         day_shortfalls = {}
         
-        for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
+        for shift_type in _DEFAULT_STANDARD_SHIFTS_LIST:
             if shift_type in day_demand:
                 assigned = sum(
                     assignments.get((emp, day, shift_type), 0)
@@ -290,7 +294,7 @@ def calculate_roster_metrics(
         
         for day in dates:
             # Count working shifts
-            working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
+            working_shifts = _DEFAULT_STANDARD_SHIFTS_LIST
             for shift in working_shifts:
                 if assignments.get((emp, day, shift), 0) == 1:
                     emp_metrics["total_working_days"] += 1

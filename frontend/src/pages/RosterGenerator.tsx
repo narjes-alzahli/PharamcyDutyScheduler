@@ -1305,7 +1305,7 @@ export const RosterGenerator: React.FC = () => {
                       <p className="text-sm text-gray-600 mb-1">Can Work All Shifts</p>
                       <p className="text-2xl font-bold text-gray-900">
                         {rosterData.employees.filter((e: any) => 
-                          e.skill_M && e.skill_IP && e.skill_A && e.skill_N && e.skill_M3 && e.skill_M4 && e.skill_H && e.skill_CL
+                          e.skill_M && e.skill_IP && e.skill_A && e.skill_N && e.skill_M3 && e.skill_M4 && e.skill_H && e.skill_CL && e.skill_E
                         ).length}
                       </p>
                     </div>
@@ -1324,6 +1324,7 @@ export const RosterGenerator: React.FC = () => {
                       { key: 'skill_M4', label: 'M4', type: 'checkbox' },
                         { key: 'skill_H', label: 'H', type: 'checkbox' },
                         { key: 'skill_CL', label: 'CL', type: 'checkbox' },
+                        { key: 'skill_E', label: 'E', type: 'checkbox' },
                         { key: 'pending_off', label: 'P/O', type: 'number', min: -50, max: 50 },
                     ]}
                     onDataChange={handleEmployeesChange}
@@ -2250,6 +2251,7 @@ export const RosterGenerator: React.FC = () => {
                               skill_M4: emp.skill_M4,
                               skill_H: emp.skill_H,
                               skill_CL: emp.skill_CL,
+                              skill_E: emp.skill_E,
                             }
                           ])
                         );

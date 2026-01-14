@@ -2,11 +2,50 @@
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Set
 from datetime import date, timedelta
 from sqlalchemy.orm import Session, joinedload
 
-from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus, EmployeeSkills
+from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus, EmployeeSkills, ShiftType
+from backend.database import SessionLocal
+
+
+def get_standard_working_shifts(db: Session = None) -> Set[str]:
+    """
+    Get standard working shift codes from database.
+    
+    Standard shifts are those that have dedicated columns in the Demand model.
+    These are the shifts that are optimized by the solver and can be used in shift requests/locks.
+    
+    Args:
+        db: Database session (optional, will create one if not provided)
+    
+    Returns:
+        Set of standard shift codes (e.g., {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"})
+    """
+    # Standard shifts are determined by having dedicated columns in Demand model
+    # This is the source of truth - shifts that have need_* columns
+    STANDARD_SHIFT_CODES = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
+    
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        # Get all active shift types from database
+        all_shift_types = db.query(ShiftType).filter(ShiftType.is_active == True).all()
+        
+        # Filter to only include those that are in our standard list
+        # This ensures we only return shifts that actually exist in the database
+        standard_shifts = {st.code for st in all_shift_types if st.code in STANDARD_SHIFT_CODES}
+        
+        return standard_shifts
+    finally:
+        if close_db:
+            db.close()
 
 
 def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[str, pd.DataFrame]:
@@ -32,6 +71,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
             'skill_M4': emp.skill_M4,
             'skill_H': emp.skill_H,
             'skill_CL': emp.skill_CL,
+            'skill_E': emp.skill_E,
             'clinic_only': emp.clinic_only,
             'maxN': emp.maxN,
             'maxA': emp.maxA,
@@ -44,7 +84,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
         # Create empty DataFrame with required columns
         employees_df = pd.DataFrame(columns=[
             'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 
-            'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'clinic_only',
+            'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E', 'clinic_only',
             'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
         ])
     
@@ -101,7 +141,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
     
     # Standard working shifts that should be treated as locks (force/forbid)
     # Non-standard shifts (like MS, C, etc.) will be treated as direct assignments (like leave)
-    STANDARD_WORKING_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+    STANDARD_WORKING_SHIFTS = get_standard_working_shifts(db)
     
     # Load locks from database (approved shift requests for standard working shifts)
     locks_records = []
@@ -241,26 +281,31 @@ def load_month_demands(year: int, month: int, db: Session = None) -> pd.DataFram
         ).all()
         
         if demands:
-            demands_data = [{
-                'date': demand.date,
-                'need_M': demand.need_M,
-                'need_IP': demand.need_IP,
-                'need_A': demand.need_A,
-                'need_N': demand.need_N,
-                'need_M3': demand.need_M3,
-                'need_M4': demand.need_M4,
-                'need_H': demand.need_H,
-                'need_CL': demand.need_CL
-            } for demand in demands]
+            demands_data = []
+            for demand in demands:
+                demand_dict = {
+                    'date': demand.date,
+                    'need_M': demand.need_M,
+                    'need_IP': demand.need_IP,
+                    'need_A': demand.need_A,
+                    'need_N': demand.need_N,
+                    'need_M3': demand.need_M3,
+                    'need_M4': demand.need_M4,
+                    'need_H': demand.need_H,
+                    'need_CL': demand.need_CL,
+                    'need_E': demand.need_E
+                }
+                demands_data.append(demand_dict)
+            
             df = pd.DataFrame(demands_data)
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
             return df
-        
+
         # Return empty DataFrame if no demands found
         # Demands must exist in database - solver will fail if empty
-        return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N', 
-                                      'need_M3', 'need_M4', 'need_H', 'need_CL'])
+        return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N',
+                                      'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E'])
     finally:
         if close_db:
             db.close()
@@ -303,6 +348,9 @@ def save_month_demands(year: int, month: int, demands_df: pd.DataFrame, db: Sess
             Demand.month == month
         ).delete()
         
+        # Standard shift types that have dedicated columns
+        standard_shifts = get_standard_working_shifts(db)
+        
         # Insert new demands
         for _, row in demands_df.iterrows():
             date_val = row['date']
@@ -312,18 +360,25 @@ def save_month_demands(year: int, month: int, demands_df: pd.DataFrame, db: Sess
             if isinstance(date_val, pd.Timestamp):
                 date_val = date_val.date()
             
+            # Extract standard shift demands (only save standard shifts)
+            standard_demands = {
+                'need_M': int(row.get('need_M', 0)),
+                'need_IP': int(row.get('need_IP', 0)),
+                'need_A': int(row.get('need_A', 0)),
+                'need_N': int(row.get('need_N', 0)),
+                'need_M3': int(row.get('need_M3', 0)),
+                'need_M4': int(row.get('need_M4', 0)),
+                'need_H': int(row.get('need_H', 0)),
+                'need_CL': int(row.get('need_CL', 0)),
+                'need_E': int(row.get('need_E', 0))
+            }
+            
+            # Only save standard shifts - non-standard shifts are not stored in demands
             demand = Demand(
                 date=date_val,
                 year=year,
                 month=month,
-                need_M=int(row.get('need_M', 0)),
-                need_IP=int(row.get('need_IP', 0)),
-                need_A=int(row.get('need_A', 0)),
-                need_N=int(row.get('need_N', 0)),
-                need_M3=int(row.get('need_M3', 0)),
-                need_M4=int(row.get('need_M4', 0)),
-                need_H=int(row.get('need_H', 0)),
-                need_CL=int(row.get('need_CL', 0))
+                **standard_demands
             )
             db.add(demand)
         

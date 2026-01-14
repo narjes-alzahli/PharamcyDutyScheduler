@@ -55,6 +55,7 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
         emp.skill_M4,
         emp.skill_H,
         emp.skill_CL,
+        emp.skill_E,
       ].filter(Boolean);
       
       if (skills.length === 1) {

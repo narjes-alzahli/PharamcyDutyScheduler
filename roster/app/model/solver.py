@@ -11,6 +11,10 @@ from .constraints import add_all_constraints, create_decision_variables
 from .scoring import RosterScoring, calculate_roster_metrics
 from .sanity_check import check_roster_feasibility
 
+# Default standard working shifts (fallback when generating coverage reports)
+# These should match what's in the database - updated when standard shifts change
+_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"]
+
 
 class RosterSolver:
     """Main solver for staff rostering optimization."""
@@ -175,7 +179,7 @@ class RosterSolver:
             day_demand = demands[day]
             row = {"date": day}
             
-            for shift_type in ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]:
+            for shift_type in _DEFAULT_STANDARD_SHIFTS_LIST:
                 if shift_type in day_demand:
                     assigned = sum(
                         assignments.get((emp, day, shift_type), 0)

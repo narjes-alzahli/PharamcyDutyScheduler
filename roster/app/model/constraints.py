@@ -5,6 +5,12 @@ from typing import Dict, List, Set, Tuple, Optional, Any
 from ortools.sat.python import cp_model
 import numpy as np
 
+# Default standard working shifts (fallback when working_shift_codes not provided)
+# These should match what's in the database - updated when standard shifts change
+# In practice, working_shift_codes should always be provided from the backend
+_DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
+_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"]
+
 
 def create_decision_variables(
     model: cp_model.CpModel,
@@ -23,8 +29,8 @@ def create_decision_variables(
     if working_shift_codes:
         working_shifts = set(working_shift_codes) | {"O"}  # Always include O (Off Duty)
     else:
-        # Fallback to standard shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"}
+        # Fallback to standard shifts (should not happen in practice - working_shift_codes should be provided)
+        working_shifts = _DEFAULT_STANDARD_SHIFTS | {"O"}  # Always include O (Off Duty)
     
     # Leave codes that should only be created when explicitly requested
     # DO is now treated as a leave code - only assigned when requested in time_off
@@ -87,7 +93,7 @@ def add_skill_constraints(
     if working_shift_codes:
         working_shifts = set(working_shift_codes)
     else:
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+        working_shifts = _DEFAULT_STANDARD_SHIFTS
     
     for employee in employees:
         if employee not in skills:
@@ -133,7 +139,7 @@ def add_coverage_constraints(
     if working_shift_codes:
         working_shifts = working_shift_codes
     else:
-        working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
+        working_shifts = _DEFAULT_STANDARD_SHIFTS_LIST
     
     for day in dates:
         if day not in demands:
@@ -314,7 +320,7 @@ def add_sequencing_constraints(
         working_shifts = set(working_shift_codes)
     else:
         # Fallback to standard shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
     
     # Determine leave codes (exclude working shifts)
     if leave_codes:
@@ -441,7 +447,7 @@ def add_single_skill_employee_constraints(
         working_shifts = set(working_shift_codes)
     else:
         # Fallback to standard shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL"}
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
     weekend_days = {4, 5}  # Friday=4, Saturday=5
     
     for employee in employees:
