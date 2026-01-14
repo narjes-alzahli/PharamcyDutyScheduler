@@ -757,11 +757,17 @@ async def update_locks(
     }
 
 
+class FixedShiftConfig(BaseModel):
+    shift: str
+    day: int  # 0 = Monday, 1 = Tuesday, 2 = Wednesday, 3 = Thursday, 4 = Friday, 5 = Saturday, 6 = Sunday
+    count: int
+
 class GenerateDemandsRequest(BaseModel):
     year: int
     month: int
     base_demand: dict
     weekend_demand: dict
+    fixed_shifts: List[FixedShiftConfig] = []  # Optional list of fixed shifts
 
 
 @router.post("/demands/generate")
@@ -786,12 +792,18 @@ async def generate_demands(
         except:
             continue
     
+    # Convert fixed_shifts to list of dicts if provided
+    fixed_shifts_list = []
+    if request.fixed_shifts:
+        fixed_shifts_list = [{"shift": fs.shift, "day": fs.day, "count": fs.count} for fs in request.fixed_shifts]
+    
     new_demands = generate_month_demands(
         request.year,
         request.month,
         request.base_demand,
         request.weekend_demand,
-        holidays=existing_holidays_dates  # Pass holidays to set holiday-specific demands
+        holidays=existing_holidays_dates,  # Pass holidays to set holiday-specific demands
+        fixed_shifts=fixed_shifts_list  # Pass fixed shifts configuration
     )
     
     # Save holidays separately (not in demands)

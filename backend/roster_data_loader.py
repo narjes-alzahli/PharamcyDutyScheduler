@@ -2,7 +2,7 @@
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, Tuple, Set
+from typing import Dict, Any, Tuple, Set, List
 from datetime import date, timedelta
 from sqlalchemy.orm import Session, joinedload
 
@@ -552,11 +552,12 @@ def get_holiday_demands() -> Dict[str, int]:
 
 def generate_month_demands(year: int, month: int, base_demand: Dict[str, int], 
                            weekend_demand: Dict[str, int], 
-                           holidays: Dict[date, str] = None) -> pd.DataFrame:
+                           holidays: Dict[date, str] = None,
+                           fixed_shifts: List[Dict[str, any]] = None) -> pd.DataFrame:
     """Generate default demands for a month.
     
-    Special handling for H shifts: They are always assigned to Monday and Wednesday,
-    with 2 shifts on each of those days. This is fixed and not configurable.
+    Special handling for fixed shifts: Shifts can be configured to appear on specific days
+    of the week with specific counts.
     
     Special handling for holidays: Public holidays use fixed demand values:
     1N, 1M, 1M3, 1A, 1IP, 2CL
@@ -567,21 +568,22 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
         base_demand: Base demand for weekdays
         weekend_demand: Demand for weekends
         holidays: Optional dict mapping date objects to holiday names
+        fixed_shifts: Optional list of dicts with keys: shift (str), day (int), count (int)
+                     day: 0 = Monday, 1 = Tuesday, 2 = Wednesday, 3 = Thursday, 
+                          4 = Friday, 5 = Saturday, 6 = Sunday
     """
     import calendar
+    from typing import List, Dict, Any
     
     if holidays is None:
         holidays = {}
     
+    if fixed_shifts is None:
+        fixed_shifts = []
+    
     # Get all dates in the month
     num_days = calendar.monthrange(year, month)[1]
     dates = [date(year, month, day) for day in range(1, num_days + 1)]
-    
-    # Create a copy of base_demand WITHOUT H (we'll handle H separately - fixed to Mon/Wed)
-    base_demand_no_h = {k: v for k, v in base_demand.items() if k != 'H'}
-    # Explicitly ensure H is not in base_demand_no_h
-    if 'H' in base_demand_no_h:
-        del base_demand_no_h['H']
     
     # Get holiday demands
     holiday_demands = get_holiday_demands()
@@ -602,7 +604,8 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
                 'need_M3': holiday_demands.get('M3', 0),
                 'need_M4': holiday_demands.get('M4', 0),
                 'need_H': holiday_demands.get('H', 0),
-                'need_CL': holiday_demands.get('CL', 0)
+                'need_CL': holiday_demands.get('CL', 0),
+                'need_E': 0
             }
         else:
             # Normal logic for non-holidays
@@ -611,16 +614,9 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
             # Weekends = Friday(4), Saturday(5)
             is_weekend = weekday in [4, 5]  # Friday (4) or Saturday (5)
             
-            demand = weekend_demand if is_weekend else base_demand_no_h
+            demand = weekend_demand if is_weekend else base_demand
             
-            # H shifts are always 1 on Monday (weekday 0) and Wednesday (weekday 2), 0 otherwise
-            if weekday == 0:  # Monday
-                h_count = 1
-            elif weekday == 2:  # Wednesday
-                h_count = 1
-            else:
-                h_count = 0
-            
+            # Initialize record with base/weekend demands
             record = {
                 'date': d,
                 'need_M': demand.get('M', 0),
@@ -629,9 +625,23 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
                 'need_N': demand.get('N', 0),
                 'need_M3': demand.get('M3', 0),
                 'need_M4': demand.get('M4', 0),
-                'need_H': h_count,
-                'need_CL': demand.get('CL', 0)
+                'need_H': demand.get('H', 0),
+                'need_CL': demand.get('CL', 0),
+                'need_E': demand.get('E', 0)
             }
+            
+            # Apply fixed shifts for this day
+            # weekday: 0 = Monday, 1 = Tuesday, 2 = Wednesday, 3 = Thursday, 4 = Friday, 5 = Saturday, 6 = Sunday
+            for fixed in fixed_shifts:
+                if fixed['day'] == weekday:
+                    shift_code = fixed['shift']
+                    count = fixed['count']
+                    need_key = f'need_{shift_code}'
+                    if need_key in record:
+                        record[need_key] = (record.get(need_key, 0) or 0) + count
+                    else:
+                        # If shift code doesn't have a need_ column, initialize it
+                        record[need_key] = count
         
         records.append(record)
     

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { EditableTable } from './EditableTable';
 import { useToast } from '../contexts/ToastContext';
-import { shiftTypesAPI, ShiftType } from '../services/api';
+import { shiftTypesAPI, ShiftType, dataAPI } from '../services/api';
 import api from '../services/api';
 import { shiftColors as defaultShiftColors } from '../utils/shiftColors';
 
@@ -59,9 +59,16 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     { Shift: 'N', Count: 1 },
     { Shift: 'M3', Count: 1 },
   ]);
-  // H shifts are now fixed: 2 on Monday, 2 on Wednesday (not configurable)
-  // Removed haratConfig since H is no longer editable
+  // Fixed shifts: configurable shifts on specific days
+  // day: 0 = Monday, 1 = Tuesday, 2 = Wednesday, 3 = Thursday, 4 = Friday, 5 = Saturday, 6 = Sunday
+  const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
+    { shift: 'H', day: 0, count: 1 }, // Monday
+    { shift: 'H', day: 2, count: 1 }, // Wednesday
+  ]);
   const [regenerating, setRegenerating] = useState(false);
+  const [totalEmployees, setTotalEmployees] = useState(20); // Default to 20, will be updated
+  const [editingFixedShiftDay, setEditingFixedShiftDay] = useState<number | null>(null);
+  const [showingShiftOptions, setShowingShiftOptions] = useState<number | null>(null); // Index of fixed shift showing shift options
   const { showToast } = useToast();
 
   // Load shift types to get colors (for display purposes)
@@ -77,18 +84,34 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     loadShiftTypes();
   }, []);
 
+  // Load employees to get total count
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const employees = await dataAPI.getEmployees();
+        setTotalEmployees(employees.length || 20);
+      } catch (error) {
+        console.error('Failed to load employees:', error);
+      }
+    };
+    loadEmployees();
+  }, []);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (addingShift && !(event.target as Element).closest('.shift-dropdown-container')) {
         setAddingShift(null);
       }
+      if (showingShiftOptions !== null && !(event.target as Element).closest('.fixed-shift-options-container')) {
+        setShowingShiftOptions(null);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [addingShift]);
+  }, [addingShift, showingShiftOptions]);
 
   // Get shift color from database or fallback to default colors
   const getShiftColor = (shiftCode: string): string => {
@@ -110,7 +133,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
 
   const generateDefaults = useCallback(async (year: number, month: number) => {
     const base_demand = {
-      'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'CL': 2, 'E': 0 // H: Fixed to 2 on Monday and Wednesday (not configurable)
+      'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'CL': 2, 'E': 0
     };
     const weekend_demand = {
       'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'CL': 0, 'E': 0
@@ -122,12 +145,13 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         month,
         base_demand,
         weekend_demand,
+        fixed_shifts: fixedShiftsConfig,
       });
       setMonthDemands(addDayNames(response.data.demands));
     } catch (error) {
       console.error('Failed to generate defaults:', error);
     }
-  }, []);
+  }, [fixedShiftsConfig]);
 
   // Cleanup timeout on unmount (no longer needed since we save immediately, but keep for safety)
   useEffect(() => {
@@ -213,6 +237,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     
   useEffect(() => {
     loadMonthDemands();
+    // Reset initial load flag when month/year changes
+    isInitialLoadRef.current = true;
   }, [loadMonthDemands]);
 
   const handleResetDefaults = async () => {
@@ -227,6 +253,11 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       { Shift: 'M3', Count: 1 },
       { Shift: 'M4', Count: 1 },
       { Shift: 'CL', Count: 2 },
+    ]);
+    // Reset fixed shifts to defaults
+    setFixedShiftsConfig([
+      { shift: 'H', day: 0, count: 1 }, // Monday
+      { shift: 'H', day: 2, count: 1 }, // Wednesday
     ]);
     await generateDefaults(selectedYear, selectedMonth);
     setLoading(false);
@@ -335,14 +366,20 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         }
       });
       
-      // H shifts are fixed: 1 on Monday (weekday 1), 1 on Wednesday (weekday 3), 0 otherwise
-      if (weekday === 1) { // Monday
-        defaultDemands['H'] = 1;
-      } else if (weekday === 3) { // Wednesday
-        defaultDemands['H'] = 1;
-      } else {
-        defaultDemands['H'] = 0;
-      }
+      // Apply fixed shifts based on config
+      // weekday: 0 = Monday, 1 = Tuesday, 2 = Wednesday, 3 = Thursday, 4 = Friday, 5 = Saturday, 6 = Sunday
+      // But JavaScript Date.getDay(): 0 = Sunday, 1 = Monday, 2 = Tuesday, 3 = Wednesday, 4 = Thursday, 5 = Friday, 6 = Saturday
+      // So we need to convert: JS weekday 1 = Monday = our day 0, JS weekday 3 = Wednesday = our day 2
+      const jsWeekday = dateObj.getDay(); // 0 = Sunday, 6 = Saturday
+      // Convert to our day format: 0 = Monday, 6 = Sunday
+      const ourDay = jsWeekday === 0 ? 6 : jsWeekday - 1;
+      
+      // Apply fixed shifts
+      fixedShiftsConfig.forEach(fixed => {
+        if (fixed.day === ourDay) {
+          defaultDemands[fixed.shift] = (defaultDemands[fixed.shift] || 0) + fixed.count;
+        }
+      });
       
       // Update the demand for this date with default values
       updatedDemands = monthDemands.map(demand => {
@@ -424,10 +461,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     const config = {
       weekday: weekdayConfig,
       weekend: weekendConfig,
-      // H shifts are fixed (2 on Mon, 2 on Wed) - not saved in config
+      fixedShifts: fixedShiftsConfig,
     };
     localStorage.setItem(configKey, JSON.stringify(config));
-  }, [selectedYear, selectedMonth, weekdayConfig, weekendConfig]);
+  }, [selectedYear, selectedMonth, weekdayConfig, weekendConfig, fixedShiftsConfig]);
 
   // Load shift requirements configuration from localStorage
   const loadShiftRequirementsConfig = useCallback(() => {
@@ -439,7 +476,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         const config = JSON.parse(saved);
         if (config.weekday) setWeekdayConfig(config.weekday);
         if (config.weekend) setWeekendConfig(config.weekend);
-        // H shifts are fixed (2 on Mon, 2 on Wed) - not loaded from config
+        if (config.fixedShifts) setFixedShiftsConfig(config.fixedShifts);
       } catch (error) {
         console.error('Failed to load shift requirements config:', error);
       }
@@ -466,7 +503,108 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         clearTimeout(configSaveTimeoutRef.current);
       }
     };
-  }, [weekdayConfig, weekendConfig, saveShiftRequirementsConfig]);
+  }, [weekdayConfig, weekendConfig, fixedShiftsConfig, saveShiftRequirementsConfig]);
+
+  // Apply fixed shifts to demands automatically when fixedShiftsConfig changes
+  const applyFixedShiftsTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isInitialLoadRef = React.useRef(true);
+  const previousFixedShiftsRef = React.useRef(JSON.stringify(fixedShiftsConfig));
+  
+  useEffect(() => {
+    // Skip on initial load (when monthDemands is empty or just loaded)
+    if (isInitialLoadRef.current || !selectedYear || !selectedMonth || monthDemands.length === 0) {
+      isInitialLoadRef.current = false;
+      previousFixedShiftsRef.current = JSON.stringify(fixedShiftsConfig);
+      return;
+    }
+
+    // Check if fixed shifts actually changed
+    const currentFixedShiftsStr = JSON.stringify(fixedShiftsConfig);
+    if (currentFixedShiftsStr === previousFixedShiftsRef.current) {
+      return; // No change, skip
+    }
+
+    // Debounce the application of fixed shifts
+    if (applyFixedShiftsTimeoutRef.current) {
+      clearTimeout(applyFixedShiftsTimeoutRef.current);
+    }
+
+    applyFixedShiftsTimeoutRef.current = setTimeout(async () => {
+      try {
+        const previousFixedShifts: typeof fixedShiftsConfig = JSON.parse(previousFixedShiftsRef.current);
+        previousFixedShiftsRef.current = currentFixedShiftsStr;
+
+        // Create a copy of current demands
+        const updatedDemands = monthDemands.map(demand => {
+          const dateObj = new Date(demand.date);
+          const jsWeekday = dateObj.getDay(); // 0 = Sunday, 6 = Saturday
+          // Convert to our day format: 0 = Monday, 6 = Sunday
+          const ourDay = jsWeekday === 0 ? 6 : jsWeekday - 1;
+          
+          // Initialize demand object with current values
+          const updatedDemand: any = { ...demand };
+          
+          // Get all shift types that are in fixed shifts (current or previous)
+          const allFixedShiftTypes = new Set([
+            ...fixedShiftsConfig.map(f => f.shift),
+            ...previousFixedShifts.map(f => f.shift)
+          ]);
+          
+          // For each shift type that was or is in fixed shifts, recalculate based on current config
+          allFixedShiftTypes.forEach(shiftType => {
+            const needKey = `need_${shiftType}` as keyof typeof demand;
+            let currentValue = (demand[needKey] as number) || 0;
+            
+            // Subtract previous fixed shifts for this day
+            previousFixedShifts.forEach(prevFixed => {
+              if (prevFixed.day === ourDay && prevFixed.shift === shiftType) {
+                currentValue = Math.max(0, currentValue - prevFixed.count);
+              }
+            });
+            
+            // Add new fixed shifts for this day
+            let newFixedCount = 0;
+            fixedShiftsConfig.forEach(fixed => {
+              if (fixed.day === ourDay && fixed.shift === shiftType) {
+                newFixedCount += fixed.count;
+              }
+            });
+            
+            updatedDemand[needKey] = currentValue + newFixedCount;
+          });
+          
+          return updatedDemand;
+        });
+
+        // Update UI immediately
+        setMonthDemands(updatedDemands);
+
+        // Save to backend
+        const demandsWithoutHoliday = stripDayNames(updatedDemands.map(({ holiday, ...rest }) => rest));
+        await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demandsWithoutHoliday);
+        
+        // Save to localStorage
+        saveDemandsToLocalStorage(demandsWithoutHoliday);
+        
+        showToast({ 
+          type: 'success', 
+          message: '✅ Fixed shifts applied to staffing needs!' 
+        });
+      } catch (error) {
+        console.error('Failed to apply fixed shifts:', error);
+        showToast({ 
+          type: 'error', 
+          message: '⚠️ Failed to apply fixed shifts. Please try again.' 
+        });
+      }
+    }, 500); // Apply 500ms after last change
+
+    return () => {
+      if (applyFixedShiftsTimeoutRef.current) {
+        clearTimeout(applyFixedShiftsTimeoutRef.current);
+      }
+    };
+  }, [fixedShiftsConfig, selectedYear, selectedMonth, monthDemands, showToast, saveDemandsToLocalStorage]);
 
   const handleRegenerate = async () => {
     if (!selectedYear || !selectedMonth) return;
@@ -482,12 +620,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       
       // Extract values from configs
       weekdayConfig.forEach(item => {
-        // H shifts are fixed (2 on Mon, 2 on Wed) - not from config
-        if (item.Shift !== 'H') {
-          base_demand[item.Shift] = item.Count;
-        }
+        base_demand[item.Shift] = item.Count;
       });
-      // H shifts are fixed: 2 on Monday, 2 on Wednesday (handled in backend)
       
       weekendConfig.forEach(item => {
         weekend_demand[item.Shift] = item.Count;
@@ -498,6 +632,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         month: selectedMonth,
         base_demand,
         weekend_demand,
+        fixed_shifts: fixedShiftsConfig,
       });
       
       // The generate endpoint already saves to backend, but explicitly save again to ensure it persists
@@ -955,34 +1090,154 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                 </div>
               </div>
 
-              {/* H Shifts (Fixed) */}
+              {/* Fixed Shifts */}
               <div>
-                <h5 className="font-semibold text-gray-700 mb-3">H Shifts (Fixed)</h5>
+                <h5 className="font-semibold text-gray-700 mb-3">Fixed Shifts</h5>
                 <div className="flex flex-wrap gap-2">
-                  <div className="flex flex-col items-center gap-1.5">
-                    <div
-                      className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-black font-semibold text-xs border border-gray-400"
-                      style={{ backgroundColor: getShiftColor('H') }}
-                      title="H Shift - Monday"
-                    >
-                      H
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-gray-50 rounded-md border border-gray-200 px-1.5 py-0.5">
-                      <span className="text-xs text-gray-500">Mon</span>
-                      <span className="text-xs font-semibold text-gray-600">1</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-center gap-1.5">
-                    <div
-                      className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-black font-semibold text-xs border border-gray-400"
-                      style={{ backgroundColor: getShiftColor('H') }}
-                      title="H Shift - Wednesday"
-                    >
-                      H
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-gray-50 rounded-md border border-gray-200 px-1.5 py-0.5">
-                      <span className="text-xs text-gray-500">Wed</span>
-                      <span className="text-xs font-semibold text-gray-600">1</span>
+                  {fixedShiftsConfig.map((fixed, idx) => {
+                    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                    const shiftColor = getShiftColor(fixed.shift);
+                    const description = getShiftDescription(fixed.shift);
+                    return (
+                      <div key={idx} className="flex flex-col items-center gap-1.5 relative">
+                        {/* Shift square - clickable to show options */}
+                        <div className="relative fixed-shift-options-container">
+                          <div
+                            onClick={() => {
+                              setShowingShiftOptions(showingShiftOptions === idx ? null : idx);
+                            }}
+                            className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-black font-semibold text-xs border border-gray-400 transition-transform hover:scale-105 cursor-pointer"
+                            style={{ backgroundColor: shiftColor }}
+                            title={`${description} - Click to change shift`}
+                          >
+                            {fixed.shift}
+                          </div>
+                          {/* Shift options dropdown */}
+                          {showingShiftOptions === idx && (
+                            <div className="absolute z-10 mt-1 left-0 bg-white border border-gray-200 rounded shadow-lg p-1 min-w-[8rem] max-h-32 overflow-y-auto">
+                              {STANDARD_SHIFT_CODES.filter(code => code !== 'O' && code !== 'DO').map(code => {
+                                const codeColor = getShiftColor(code);
+                                const codeDescription = getShiftDescription(code);
+                                return (
+                                  <button
+                                    key={code}
+                                    onClick={() => {
+                                      const newConfig = [...fixedShiftsConfig];
+                                      newConfig[idx] = { ...newConfig[idx], shift: code };
+                                      setFixedShiftsConfig(newConfig);
+                                      setShowingShiftOptions(null);
+                                    }}
+                                    className="w-full text-left px-2 py-1 text-[10px] hover:bg-gray-100 rounded flex items-center gap-1.5"
+                                  >
+                                    <div
+                                      className="w-4 h-4 rounded border"
+                                      style={{ backgroundColor: `${codeColor}80`, borderColor: codeColor }}
+                                    />
+                                    <span className="font-medium">{code}</span>
+                                    <span className="text-gray-500 text-[9px]">{codeDescription}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        {/* Day selector - clickable dropdown */}
+                        <div className="relative">
+                          <select
+                            value={fixed.day}
+                            onChange={(e) => {
+                              const newConfig = [...fixedShiftsConfig];
+                              newConfig[idx] = { ...newConfig[idx], day: parseInt(e.target.value) };
+                              setFixedShiftsConfig(newConfig);
+                            }}
+                            onFocus={() => setEditingFixedShiftDay(idx)}
+                            onBlur={() => setEditingFixedShiftDay(null)}
+                            className="text-[10px] font-semibold text-gray-900 bg-white rounded-md border border-gray-200 px-1 py-0.5 shadow-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary-500 appearance-none pr-5"
+                          >
+                            {dayNames
+                              .map((name, dayIdx) => ({ name, dayIdx }))
+                              .filter(({ dayIdx }) => {
+                                // Include current day or days that don't already have this shift type (excluding current entry)
+                                return dayIdx === fixed.day || !fixedShiftsConfig.some(
+                                  (f, i) => i !== idx && f.shift === fixed.shift && f.day === dayIdx
+                                );
+                              })
+                              .map(({ name, dayIdx }) => (
+                                <option key={dayIdx} value={dayIdx}>
+                                  {name}
+                                </option>
+                              ))}
+                          </select>
+                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-1">
+                            <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                        </div>
+                        {/* Count - with +/- buttons like weekday/weekend */}
+                        <div className="flex items-center gap-1 bg-white rounded-md border border-gray-200 px-1 py-0.5 shadow-sm">
+                          <button
+                            onClick={() => {
+                              const newConfig = [...fixedShiftsConfig];
+                              newConfig[idx] = { ...newConfig[idx], count: Math.max(0, fixed.count - 1) };
+                              setFixedShiftsConfig(newConfig);
+                            }}
+                            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-[10px]"
+                            title="Decrease"
+                          >
+                            −
+                          </button>
+                          <span className="text-[10px] font-semibold text-gray-900 min-w-[1.25rem] text-center">
+                            {fixed.count}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const newConfig = [...fixedShiftsConfig];
+                              newConfig[idx] = { ...newConfig[idx], count: Math.min(totalEmployees, fixed.count + 1) };
+                              setFixedShiftsConfig(newConfig);
+                            }}
+                            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-[10px]"
+                            title="Increase"
+                          >
+                            +
+                          </button>
+                        </div>
+                        {/* Delete button */}
+                        <button
+                          onClick={() => {
+                            const newConfig = fixedShiftsConfig.filter((_, i) => i !== idx);
+                            setFixedShiftsConfig(newConfig);
+                          }}
+                          className="text-[10px] text-red-600 hover:text-red-800 hover:bg-red-50 rounded px-1 py-0.5 transition-colors"
+                          title="Remove"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {/* Add button - square with plus sign */}
+                  <div
+                    onClick={() => {
+                      // Find first available day for the default shift type (H)
+                      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                      const usedDaysForH = new Set(
+                        fixedShiftsConfig.filter(f => f.shift === 'H').map(f => f.day)
+                      );
+                      let firstAvailableDay = 0;
+                      for (let day = 0; day < 7; day++) {
+                        if (!usedDaysForH.has(day)) {
+                          firstAvailableDay = day;
+                          break;
+                        }
+                      }
+                      // If all days are used, default to 0 anyway
+                      setFixedShiftsConfig([...fixedShiftsConfig, { shift: 'H', day: firstAvailableDay, count: 1 }]);
+                    }}
+                    className="flex flex-col items-center gap-1.5 cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 hover:border-gray-400 hover:text-gray-600 transition-colors">
+                      <span className="text-lg font-bold">+</span>
                     </div>
                   </div>
                 </div>
@@ -1028,7 +1283,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                     year: selectedYear,
                     month: selectedMonth,
                     base_demand,
-                    weekend_demand
+                    weekend_demand,
+                    fixed_shifts: fixedShiftsConfig,
                   });
                   const generatedDemands = response.data.demands;
                   // Save to database
