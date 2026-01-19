@@ -4,6 +4,7 @@ import { ScheduleTable } from '../components/ScheduleTable';
 import { EditableTable } from '../components/EditableTable';
 import { DemandsTab } from '../components/DemandsTab';
 import { ScheduleAnalysis } from '../components/ScheduleAnalysis';
+import { RequestsSchedule } from '../components/RequestsSchedule';
 import { useAuth } from '../contexts/AuthContext';
 import { CalendarDatePicker } from '../components/CalendarDatePicker';
 import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
@@ -81,13 +82,13 @@ export const RosterGenerator: React.FC = () => {
     }
   };
 
-  // Reload roster data when switching to time-off or shift request steps to show newly approved requests
+  // Reload roster data when switching to requests step to show newly approved requests
   useEffect(() => {
-    if (activeTab === 'time-off' || activeTab === 'locks') {
+    if (activeTab === 'requests') {
       // Small delay to ensure previous operations complete
       const timer = setTimeout(() => {
         loadRosterData(0);
-        loadShiftTypes(); // Reload shift types when switching to locks tab to get latest types
+        loadShiftTypes(); // Reload shift types when switching to requests tab to get latest types
         loadAllShiftRequests(); // Reload shift requests to get latest data
       }, 100);
       return () => clearTimeout(timer);
@@ -125,7 +126,6 @@ export const RosterGenerator: React.FC = () => {
       // Log request_ids for debugging
       const timeOffWithIds = (data.time_off || []).filter((item: any) => item.request_id);
       const locksWithIds = (data.locks || []).filter((item: any) => item.request_id);
-      console.log(`📊 Loaded roster data: ${timeOffWithIds.length}/${data.time_off?.length || 0} time_off entries have request_id, ${locksWithIds.length}/${data.locks?.length || 0} locks have request_id`);
       
       setRosterData(data);
     } catch (error: any) {
@@ -370,7 +370,6 @@ export const RosterGenerator: React.FC = () => {
     }
 
     timeOffSaveTimeoutRef.current = setTimeout(async () => {
-      console.log('⏰ setTimeout callback executing - starting save process...');
       // Set flag at the start of actual API operations
       isSavingTimeOffRef.current = true;
       try {
@@ -429,12 +428,6 @@ export const RosterGenerator: React.FC = () => {
                 leaveRequestsByRequestId.set(reqId, []);
               }
               leaveRequestsByRequestId.get(reqId)!.push(item);
-              console.log(`📌 Range leave request for update: ${reqId}`, {
-                employee: item.employee,
-                code: item.code,
-                from_date: item.from_date,
-                to_date: item.to_date,
-              });
             } else {
               // Single day - might be from old expanded data, group by request_id
               if (!leaveRequestsByRequestId.has(reqId)) {
@@ -457,14 +450,6 @@ export const RosterGenerator: React.FC = () => {
             });
           } else {
             // New request (no request_id) - will be created as a range
-            console.log(`➕ Creating new leave request (no request_id):`, {
-              employee: item.employee,
-              code: item.code,
-              from_date: item.from_date,
-              to_date: item.to_date,
-              isRange: isRange,
-              reason: item.reason,
-            });
             leaveRequestsToCreate.push(item);
           }
         });
@@ -484,23 +469,14 @@ export const RosterGenerator: React.FC = () => {
             }
           });
           
-          console.log(`🔍 Comparing against ${originalMap.size} original leave requests for change detection`);
-          console.log(`📋 Found ${leaveRequestsByRequestId.size} leave request groups to check for changes`);
-          
           const requestsToUpdate: Array<[string, any[]]> = [];
           
-          // Only update requests where dates actually changed
+          // Update requests where dates OR leave type (code) changed
           Array.from(leaveRequestsByRequestId.entries()).forEach(([requestId, items]) => {
             const originalItem = originalMap.get(requestId);
-            console.log(`🔍 Checking request ${requestId}:`, {
-              hasOriginal: !!originalItem,
-              originalDates: originalItem ? `${originalItem.from_date}/${originalItem.to_date}` : 'none',
-              itemsCount: items.length,
-            });
             
             if (!originalItem) {
               // No original found, need to update
-              console.log(`⚠️ No original found for ${requestId}, will update`);
               requestsToUpdate.push([requestId, items]);
               return;
             }
@@ -535,29 +511,21 @@ export const RosterGenerator: React.FC = () => {
               newToDate = toDates[toDates.length - 1];
             }
             
-            // Compare with original
+            // Compare with original - check both dates AND leave type (code)
             const origFrom = parseDateToISO(originalItem.from_date);
             const origTo = parseDateToISO(originalItem.to_date);
+            const origCode = originalItem.code;
             
-            console.log(`📊 Comparing dates for ${requestId}:`, {
-              original: `${origFrom}/${origTo}`,
-              new: `${newFromDate}/${newToDate}`,
-              fromChanged: newFromDate !== origFrom,
-              toChanged: newToDate !== origTo,
-            });
+            // Get the new code from the items (should be the same across all items in the group)
+            const newCode = normalizedItems[0]?.code;
             
-            if (newFromDate !== origFrom || newToDate !== origTo) {
-              console.log(`✅ Request ${requestId} dates changed: ${origFrom}/${origTo} -> ${newFromDate}/${newToDate} - WILL UPDATE`);
+            // Update if dates changed OR leave type changed
+            if (newFromDate !== origFrom || newToDate !== origTo || newCode !== origCode) {
               requestsToUpdate.push([requestId, items]);
-            } else {
-              console.log(`⏭️ Skipping ${requestId} - dates unchanged`);
             }
           });
           
-          console.log(`📊 Change detection complete: ${requestsToUpdate.length} requests need updating out of ${leaveRequestsByRequestId.size} total groups`);
-          
           if (requestsToUpdate.length > 0) {
-            console.log(`🔄 Starting API update process for ${requestsToUpdate.length} leave requests`);
             // Use Promise.allSettled to handle individual failures without stopping all updates
             const updateResults = await Promise.allSettled(
               requestsToUpdate.map(async ([requestId, items]) => {
@@ -610,7 +578,6 @@ export const RosterGenerator: React.FC = () => {
                     employee: firstItem.employee,
                   };
                   
-                  console.log(`🔄 About to call API to update leave request ${requestId}`);
                   console.log(`📤 API payload:`, JSON.stringify(updatePayload, null, 2));
                   console.log(`🌐 API URL will be: PUT /api/requests/leave/${requestId}`);
                   
@@ -630,7 +597,6 @@ export const RosterGenerator: React.FC = () => {
                     console.log(`📥 API promise resolved/rejected, result:`, result);
                     
                     const duration = Date.now() - startTime;
-                    console.log(`✅ API call completed! Updated leave request ${requestId} in database (took ${duration}ms)`, result);
                     // Don't set hadSuccessfulUpdates here - we'll check results after Promise.allSettled
                   } catch (apiError: any) {
                     console.error(`❌ API call failed for ${requestId}:`, apiError);
@@ -679,10 +645,7 @@ export const RosterGenerator: React.FC = () => {
               throw new Error(errorMsg);
             }
             
-            console.log(`✅ Finished processing ${successfulUpdates} update requests`);
             hadSuccessfulUpdates = successfulUpdates > 0;
-          } else {
-            console.log('✅ No leave requests needed updating - all dates unchanged');
           }
         }
         
@@ -697,7 +660,6 @@ export const RosterGenerator: React.FC = () => {
           console.log('Creating new leave requests:', leaveRequestsToCreateClean.length);
           const createResponse = await dataAPI.updateTimeOff(leaveRequestsToCreateClean);
           const createdRequests = createResponse.created_leave_requests || [];
-          console.log('✅ Created leave requests with request_ids:', createdRequests);
           
           // Update local state with new request_ids immediately
           if (createdRequests.length > 0) {
@@ -802,10 +764,8 @@ export const RosterGenerator: React.FC = () => {
               locksByRequestId.set(reqId, []);
             }
             locksByRequestId.get(reqId)!.push(lock);
-            console.log(`📌 Grouping shift request for update: ${reqId}`, lock);
           } else {
             // This is a new lock - will be created via updateLocks
-            console.log(`➕ Creating new shift request (no request_id or different reason):`, lock);
             locksToCreate.push(lock);
           }
         });
@@ -813,7 +773,6 @@ export const RosterGenerator: React.FC = () => {
         // Update existing requests via API
         // For each request_id, find the min from_date and max to_date to update the single request
         if (locksByRequestId.size > 0) {
-          console.log('🔄 Updating existing shift requests:', locksByRequestId.size, Array.from(locksByRequestId.keys()));
           await Promise.all(
             Array.from(locksByRequestId.entries()).map(async ([requestId, locks]) => {
               try {
@@ -886,7 +845,6 @@ export const RosterGenerator: React.FC = () => {
                   employee: firstLock.employee, // Include employee so backend can update user_id if changed
                 });
                 
-                console.log(`✅ Successfully updated shift request ${requestId}`);
               } catch (error: any) {
                 console.error(`❌ Failed to update shift request ${requestId}:`, error);
                 console.error('Error details:', error.response?.data);
@@ -916,10 +874,8 @@ export const RosterGenerator: React.FC = () => {
         setTimeout(() => setSaveNotification(null), 2000);
         
         // Reload data to get updated request_ids - CRITICAL for future edits
-        console.log('🔄 Reloading roster data to get new request_ids...');
         await loadRosterData();
         await loadAllShiftRequests();
-        console.log('✅ Roster data reloaded, request_ids should now be available');
       } catch (error: any) {
         console.error('Failed to save shift requests:', error);
         setSaveNotification({
@@ -1058,14 +1014,9 @@ export const RosterGenerator: React.FC = () => {
       description: 'Configure daily demand for each shift type.',
     },
     {
-      id: 'time-off',
-      name: 'Leave Requests',
-      description: 'Review and adjust time-off entries before scheduling.',
-    },
-    {
-      id: 'locks',
-      name: 'Shift Requests',
-      description: 'Set must-have or blocked shift assignments.',
+      id: 'requests',
+      name: 'Requests',
+      description: 'Review and manage leave and shift requests in a unified schedule view.',
     },
     {
       id: 'schedule',
@@ -1359,8 +1310,29 @@ export const RosterGenerator: React.FC = () => {
             />
           )}
 
-          {/* Time Off Tab */}
-          {activeTab === 'time-off' && (
+          {/* Unified Requests Tab */}
+          {activeTab === 'requests' && (
+            <div>
+              <div className="mb-4">
+                <h3 className="text-xl font-bold text-gray-900">Requests</h3>
+                <p className="text-gray-600">Manage leave and shift requests in a unified schedule view. Click any cell to assign or change requests.</p>
+              </div>
+              <RequestsSchedule
+                year={selectedYear || 2025}
+                month={selectedMonth || 1}
+                employees={rosterData?.employees?.map((e: any) => e.employee) || []}
+                timeOff={rosterData?.time_off || []}
+                locks={rosterData?.locks || []}
+                onTimeOffChange={handleTimeOffChange}
+                onLocksChange={handleLocksChange}
+                onSaveNotification={setSaveNotification}
+                onReload={loadRosterData}
+              />
+            </div>
+          )}
+
+          {/* Old Time Off Tab - REMOVED - Now part of unified requests tab */}
+          {false && activeTab === 'time-off' && (
             <div>
               <div className="flex justify-between items-center mb-4">
                 <div>
@@ -1419,14 +1391,6 @@ export const RosterGenerator: React.FC = () => {
                   { key: 'code', label: 'Code', type: 'select', options: leaveTypes.map(lt => lt.code) },
                   ]}
                   onDataChange={(groupedData) => {
-                    console.log('🔄 onDataChange called with groupedData:', groupedData.length, 'ranges');
-                    console.log('📋 First few ranges:', groupedData.slice(0, 3).map((r: any) => ({
-                      employee: r.employee,
-                      code: r.code,
-                      from_date: r.from_date,
-                      to_date: r.to_date,
-                      request_id: r.request_id,
-                    })));
                     
                     // Get original time_off data to match and preserve request_ids
                     const filteredTimeOff = (rosterData?.time_off || []).filter((item: any) => 
@@ -1450,7 +1414,6 @@ export const RosterGenerator: React.FC = () => {
                     });
                     
                     // Normalize dates in groupedData to YYYY-MM-DD format
-                    console.log('🔍 Processing groupedData, normalizing dates...');
                     const normalizedGroupedData = groupedData.map((item: any, index: number) => {
                       const isoFromDate = parseDateToISO(item.from_date);
                       const isoToDate = parseDateToISO(item.to_date);
@@ -1471,19 +1434,14 @@ export const RosterGenerator: React.FC = () => {
                       // Strategy 1: Match by request_id (if we have _originalRequestId) - highest priority
                       if (item._originalRequestId) {
                         matchingRange = originalMap.get(`req_${item._originalRequestId}`);
-                        if (matchingRange) {
-                          console.log(`✅ Matched leave request by request_id: ${item._originalRequestId}`, matchingRange);
-                        }
                       }
                       
                       // Strategy 2: Match by index (if row order hasn't changed)
                       if (!matchingRange) {
                         matchingRange = originalMap.get(`idx_${index}`);
-                        if (matchingRange && 
-                            matchingRange.employee === item.employee &&
-                            matchingRange.code === item.code) {
-                          console.log(`✅ Matched leave request by index: ${index}`, matchingRange);
-                        } else {
+                        if (!matchingRange || 
+                            matchingRange.employee !== item.employee ||
+                            matchingRange.code !== item.code) {
                           matchingRange = null;
                         }
                       }
@@ -1494,18 +1452,12 @@ export const RosterGenerator: React.FC = () => {
                         const origTo = parseDateToISO(item._originalToDate || item._originalFromDate);
                         if (origFrom && origTo) {
                           matchingRange = originalMap.get(`key_${item._originalEmployee}_${item._originalCode}_${origFrom}_${origTo}`);
-                          if (matchingRange) {
-                            console.log(`✅ Matched leave request by original values: ${item._originalEmployee}, ${item._originalCode}`, matchingRange);
-                          }
                         }
                       }
                       
                       // Strategy 4: Match by current values (in case it's a new entry that matches an existing one)
                       if (!matchingRange && isoFromDate && isoToDate) {
                         matchingRange = originalMap.get(`key_${item.employee}_${item.code}_${isoFromDate}_${isoToDate}`);
-                        if (matchingRange) {
-                          console.log(`✅ Matched leave request by current values: ${item.employee}, ${item.code}`, matchingRange);
-                        }
                       }
                       
                       // CRITICAL: If we have _originalRequestId, ALWAYS use it - this is the source of truth
@@ -1824,8 +1776,8 @@ export const RosterGenerator: React.FC = () => {
             </div>
           )}
 
-          {/* Locks Tab */}
-          {activeTab === 'locks' && (
+          {/* Old Locks Tab - REMOVED - Now part of unified requests tab */}
+          {false && activeTab === 'locks' && (
             <div>
               <div className="flex justify-between items-center mb-4">
                 <div>
@@ -1860,7 +1812,6 @@ export const RosterGenerator: React.FC = () => {
                     console.warn(`⚠️ Found ${locksWithoutIds.length} shift entries without request_id:`, locksWithoutIds);
                   }
                   
-                  console.log(`📋 Shift locks: ${monthData.filter((l: any) => l.request_id).length}/${monthData.length} have request_id`);
                   
                   return monthData.map((lock: any) => ({
                     ...lock,
@@ -1883,14 +1834,6 @@ export const RosterGenerator: React.FC = () => {
                     { key: 'force', label: 'Action', type: 'select', options: ['Must', 'Cannot'] },
                   ]}
                   onDataChange={(newData) => {
-                    console.log('🔄 onDataChange called for locks with', newData.length, 'items');
-                    console.log('📋 First few locks:', newData.slice(0, 3).map((l: any) => ({
-                      employee: l.employee,
-                      shift: l.shift,
-                      from_date: l.from_date,
-                      to_date: l.to_date,
-                      request_id: l.request_id,
-                    })));
                     
                     // Get original locks data to match and preserve request_id
                     const originalLocks = getMonthData(rosterData?.locks || [], 'from_date')
@@ -1921,19 +1864,14 @@ export const RosterGenerator: React.FC = () => {
                       // Strategy 1: Match by request_id (if we have _originalRequestId) - highest priority
                       if (item._originalRequestId) {
                         matchingLock = originalMap.get(`req_${item._originalRequestId}`);
-                        if (matchingLock) {
-                          console.log(`✅ Matched shift request by request_id: ${item._originalRequestId}`, matchingLock);
-                        }
                       }
                       
                       // Strategy 2: Match by index (if row order hasn't changed)
                       if (!matchingLock) {
                         matchingLock = originalMap.get(`idx_${index}`);
-                        if (matchingLock && 
-                            matchingLock.employee === item.employee &&
-                            matchingLock.shift === item.shift) {
-                          console.log(`✅ Matched shift request by index: ${index}`, matchingLock);
-                        } else {
+                        if (!matchingLock || 
+                            matchingLock.employee !== item.employee ||
+                            matchingLock.shift !== item.shift) {
                           matchingLock = null;
                         }
                       }
@@ -1944,18 +1882,12 @@ export const RosterGenerator: React.FC = () => {
                         const origTo = parseDateToISO(item._originalToDate || item._originalFromDate);
                         if (origFrom && origTo) {
                           matchingLock = originalMap.get(`key_${item._originalEmployee}_${item._originalShift}_${origFrom}_${origTo}`);
-                          if (matchingLock) {
-                            console.log(`✅ Matched shift request by original values: ${item._originalEmployee}, ${item._originalShift}`, matchingLock);
-                          }
                         }
                       }
                       
                       // Strategy 4: Match by current values
                       if (!matchingLock && isoFromDate && isoToDate) {
                         matchingLock = originalMap.get(`key_${item.employee}_${item.shift}_${isoFromDate}_${isoToDate}`);
-                        if (matchingLock) {
-                          console.log(`✅ Matched shift request by current values: ${item.employee}, ${item.shift}`, matchingLock);
-                        }
                       }
                       
                       // CRITICAL: If we have _originalRequestId, ALWAYS use it - this is the source of truth

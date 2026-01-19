@@ -288,9 +288,9 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 leave_codes = list(leave_codes_set)
             except Exception as e:
                 # Fallback to default codes if database query fails
-                # DO is a leave code, only assigned when requested in time off
+                # DO is a leave code (from leave_types table), only assigned when requested in time off
                 leave_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
-                rest_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
+                rest_codes = ["O"]  # DO is a leave type, not a rest code
                 working_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
                 # DO is in leave_codes, so it will be available when requested, but not in all_shift_codes for automatic assignment
                 all_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"]
@@ -308,7 +308,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 "rest_codes": rest_codes,
                 "leave_codes": leave_codes,  # All active leave codes for the solver
                 "working_shift_codes": working_shift_codes,  # All active working shift codes
-                "all_shift_codes": all_shift_codes,  # All shifts (working + rest like DO, O)
+                "all_shift_codes": all_shift_codes,  # All shifts (working + rest like O, plus leave types like DO from database)
                 "forbidden_adjacencies": [["N", "M"], ["A", "N"], ["N", "N"]],
                 "weekly_rest_minimum": 1,
                 "required_rest_after_shifts": [

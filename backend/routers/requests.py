@@ -355,11 +355,16 @@ async def update_leave_request(
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
-    # Check for overlapping requests (excluding the current request being updated)
-    conflicts = check_request_overlaps(db, req.user_id, from_date, to_date, exclude_leave_request_id=req.id)
-    if conflicts:
-        error_message = format_overlap_error(conflicts)
-        raise HTTPException(status_code=400, detail=error_message)
+    # Only check for overlapping requests if dates have changed
+    # If dates are unchanged, we're just updating other fields (leave_type, reason, etc.) and don't need overlap check
+    dates_changed = req.from_date != from_date or req.to_date != to_date
+    
+    if dates_changed:
+        # Check for overlapping requests (excluding the current request being updated)
+        conflicts = check_request_overlaps(db, req.user_id, from_date, to_date, exclude_leave_request_id=req.id)
+        if conflicts:
+            error_message = format_overlap_error(conflicts)
+            raise HTTPException(status_code=400, detail=error_message)
 
     # Update leave type if changed
     leave_type = db.query(LeaveType).filter(LeaveType.code == update.leave_type).first()
@@ -607,11 +612,16 @@ async def update_shift_request(
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="From date cannot be after to date")
 
-    # Check for overlapping requests (excluding the current request being updated)
-    conflicts = check_request_overlaps(db, req.user_id, from_date, to_date, exclude_shift_request_id=req.id)
-    if conflicts:
-        error_message = format_overlap_error(conflicts)
-        raise HTTPException(status_code=400, detail=error_message)
+    # Only check for overlapping requests if dates have changed
+    # If dates are unchanged, we're just updating other fields (shift, force, etc.) and don't need overlap check
+    dates_changed = req.from_date != from_date or req.to_date != to_date
+    
+    if dates_changed:
+        # Check for overlapping requests (excluding the current request being updated)
+        conflicts = check_request_overlaps(db, req.user_id, from_date, to_date, exclude_shift_request_id=req.id)
+        if conflicts:
+            error_message = format_overlap_error(conflicts)
+            raise HTTPException(status_code=400, detail=error_message)
 
     force = update.request_type == "Must" or update.request_type == "Force (Must)"  # Support both new and legacy formats
 

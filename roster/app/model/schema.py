@@ -288,6 +288,7 @@ class RosterData:
         # Fallback: if config not available, use hardcoded list
         # This should never happen in normal operation since we always pass config
         # But if it does, at least the solver won't crash
+        # Note: DO is included here as a leave type (normally comes from leave_codes via database)
         return ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"]
 
 
@@ -302,10 +303,10 @@ class RosterConfig:
             "do_after_n": 1.0,
             "a_to_n_penalty": 5.0
         }
-        self.rest_codes = {"DO", "O"}
-        self.leave_codes = []  # Will be populated from config file
+        self.rest_codes = {"O"}  # DO is a leave type, not a rest code
+        self.leave_codes = []  # Will be populated from config file (includes DO from leave_types table)
         self.working_shift_codes = []  # Will be populated from config file (working shifts from database)
-        self.all_shift_codes = []  # All shifts (working + rest like DO, O)
+        self.all_shift_codes = []  # All shifts (working + rest like O, plus leave types like DO from database)
         self.forbidden_adjacencies = [("N", "M"), ("A", "N")]
         self.weekly_rest_minimum = 1
         self.required_rest_after_shifts = [

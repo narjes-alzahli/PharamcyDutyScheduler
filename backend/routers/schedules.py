@@ -112,7 +112,7 @@ def recalculate_employee_report(
     try:
         config_data = {
             "weights": {},
-            "rest_codes": ["DO", "O"],
+            "rest_codes": ["O"],  # DO is a leave type (from leave_types table), not a rest code
             "leave_codes": ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"],
             "working_shift_codes": ["M", "IP", "A", "N", "M3", "M4", "H", "CL"],
         }

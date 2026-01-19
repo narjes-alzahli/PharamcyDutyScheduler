@@ -6,6 +6,7 @@ import api from '../services/api';
 import { Pagination } from '../components/Pagination';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { isTokenExpired } from '../utils/tokenUtils';
+import { UserManagementRequestsSchedule } from '../components/UserManagementRequestsSchedule';
 import { useResizableColumns } from '../hooks/useResizableColumns';
 import { useTableSort } from '../hooks/useTableSort';
 import { useTableSearch } from '../hooks/useTableSearch';
@@ -777,7 +778,10 @@ export const UserManagement: React.FC = () => {
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'leave' | 'shift'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'requests' | 'leave' | 'shift'>('users');
+  const [requestFilter, setRequestFilter] = useState<'all' | 'leave' | 'shift'>('all');
+  const [leaveTableExpanded, setLeaveTableExpanded] = useState(false);
+  const [shiftTableExpanded, setShiftTableExpanded] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
@@ -877,26 +881,48 @@ export const UserManagement: React.FC = () => {
       });
   }, [shiftRequests]);
 
+  // Get filtered requests based on filter dropdown (must be before date filtering)
+  const filteredLeaveRequests = useMemo(() => {
+    if (requestFilter === 'all' || requestFilter === 'leave') {
+      return leaveRequests;
+    }
+    return [];
+  }, [leaveRequests, requestFilter]);
+
+  const filteredShiftRequests = useMemo(() => {
+    if (requestFilter === 'all' || requestFilter === 'shift') {
+      return shiftRequests;
+    }
+    return [];
+  }, [shiftRequests, requestFilter]);
+
+  // Get combined month/year for schedule view
+  const scheduleMonthDate = useMemo(() => {
+    // Use leave table filter date if available, otherwise shift, otherwise current month
+    return leaveTableFilterDate || shiftTableFilterDate || new Date();
+  }, [leaveTableFilterDate, shiftTableFilterDate]);
+
   // Filter requests by year/month for table view (must be after state declarations)
+  // Use scheduleMonthDate to sync with schedule view
   const filteredLeaveRequestsByDate = useMemo(() => {
-    if (!leaveTableFilterDate) return [];
-    const filterYear = leaveTableFilterDate.getFullYear();
-    const filterMonth = leaveTableFilterDate.getMonth();
-    return leaveRequests.filter((req: any) => {
+    if (!scheduleMonthDate) return [];
+    const filterYear = scheduleMonthDate.getFullYear();
+    const filterMonth = scheduleMonthDate.getMonth();
+    return filteredLeaveRequests.filter((req: any) => {
       const reqDate = new Date(req.from_date);
       return reqDate.getFullYear() === filterYear && reqDate.getMonth() === filterMonth;
     });
-  }, [leaveRequests, leaveTableFilterDate]);
+  }, [filteredLeaveRequests, scheduleMonthDate]);
   
   const filteredShiftRequestsByDate = useMemo(() => {
-    if (!shiftTableFilterDate) return [];
-    const filterYear = shiftTableFilterDate.getFullYear();
-    const filterMonth = shiftTableFilterDate.getMonth();
-    return shiftRequests.filter((req: any) => {
+    if (!scheduleMonthDate) return [];
+    const filterYear = scheduleMonthDate.getFullYear();
+    const filterMonth = scheduleMonthDate.getMonth();
+    return filteredShiftRequests.filter((req: any) => {
       const reqDate = new Date(req.from_date);
       return reqDate.getFullYear() === filterYear && reqDate.getMonth() === filterMonth;
     });
-  }, [shiftRequests, shiftTableFilterDate]);
+  }, [filteredShiftRequests, scheduleMonthDate]);
   
   // Search and sort for leave requests (after date filtering)
   const { searchTerm: leaveSearchTerm, setSearchTerm: setLeaveSearchTerm, filteredData: searchedLeaveRequests } = useTableSearch(filteredLeaveRequestsByDate, ['employee', 'leave_type', 'reason', 'status']);
@@ -1021,7 +1047,7 @@ export const UserManagement: React.FC = () => {
 
   useEffect(() => {
     // MAJOR RESTRUCTURE: Only reload if auth guard confirms we're ready
-    if (authReady && isManager && (activeTab === 'leave' || activeTab === 'shift')) {
+    if (authReady && isManager && activeTab === 'requests') {
       loadRequests();
     }
   }, [activeTab, authReady, isManager, loadRequests]);
@@ -1286,14 +1312,29 @@ export const UserManagement: React.FC = () => {
     return `${day}-${month}-${year} ${hours}:${minutes}`;
   };
 
-  const leaveCalendarEntries = useMemo(
-    () => buildCalendarEntries(leaveRequests, 'Leave'),
-    [leaveRequests]
-  );
-
-  const shiftCalendarEntries = useMemo(
-    () => buildCalendarEntries(shiftRequests, 'Shift'),
-    [shiftRequests]
+  const handleRequestAction = useCallback(
+    (requestId: string, type: 'leave' | 'shift', action: 'approve' | 'reject' | 'delete') => {
+      if (action === 'approve') {
+        if (type === 'leave') {
+          handleApproveLeave(requestId);
+        } else {
+          handleApproveShift(requestId);
+        }
+      } else if (action === 'reject') {
+        if (type === 'leave') {
+          handleRejectLeave(requestId);
+        } else {
+          handleRejectShift(requestId);
+        }
+      } else if (action === 'delete') {
+        if (type === 'leave') {
+          handleDeleteLeave(requestId);
+        } else {
+          handleDeleteShift(requestId);
+        }
+      }
+    },
+    []
   );
 
   const handleCalendarEntryAction = useCallback(
@@ -1452,35 +1493,18 @@ export const UserManagement: React.FC = () => {
               User Accounts
             </button>
             <button
-              onClick={() => setActiveTab('leave')}
+              onClick={() => setActiveTab('requests')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'leave'
+                activeTab === 'requests'
                   ? 'border-primary-500 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               <span className="inline-flex items-center space-x-2">
-                <span>Leave Requests</span>
-                {pendingLeaveCount > 0 && (
+                <span>Requests</span>
+                {(pendingLeaveCount + pendingShiftCount) > 0 && (
                   <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
-                    {pendingLeaveCount}
-                  </span>
-                )}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('shift')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'shift'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <span className="inline-flex items-center space-x-2">
-                <span>Shift Requests</span>
-                {pendingShiftCount > 0 && (
-                  <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
-                    {pendingShiftCount}
+                    {pendingLeaveCount + pendingShiftCount}
                   </span>
                 )}
               </span>
@@ -1489,8 +1513,419 @@ export const UserManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Leave Requests Tab */}
-      {activeTab === 'leave' && isManager && (
+      {/* Unified Requests Tab */}
+      {activeTab === 'requests' && isManager && (
+        <div className="space-y-6">
+          {/* Filter Dropdown and Month/Year Selector */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-4">
+                <label className="text-sm font-medium text-gray-700">Filter:</label>
+                <select
+                  value={requestFilter}
+                  onChange={(e) => setRequestFilter(e.target.value as 'all' | 'leave' | 'shift')}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                >
+                  <option value="all">All Requests</option>
+                  <option value="leave">Leave Requests</option>
+                  <option value="shift">Shift Requests</option>
+                </select>
+                <label className="text-sm font-medium text-gray-700">Select Month/Year:</label>
+                <select
+                  value={scheduleMonthDate ? `${scheduleMonthDate.getFullYear()}-${scheduleMonthDate.getMonth() + 1}` : ''}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const [year, month] = e.target.value.split('-').map(Number);
+                      const newDate = new Date(year, month - 1, 1);
+                      setLeaveTableFilterDate(newDate);
+                      setShiftTableFilterDate(newDate);
+                    } else {
+                      setLeaveTableFilterDate(null);
+                      setShiftTableFilterDate(null);
+                    }
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-[200px]"
+                >
+                  <option value="">Select Month & Year...</option>
+                  {[...availableLeaveMonthYears, ...availableShiftMonthYears]
+                    .filter((v, i, a) => a.findIndex(t => t.value === v.value) === i)
+                    .sort((a, b) => {
+                      const [aYear, aMonth] = a.value.split('-').map(Number);
+                      const [bYear, bMonth] = b.value.split('-').map(Number);
+                      if (aYear !== bYear) return aYear - bYear;
+                      return aMonth - bMonth;
+                    })
+                    .map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                </select>
+              </div>
+              {(pendingLeaveCount + pendingShiftCount) > 0 && (
+                <span className="text-sm text-gray-500">
+                  {pendingLeaveCount + pendingShiftCount} pending approval{(pendingLeaveCount + pendingShiftCount) > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {!scheduleMonthDate ? (
+            <div className="bg-white rounded-lg shadow p-6 mb-6">
+              <p className="text-gray-600 text-center py-8">Please select a month and year.</p>
+            </div>
+          ) : (
+            <>
+              {/* Schedule View */}
+              <div className="bg-white rounded-lg shadow p-6 mb-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Schedule View</h3>
+                <UserManagementRequestsSchedule
+                  year={scheduleMonthDate.getFullYear()}
+                  month={scheduleMonthDate.getMonth() + 1}
+                  leaveRequests={filteredLeaveRequests}
+                  shiftRequests={filteredShiftRequests}
+                  selectedRequestId={selectedCalendarEntryId}
+                  onSelectRequest={(requestId) => setSelectedCalendarEntryId(requestId)}
+                  onApprove={(requestId, type) => handleRequestAction(requestId, type, 'approve')}
+                  onReject={(requestId, type) => handleRequestAction(requestId, type, 'reject')}
+                  onDelete={(requestId, type) => handleRequestAction(requestId, type, 'delete')}
+                  processingRequestId={processingRequest}
+                  allEmployees={employees.map(emp => emp.employee)}
+                />
+              </div>
+
+              {/* Collapsible Leave Requests Table - Only show when filter is 'all' or 'leave' */}
+              {(requestFilter === 'all' || requestFilter === 'leave') && (
+                <div className="bg-white rounded-lg shadow p-6 mb-6">
+                  <button
+                    onClick={() => setLeaveTableExpanded(!leaveTableExpanded)}
+                    className="flex items-center justify-between w-full text-left mb-4"
+                  >
+                    <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      {leaveTableExpanded ? '▼' : '▶'} Leave Requests
+                    </h3>
+                  </button>
+                  {leaveTableExpanded && (
+                  <>
+                    {filteredLeaveRequestsByDate.length > 0 ? (
+                      <>
+                        <SearchBar
+                          searchTerm={leaveSearchTerm}
+                          onSearchChange={setLeaveSearchTerm}
+                          placeholder="Search leave requests by employee, type, reason, or status..."
+                        />
+                        <div className="overflow-x-auto mt-4">
+                          <table ref={leaveTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
+                            <thead className="bg-gray-50 sticky top-0 z-10">
+                              <tr>
+                                <th key="employee" style={{ width: `${leaveWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  <div className="flex items-center space-x-1">
+                                    <span>Employee</span>
+                                    <button onClick={() => handleLeaveSort('employee')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee">
+                                      {leaveSortConfig?.key === 'employee' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                    </button>
+                                  </div>
+                                  <div onMouseDown={(e) => leaveHandleMouseDown(e, 'employee')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="from_date" style={{ width: `${leaveWidths.from_date || 150}px`, position: 'relative' }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 whitespace-nowrap min-w-[120px]">
+                                  <div className="flex items-center space-x-1">
+                                    <span>From Date</span>
+                                    <button onClick={() => handleLeaveSort('from_date')} className="p-1 hover:bg-gray-200 rounded">
+                                      {leaveSortConfig?.key === 'from_date' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                    </button>
+                                  </div>
+                                  <div onMouseDown={(e) => leaveHandleMouseDown(e, 'from_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="to_date" style={{ width: `${leaveWidths.to_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50 whitespace-nowrap min-w-[120px]">
+                                  <div className="flex items-center space-x-1">
+                                    <span>To Date</span>
+                                    <button onClick={() => handleLeaveSort('to_date')} className="p-1 hover:bg-gray-200 rounded">
+                                      {leaveSortConfig?.key === 'to_date' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                    </button>
+                                  </div>
+                                  <div onMouseDown={(e) => leaveHandleMouseDown(e, 'to_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="type" style={{ width: `${leaveWidths.type || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  <div className="flex items-center space-x-1">
+                                    <span>Type</span>
+                                    <button onClick={() => handleLeaveSort('leave_type')} className="p-1 hover:bg-gray-200 rounded">
+                                      {leaveSortConfig?.key === 'leave_type' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                    </button>
+                                  </div>
+                                  <div onMouseDown={(e) => leaveHandleMouseDown(e, 'type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="reason" style={{ width: `${leaveWidths.reason || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  <div className="flex items-center space-x-1">
+                                    <span>Reason</span>
+                                    <button onClick={() => handleLeaveSort('reason')} className="p-1 hover:bg-gray-200 rounded">
+                                      {leaveSortConfig?.key === 'reason' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                    </button>
+                                  </div>
+                                  <div onMouseDown={(e) => leaveHandleMouseDown(e, 'reason')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="status" style={{ width: `${leaveWidths.status || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  <div className="flex items-center space-x-1">
+                                    <span>Status</span>
+                                    <button onClick={() => handleLeaveSort('status')} className="p-1 hover:bg-gray-200 rounded">
+                                      {leaveSortConfig?.key === 'status' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                    </button>
+                                  </div>
+                                  <div onMouseDown={(e) => leaveHandleMouseDown(e, 'status')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="submitted" style={{ width: `${leaveWidths.submitted || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  <div className="flex items-center space-x-1">
+                                    <span>Submitted</span>
+                                    <button onClick={() => handleLeaveSort('submitted_at')} className="p-1 hover:bg-gray-200 rounded">
+                                      {leaveSortConfig?.key === 'submitted_at' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                    </button>
+                                  </div>
+                                  <div onMouseDown={(e) => leaveHandleMouseDown(e, 'submitted')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="actions" style={{ width: `${leaveWidths.actions || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Actions
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {paginatedLeaveRequests.map((req) => (
+                                <tr key={req.request_id} className="hover:bg-gray-50">
+                                  <td style={{ width: `${leaveWidths.employee || 150}px` }} className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
+                                  <td style={{ width: `${leaveWidths.from_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300 whitespace-nowrap">{formatDate(req.from_date)}</td>
+                                  <td style={{ width: `${leaveWidths.to_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300 whitespace-nowrap">{formatDate(req.to_date)}</td>
+                                  <td style={{ width: `${leaveWidths.type || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.leave_type}</td>
+                                  <td style={{ width: `${leaveWidths.reason || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
+                                  <td style={{ width: `${leaveWidths.status || 150}px` }} className="px-4 py-3 text-sm border border-gray-300">
+                                    <span className={`px-2 py-1 text-xs rounded-full ${
+                                      req.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                                      req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                                      'bg-yellow-100 text-yellow-800'
+                                    }`}>
+                                      {req.status}
+                                    </span>
+                                  </td>
+                                  <td style={{ width: `${leaveWidths.submitted || 150}px` }} className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
+                                  <td style={{ width: `${leaveWidths.actions || 200}px` }} className="px-4 py-3 text-sm border border-gray-300">
+                                    {req.status === 'Pending' ? (
+                                      <div className="flex gap-1">
+                                        <button
+                                          onClick={() => handleApproveLeave(req.request_id)}
+                                          disabled={processingRequest === req.request_id}
+                                          className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
+                                          title="Approve request"
+                                          aria-label="Approve request"
+                                        >
+                                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                            <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={() => handleRejectLeave(req.request_id)}
+                                          disabled={processingRequest === req.request_id}
+                                          className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
+                                          title="Reject request"
+                                          aria-label="Reject request"
+                                        >
+                                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                            <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteLeave(req.request_id)}
+                                          disabled={processingRequest === req.request_id}
+                                          className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                                          title="Remove request"
+                                          aria-label="Remove request"
+                                        >
+                                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                            <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                            <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs text-gray-500">
+                                        {req.approved_by && `By ${req.approved_by}`}
+                                        {req.approved_at && ` on ${formatDate(req.approved_at)}`}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {leaveTotalPages > 1 && (
+                          <Pagination
+                            currentPage={leavePage}
+                            totalPages={leaveTotalPages}
+                            onPageChange={setLeavePage}
+                            itemsPerPage={itemsPerPage}
+                            totalItems={sortedLeaveRequests.length}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-gray-600">No leave requests found for the selected month.</p>
+                    )}
+                  </>
+                  )}
+                </div>
+              )}
+
+              {/* Collapsible Shift Requests Table - Only show when filter is 'all' or 'shift' */}
+              {(requestFilter === 'all' || requestFilter === 'shift') && (
+                <div className="bg-white rounded-lg shadow p-6 mb-6">
+                  <button
+                    onClick={() => setShiftTableExpanded(!shiftTableExpanded)}
+                    className="flex items-center justify-between w-full text-left mb-4"
+                  >
+                    <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      {shiftTableExpanded ? '▼' : '▶'} Shift Requests
+                    </h3>
+                  </button>
+                  {shiftTableExpanded && (
+                  <>
+                    {filteredShiftRequestsByDate.length > 0 ? (
+                      <>
+                        <SearchBar
+                          searchTerm={shiftSearchTerm}
+                          onSearchChange={setShiftSearchTerm}
+                          placeholder="Search shift requests by employee, shift, reason, or status..."
+                        />
+                        <div className="overflow-x-auto mt-4">
+                          <table ref={shiftTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
+                            <thead className="bg-gray-50 sticky top-0 z-10">
+                              <tr>
+                                <th key="employee" style={{ width: `${shiftWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Employee
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'employee')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="from_date" style={{ width: `${shiftWidths.from_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  From Date
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'from_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="to_date" style={{ width: `${shiftWidths.to_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  To Date
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'to_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="shift" style={{ width: `${shiftWidths.shift || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Shift
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'shift')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="type" style={{ width: `${shiftWidths.type || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Type
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="reason" style={{ width: `${shiftWidths.reason || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Reason
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'reason')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="status" style={{ width: `${shiftWidths.status || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Status
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'status')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="submitted" style={{ width: `${shiftWidths.submitted || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Submitted
+                                  <div onMouseDown={(e) => shiftHandleMouseDown(e, 'submitted')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                                </th>
+                                <th key="actions" style={{ width: `${shiftWidths.actions || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
+                                  Actions
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {paginatedShiftRequests.map((req) => (
+                                <tr key={req.request_id} className="hover:bg-gray-50">
+                                  <td style={{ width: `${shiftWidths.employee || 150}px` }} className="px-4 py-3 text-sm text-gray-900 border border-gray-300">{req.employee}</td>
+                                  <td style={{ width: `${shiftWidths.from_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.from_date)}</td>
+                                  <td style={{ width: `${shiftWidths.to_date || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{formatDate(req.to_date || req.from_date)}</td>
+                                  <td style={{ width: `${shiftWidths.shift || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.shift}</td>
+                                  <td style={{ width: `${shiftWidths.type || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">
+                                    {req.force ? 'Must' : 'Cannot'}
+                                  </td>
+                                  <td style={{ width: `${shiftWidths.reason || 150}px` }} className="px-4 py-3 text-sm text-gray-700 border border-gray-300">{req.reason || '-'}</td>
+                                  <td style={{ width: `${shiftWidths.status || 150}px` }} className="px-4 py-3 text-sm border border-gray-300">
+                                    <span className={`px-2 py-1 text-xs rounded-full ${
+                                      req.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                                      req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                                      'bg-yellow-100 text-yellow-800'
+                                    }`}>
+                                      {req.status}
+                                    </span>
+                                  </td>
+                                  <td style={{ width: `${shiftWidths.submitted || 150}px` }} className="px-4 py-3 text-sm text-gray-500 border border-gray-300">{formatDateTime(req.submitted_at)}</td>
+                                  <td style={{ width: `${shiftWidths.actions || 200}px` }} className="px-4 py-3 text-sm border border-gray-300">
+                                    {req.status === 'Pending' ? (
+                                      <div className="flex gap-1">
+                                        <button
+                                          onClick={() => handleApproveShift(req.request_id)}
+                                          disabled={processingRequest === req.request_id}
+                                          className="rounded-full bg-green-600 p-1 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
+                                          title="Approve request"
+                                          aria-label="Approve request"
+                                        >
+                                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                            <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={() => handleRejectShift(req.request_id)}
+                                          disabled={processingRequest === req.request_id}
+                                          className="rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
+                                          title="Reject request"
+                                          aria-label="Reject request"
+                                        >
+                                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                            <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteShift(req.request_id)}
+                                          disabled={processingRequest === req.request_id}
+                                          className="rounded-full bg-gray-700 p-1 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
+                                          title="Remove request"
+                                          aria-label="Remove request"
+                                        >
+                                          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                            <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                            <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs text-gray-500">
+                                        {req.approved_by && `By ${req.approved_by}`}
+                                        {req.approved_at && ` on ${formatDate(req.approved_at)}`}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {shiftTotalPages > 1 && (
+                          <Pagination
+                            currentPage={shiftPage}
+                            totalPages={shiftTotalPages}
+                            onPageChange={setShiftPage}
+                            itemsPerPage={itemsPerPage}
+                            totalItems={sortedShiftRequests.length}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-gray-600">No shift requests found for the selected month.</p>
+                    )}
+                  </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Old Leave Requests Tab - REMOVED - Now part of unified requests tab */}
+      {false && activeTab === 'leave' && isManager && (
         <div className="space-y-6">
           {/* Month/Year Selector at top - shared for table and schedule */}
           <div className="bg-white rounded-lg shadow p-4">
@@ -1498,7 +1933,7 @@ export const UserManagement: React.FC = () => {
               <div className="flex items-center gap-4">
                 <label className="text-sm font-medium text-gray-700">Select Month/Year:</label>
                 <select
-                  value={leaveTableFilterDate ? `${leaveTableFilterDate.getFullYear()}-${leaveTableFilterDate.getMonth() + 1}` : ''}
+                  value={leaveTableFilterDate ? `${leaveTableFilterDate?.getFullYear() ?? 0}-${(leaveTableFilterDate?.getMonth() ?? 0) + 1}` : ''}
                   onChange={(e) => {
                     if (e.target.value) {
                       const [year, month] = e.target.value.split('-').map(Number);
@@ -1552,7 +1987,7 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center space-x-1">
                         <span>Employee</span>
                         <button onClick={() => handleLeaveSort('employee')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee">
-                          {leaveSortConfig?.key === 'employee' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                          {leaveSortConfig?.key === 'employee' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
                       <div onMouseDown={(e) => leaveHandleMouseDown(e, 'employee')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
@@ -1561,7 +1996,7 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center space-x-1">
                         <span>From Date</span>
                         <button onClick={() => handleLeaveSort('from_date')} className="p-1 hover:bg-gray-200 rounded">
-                          {leaveSortConfig?.key === 'from_date' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                          {leaveSortConfig?.key === 'from_date' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
                       <div onMouseDown={(e) => leaveHandleMouseDown(e, 'from_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
@@ -1570,7 +2005,7 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center space-x-1">
                         <span>To Date</span>
                         <button onClick={() => handleLeaveSort('to_date')} className="p-1 hover:bg-gray-200 rounded">
-                          {leaveSortConfig?.key === 'to_date' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                          {leaveSortConfig?.key === 'to_date' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
                       <div onMouseDown={(e) => leaveHandleMouseDown(e, 'to_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
@@ -1579,7 +2014,7 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center space-x-1">
                         <span>Type</span>
                         <button onClick={() => handleLeaveSort('leave_type')} className="p-1 hover:bg-gray-200 rounded">
-                          {leaveSortConfig?.key === 'leave_type' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                          {leaveSortConfig?.key === 'leave_type' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
                       <div onMouseDown={(e) => leaveHandleMouseDown(e, 'type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
@@ -1588,7 +2023,7 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center space-x-1">
                         <span>Reason</span>
                         <button onClick={() => handleLeaveSort('reason')} className="p-1 hover:bg-gray-200 rounded">
-                          {leaveSortConfig?.key === 'reason' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                          {leaveSortConfig?.key === 'reason' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
                       <div onMouseDown={(e) => leaveHandleMouseDown(e, 'reason')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
@@ -1597,7 +2032,7 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center space-x-1">
                         <span>Status</span>
                         <button onClick={() => handleLeaveSort('status')} className="p-1 hover:bg-gray-200 rounded">
-                          {leaveSortConfig?.key === 'status' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                          {leaveSortConfig?.key === 'status' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
                       <div onMouseDown={(e) => leaveHandleMouseDown(e, 'status')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
@@ -1606,7 +2041,7 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center space-x-1">
                         <span>Submitted</span>
                         <button onClick={() => handleLeaveSort('submitted_at')} className="p-1 hover:bg-gray-200 rounded">
-                          {leaveSortConfig?.key === 'submitted_at' ? (leaveSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                          {leaveSortConfig?.key === 'submitted_at' ? ((leaveSortConfig?.direction ?? 'asc') === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
                       <div onMouseDown={(e) => leaveHandleMouseDown(e, 'submitted')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${leaveResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
@@ -1716,7 +2151,7 @@ export const UserManagement: React.FC = () => {
                     setLeaveCalendarDate(newDate);
                   }
                 }}
-                entries={leaveCalendarEntries}
+                entries={[] as any}
                 emptyMessage="No leave requests for the selected month."
                 selectedEntryId={selectedCalendarEntryId}
                 onSelectEntry={(entry) =>
@@ -1735,8 +2170,8 @@ export const UserManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Shift Requests Tab */}
-      {activeTab === 'shift' && isManager && (
+      {/* Old Shift Requests Tab - REMOVED - Now part of unified requests tab */}
+      {false && activeTab === 'shift' && isManager && (
         <div className="space-y-6">
           {/* Month/Year Selector at top - shared for table and schedule */}
           <div className="bg-white rounded-lg shadow p-4">
@@ -1744,7 +2179,7 @@ export const UserManagement: React.FC = () => {
               <div className="flex items-center gap-4">
                 <label className="text-sm font-medium text-gray-700">Select Month/Year:</label>
                 <select
-                  value={shiftTableFilterDate ? `${shiftTableFilterDate.getFullYear()}-${shiftTableFilterDate.getMonth() + 1}` : ''}
+                  value={shiftTableFilterDate ? `${shiftTableFilterDate?.getFullYear() ?? 0}-${(shiftTableFilterDate?.getMonth() ?? 0) + 1}` : ''}
                   onChange={(e) => {
                     if (e.target.value) {
                       const [year, month] = e.target.value.split('-').map(Number);
@@ -1929,7 +2364,7 @@ export const UserManagement: React.FC = () => {
                     setShiftCalendarDate(newDate);
                   }
                 }}
-                entries={shiftCalendarEntries}
+                entries={[] as any}
                 emptyMessage="No shift requests for the selected month."
                 selectedEntryId={selectedCalendarEntryId}
                 onSelectEntry={(entry) =>

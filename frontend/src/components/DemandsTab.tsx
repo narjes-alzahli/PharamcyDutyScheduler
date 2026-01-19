@@ -919,9 +919,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                         {/* Add Missing Shift Button */}
                         {(() => {
                           // Only show standard shift types (those with dedicated columns in demands)
-                          // Exclude "O" and "DO" which are not demand types
+                          // Exclude "O" which is not a demand type
+                          // DO is a leave type (not in STANDARD_SHIFT_CODES), so no need to filter it
                           const availableShiftTypes = STANDARD_SHIFT_CODES.filter(
-                            code => code !== 'O' && code !== 'DO'
+                            code => code !== 'O'
                           );
                           
                           // Check if there are any shift types not currently present
@@ -1115,7 +1116,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
                           {/* Shift options dropdown */}
                           {showingShiftOptions === idx && (
                             <div className="absolute z-10 mt-1 left-0 bg-white border border-gray-200 rounded shadow-lg p-1 min-w-[8rem] max-h-32 overflow-y-auto">
-                              {STANDARD_SHIFT_CODES.filter(code => code !== 'O' && code !== 'DO').map(code => {
+                              {/* Only show standard shift codes, exclude O. DO is a leave type (not in STANDARD_SHIFT_CODES), so no need to filter it */}
+                              {STANDARD_SHIFT_CODES.filter(code => code !== 'O').map(code => {
                                 const codeColor = getShiftColor(code);
                                 const codeDescription = getShiftDescription(code);
                                 return (
