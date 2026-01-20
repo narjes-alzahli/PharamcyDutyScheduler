@@ -289,7 +289,7 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
                     title={`${getDayOfWeek(dateStr)} ${formatDate(dateStr)}`}
                   >
                     <div className="text-[10px] leading-tight">{formatDate(dateStr)}</div>
-                    <div className="text-[10px] text-gray-500 leading-tight">{getDayOfWeek(dateStr)[0]}</div>
+                    <div className="text-[10px] text-gray-500 leading-tight">{getDayOfWeek(dateStr)}</div>
                   </th>
                 ))}
               </tr>

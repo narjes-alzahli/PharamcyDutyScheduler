@@ -1179,12 +1179,18 @@ export const UserManagement: React.FC = () => {
   const handleApproveLeave = async (requestId: string) => {
     try {
       setProcessingRequest(requestId);
+      // Optimistically update the UI immediately
+      setLeaveRequests(prev => prev.map(req => 
+        req.request_id === requestId ? { ...req, status: 'Approved' as const } : req
+      ));
       await requestsAPI.approveLeaveRequest(requestId);
       setNotification({ message: '✅ Leave request approved successfully! It has been added to the roster.', type: 'success' });
       setTimeout(() => setNotification(null), 3000);
       // Use isRefresh=true to prevent clearing data during refresh
       await loadRequests(true);
     } catch (error: any) {
+      // Revert optimistic update on error
+      await loadRequests(true);
       setNotification({ message: error.response?.data?.detail || 'Failed to approve leave request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
     } finally {
@@ -1198,12 +1204,18 @@ export const UserManagement: React.FC = () => {
     }
     try {
       setProcessingRequest(requestId);
+      // Optimistically update the UI immediately
+      setLeaveRequests(prev => prev.map(req => 
+        req.request_id === requestId ? { ...req, status: 'Rejected' as const } : req
+      ));
       await requestsAPI.rejectLeaveRequest(requestId);
       setNotification({ message: 'Leave request rejected', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
       // Use isRefresh=true to prevent clearing data during refresh
       await loadRequests(true);
     } catch (error: any) {
+      // Revert optimistic update on error
+      await loadRequests(true);
       setNotification({ message: error.response?.data?.detail || 'Failed to reject leave request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
     } finally {
@@ -1214,12 +1226,18 @@ export const UserManagement: React.FC = () => {
   const handleApproveShift = async (requestId: string) => {
     try {
       setProcessingRequest(requestId);
+      // Optimistically update the UI immediately
+      setShiftRequests(prev => prev.map(req => 
+        req.request_id === requestId ? { ...req, status: 'Approved' as const } : req
+      ));
       await requestsAPI.approveShiftRequest(requestId);
       setNotification({ message: '✅ Shift request approved successfully! It has been added to the roster.', type: 'success' });
       setTimeout(() => setNotification(null), 3000);
       // Use isRefresh=true to prevent clearing data during refresh
       await loadRequests(true);
     } catch (error: any) {
+      // Revert optimistic update on error
+      await loadRequests(true);
       setNotification({ message: error.response?.data?.detail || 'Failed to approve shift request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
     } finally {
@@ -1233,12 +1251,18 @@ export const UserManagement: React.FC = () => {
     }
     try {
       setProcessingRequest(requestId);
+      // Optimistically update the UI immediately
+      setShiftRequests(prev => prev.map(req => 
+        req.request_id === requestId ? { ...req, status: 'Rejected' as const } : req
+      ));
       await requestsAPI.rejectShiftRequest(requestId);
       setNotification({ message: 'Shift request rejected', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
       // Use isRefresh=true to prevent clearing data during refresh
       await loadRequests(true);
     } catch (error: any) {
+      // Revert optimistic update on error
+      await loadRequests(true);
       setNotification({ message: error.response?.data?.detail || 'Failed to reject shift request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
     } finally {
@@ -1252,12 +1276,16 @@ export const UserManagement: React.FC = () => {
     }
     try {
       setProcessingRequest(requestId);
+      // Optimistically remove from UI immediately
+      setLeaveRequests(prev => prev.filter(req => req.request_id !== requestId));
       await requestsAPI.deleteLeaveRequest(requestId);
       setNotification({ message: 'Leave request removed.', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
       // Use isRefresh=true to prevent clearing data during refresh
       await loadRequests(true);
     } catch (error: any) {
+      // Revert optimistic update on error
+      await loadRequests(true);
       setNotification({ message: error.response?.data?.detail || 'Failed to remove leave request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
     } finally {
@@ -1271,12 +1299,16 @@ export const UserManagement: React.FC = () => {
     }
     try {
       setProcessingRequest(requestId);
+      // Optimistically remove from UI immediately
+      setShiftRequests(prev => prev.filter(req => req.request_id !== requestId));
       await requestsAPI.deleteShiftRequest(requestId);
       setNotification({ message: 'Shift request removed.', type: 'success' });
       setTimeout(() => setNotification(null), 2000);
       // Use isRefresh=true to prevent clearing data during refresh
       await loadRequests(true);
     } catch (error: any) {
+      // Revert optimistic update on error
+      await loadRequests(true);
       setNotification({ message: error.response?.data?.detail || 'Failed to remove shift request', type: 'error' });
       setTimeout(() => setNotification(null), 4000);
     } finally {

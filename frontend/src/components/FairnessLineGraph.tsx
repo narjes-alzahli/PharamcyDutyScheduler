@@ -46,6 +46,9 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
     
     const singleSkillSet = new Set<string>();
     employees.forEach((emp: any) => {
+      // Check if employee object has skill properties (might be undefined if not loaded)
+      if (!emp || typeof emp !== 'object') return;
+      
       const skills = [
         emp.skill_M,
         emp.skill_IP,
@@ -56,10 +59,11 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
         emp.skill_H,
         emp.skill_CL,
         emp.skill_E,
-      ].filter(Boolean);
+      ].filter(skill => skill === true); // Only count true values, not false or undefined
       
       if (skills.length === 1) {
-        singleSkillSet.add(emp.employee);
+        const employeeName = emp.employee || emp.name || String(emp);
+        singleSkillSet.add(employeeName);
       }
     });
     
@@ -170,11 +174,12 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
         font: { size: 18, color: '#111827' },
       },
       height: 500,
-      margin: { l: 60, r: 20, t: 60, b: 100 },
+      margin: { l: 60, r: 20, t: 60, b: 150 }, // Increased bottom margin for better label visibility
       xaxis: {
         title: 'Employee',
-        tickangle: -45,
-        tickfont: { size: 10 },
+        tickangle: -90, // Vertical labels for better readability
+        tickfont: { size: 11 },
+        automargin: true, // Automatically adjust margins
       },
       yaxis: {
         title: 'Count',

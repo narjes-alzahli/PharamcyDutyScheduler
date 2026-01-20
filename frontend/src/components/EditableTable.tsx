@@ -319,9 +319,9 @@ export const EditableTable: React.FC<EditableTableProps> = ({
   };
 
   return (
-    <div className="overflow-x-auto overflow-y-visible">
+    <div className="overflow-x-auto" style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
       <table ref={tableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
-        <thead className="bg-gray-50 sticky top-0 z-10">
+        <thead className="bg-gray-50" style={{ position: 'sticky', top: 0, zIndex: 20 }}>
           <tr>
             {columns.map((col, index) => {
               const width = columnWidths[col.key] || 150;
@@ -334,8 +334,8 @@ export const EditableTable: React.FC<EditableTableProps> = ({
               return (
               <th
                 key={col.key}
-                style={{ width: `${width}px`, position: 'sticky', top: 0, zIndex: 10 }}
-                className={`px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 ${minWidthClass}`}
+                style={{ width: `${width}px`, position: 'sticky', top: 0, zIndex: 20, backgroundColor: '#f9fafb' }}
+                className={`px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 ${minWidthClass}`}
               >
                 <div className="flex items-center justify-between">
                   <span>{col.label}</span>
@@ -352,8 +352,8 @@ export const EditableTable: React.FC<EditableTableProps> = ({
             })}
             {onDeleteRow && (
               <th 
-                style={{ width: '100px', position: 'sticky', top: 0, zIndex: 10 }}
-                className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50"
+                style={{ width: '100px', position: 'sticky', top: 0, zIndex: 20, backgroundColor: '#f9fafb' }}
+                className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300"
               >
                 Actions
               </th>
