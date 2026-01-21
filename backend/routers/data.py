@@ -140,6 +140,10 @@ async def update_employees(
             emp.skill_M4 = bool(emp_data.get('skill_M4', True))
             emp.skill_H = bool(emp_data.get('skill_H', False))
             emp.skill_CL = bool(emp_data.get('skill_CL', True))
+            emp.skill_E = bool(emp_data.get('skill_E', True))
+            emp.skill_IP_P = bool(emp_data.get('skill_IP_P', True))
+            emp.skill_P = bool(emp_data.get('skill_P', True))
+            emp.skill_M_P = bool(emp_data.get('skill_M_P', True))
             emp.clinic_only = bool(emp_data.get('clinic_only', False))
             emp.maxN = int(emp_data.get('maxN', 3))
             emp.maxA = int(emp_data.get('maxA', 3))
@@ -158,6 +162,10 @@ async def update_employees(
                 skill_M4=bool(emp_data.get('skill_M4', True)),
                 skill_H=bool(emp_data.get('skill_H', False)),
                 skill_CL=bool(emp_data.get('skill_CL', True)),
+                skill_E=bool(emp_data.get('skill_E', True)),
+                skill_IP_P=bool(emp_data.get('skill_IP_P', True)),
+                skill_P=bool(emp_data.get('skill_P', True)),
+                skill_M_P=bool(emp_data.get('skill_M_P', True)),
                 clinic_only=bool(emp_data.get('clinic_only', False)),
                 maxN=int(emp_data.get('maxN', 3)),
                 maxA=int(emp_data.get('maxA', 3)),
