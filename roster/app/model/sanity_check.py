@@ -39,7 +39,7 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
     # Standard working shifts (skills-based)
     # This is a fallback - in practice, working_shift_codes should be provided from backend
     # Default standard shifts (should match database)
-    _DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
+    _DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
     STANDARD_WORKING_SHIFTS = _DEFAULT_STANDARD_SHIFTS
     
     # Issue 1: Check coverage feasibility for each day/shift

@@ -59,6 +59,9 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
         emp.skill_H,
         emp.skill_CL,
         emp.skill_E,
+        emp.skill_IP_P,
+        emp.skill_P,
+        emp.skill_M_P,
       ].filter(skill => skill === true); // Only count true values, not false or undefined
       
       if (skills.length === 1) {

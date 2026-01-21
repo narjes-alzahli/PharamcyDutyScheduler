@@ -14,7 +14,7 @@ python run_backend.py          # Terminal 1
 cd frontend && npm start       # Terminal 2
 ```
 
-**Access:** `http://localhost:3333` (frontend) → `http://localhost:8002` (backend)
+**Access:** `http://localhost:3333` (frontend) → `http://localhost:8000` (backend)
 
 ## Default Credentials
 

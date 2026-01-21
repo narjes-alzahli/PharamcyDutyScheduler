@@ -13,7 +13,7 @@ from .sanity_check import check_roster_feasibility
 
 # Default standard working shifts (fallback when generating coverage reports)
 # These should match what's in the database - updated when standard shifts change
-_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"]
+_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
 
 
 class RosterSolver:

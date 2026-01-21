@@ -8,8 +8,8 @@ import numpy as np
 # Default standard working shifts (fallback when working_shift_codes not provided)
 # These should match what's in the database - updated when standard shifts change
 # In practice, working_shift_codes should always be provided from the backend
-_DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
-_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"]
+_DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
+_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
 
 
 def create_decision_variables(
@@ -320,7 +320,7 @@ def add_sequencing_constraints(
         working_shifts = set(working_shift_codes)
     else:
         # Fallback to standard shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
     
     # Determine leave codes (exclude working shifts)
     if leave_codes:
@@ -447,7 +447,7 @@ def add_single_skill_employee_constraints(
         working_shifts = set(working_shift_codes)
     else:
         # Fallback to standard shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"}
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
     weekend_days = {4, 5}  # Friday=4, Saturday=5
     
     for employee in employees:

@@ -16,7 +16,7 @@ interface RequestsScheduleProps {
 }
 
 // Standard working shifts that go to locks
-const STANDARD_SHIFT_CODES = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E']);
+const STANDARD_SHIFT_CODES = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'IP+P', 'P', 'M+P']);
 
 export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   year,
