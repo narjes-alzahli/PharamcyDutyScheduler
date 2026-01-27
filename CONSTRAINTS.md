@@ -39,6 +39,8 @@ Staff cannot work these shift combinations on consecutive days:
 - **Afternoon → Night**: Cannot work Night shift the day after Afternoon shift
 - **Night → Night**: Cannot work Night shifts on consecutive days
 
+*Note: These rules can be overridden by approved employee shift requests (force=True). If an employee requests both shifts in a forbidden pair, the constraint will be skipped to honor their request.*
+
 ### 10. Required Rest After Shifts
 After working certain shifts, staff must have rest days:
 - **After Night shift**: Must have 2 rest days (Off Duty) on the next two days

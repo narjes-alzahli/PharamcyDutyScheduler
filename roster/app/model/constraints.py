@@ -271,9 +271,15 @@ def add_adjacency_constraints(
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
     employees: List[str],
     dates: List[date],
-    forbidden_pairs: List[Tuple[str, str]]
+    forbidden_pairs: List[Tuple[str, str]],
+    locks: Dict[Tuple[str, date, str], bool] = None
 ) -> None:
-    """Add adjacency constraints: prevent certain shift sequences."""
+    """Add adjacency constraints: prevent certain shift sequences.
+    
+    Args:
+        locks: Lock constraints (force/forbid specific assignments).
+               If either shift in a forbidden pair is forced via locks, the constraint is skipped.
+    """
     for employee in employees:
         for i in range(len(dates) - 1):
             day1, day2 = dates[i], dates[i + 1]
@@ -281,6 +287,15 @@ def add_adjacency_constraints(
             for shift1, shift2 in forbidden_pairs:
                 # Cannot work shift1 on day1 and shift2 on day2
                 if (employee, day1, shift1) in x and (employee, day2, shift2) in x:
+                    # Skip constraint if either shift is forced via locks (employee request)
+                    # This allows employees to override forbidden adjacency pairs
+                    if locks:
+                        lock1 = locks.get((employee, day1, shift1))
+                        lock2 = locks.get((employee, day2, shift2))
+                        # If either shift is forced (True), skip the adjacency constraint
+                        if lock1 is True or lock2 is True:
+                            continue
+                    
                     model.Add(
                         x[(employee, day1, shift1)] + x[(employee, day2, shift2)] <= 1
                     )
@@ -415,8 +430,8 @@ def add_all_constraints(
     add_minimum_days_off_constraints(model, x, employees, dates, min_days_off, rest_codes)
     add_weekly_rest_constraints(model, x, employees, dates, rest_codes, weekly_rest_minimum)
     
-    # Adjacency rules
-    add_adjacency_constraints(model, x, employees, dates, forbidden_pairs)
+    # Adjacency rules (pass locks to allow employee requests to override forbidden pairs)
+    add_adjacency_constraints(model, x, employees, dates, forbidden_pairs, locks)
     
     # Sequencing rules (pass time_off, leave_codes, and locks to check for existing leave types and forced work)
     add_sequencing_constraints(model, x, employees, dates, time_off, leave_codes, required_rest_after_shifts, working_shift_codes, locks)
