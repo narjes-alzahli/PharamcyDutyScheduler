@@ -87,6 +87,14 @@ dev_origins = [
 # Production nginx website
 production_nginx = "http://185.226.124.30:8502"
 
+# Production domain origins
+production_domains = [
+    "https://dawamiplus.om",
+    "http://dawamiplus.om",
+    "https://www.dawamiplus.om",
+    "http://www.dawamiplus.om",
+]
+
 # Additional production origins from environment variable (optional)
 # Set FRONTEND_ORIGIN=http://your-ip-or-hostname if you need more origins
 additional_origins = os.getenv("FRONTEND_ORIGIN", "")
@@ -94,6 +102,7 @@ additional_origins = os.getenv("FRONTEND_ORIGIN", "")
 # Combine origins
 allowed_origins = dev_origins.copy()
 allowed_origins.append(production_nginx)  # Add your nginx website
+allowed_origins.extend(production_domains)  # Add domain origins
 if additional_origins:
     # Support multiple origins (comma-separated) or single origin
     extra_origins = [origin.strip() for origin in additional_origins.split(",") if origin.strip()]
