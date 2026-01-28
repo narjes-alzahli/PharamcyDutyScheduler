@@ -486,6 +486,209 @@ def load_month_holidays(year: int, month: int, db: Session = None) -> Dict[str, 
     return {}
 
 
+# [HISTORY_AWARE_FAIRNESS] START - History extraction function
+def load_assignment_history(
+    year: int,
+    month: int,
+    employees: List[str],
+    skills: Dict[str, Dict[str, bool]],
+    db: Session = None,
+    method: str = "rolling_window",
+    window_months: int = 3,
+    alpha: float = 0.7
+) -> Dict[str, Dict[str, int]]:
+    """Load assignment history from committed schedules for fairness calculations.
+    
+    [HISTORY_AWARE_FAIRNESS] This function extracts past assignments from CommittedSchedule
+    table and computes history counts per category per employee for fairness calculations.
+    
+    Args:
+        year: Year of the month being generated
+        month: Month being generated (1-12)
+        employees: List of employee names
+        skills: Dict mapping employee name to their skills dict
+        db: Database session (optional)
+        method: "rolling_window" or "decayed_carryover"
+        window_months: Number of months to look back for rolling window (default: 3)
+        alpha: Decay factor for carryover method (default: 0.7, range: 0.6-0.8)
+    
+    Returns:
+        Dict mapping category name to dict mapping employee name to history count.
+        Categories: "nights", "afternoons", "m4", "thursdays", "weekends"
+    """
+    from backend.models import CommittedSchedule
+    from backend.database import SessionLocal
+    import calendar
+    from datetime import date, timedelta
+    
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        # Calculate start date for history extraction
+        first_day_current_month = date(year, month, 1)
+        
+        if method == "rolling_window":
+            # Calculate start date: window_months months before current month
+            start_date = first_day_current_month
+            for _ in range(window_months):
+                if start_date.month == 1:
+                    start_date = date(start_date.year - 1, 12, 1)
+                else:
+                    start_date = date(start_date.year, start_date.month - 1, 1)
+        else:  # decayed_carryover
+            # For decayed carryover, we need to look back further to compute the decay
+            # We'll use a longer window (e.g., 6 months) to compute the decayed value
+            start_date = first_day_current_month
+            for _ in range(6):  # Look back 6 months for decay calculation
+                if start_date.month == 1:
+                    start_date = date(start_date.year - 1, 12, 1)
+                else:
+                    start_date = date(start_date.year, start_date.month - 1, 1)
+        
+        # Load all committed schedules in the history window
+        schedules = db.query(CommittedSchedule).filter(
+            CommittedSchedule.date >= start_date,
+            CommittedSchedule.date < first_day_current_month
+        ).all()
+        
+        # Initialize history counts per category per employee
+        history = {
+            "nights": {emp: 0 for emp in employees},
+            "afternoons": {emp: 0 for emp in employees},
+            "m4": {emp: 0 for emp in employees},
+            "thursdays": {emp: 0 for emp in employees},
+            "weekends": {emp: 0 for emp in employees}
+        }
+        
+        # Count assignments per category
+        for schedule in schedules:
+            emp = schedule.employee_name
+            if emp not in employees:
+                continue
+            
+            emp_skills = skills.get(emp, {})
+            schedule_date = schedule.date
+            shift = schedule.shift
+            
+            # Night shifts - only for employees with skill_N
+            if shift == "N" and emp_skills.get("N", False):
+                history["nights"][emp] += 1
+            
+            # Afternoon shifts - only for employees with skill_A
+            if shift == "A" and emp_skills.get("A", False):
+                history["afternoons"][emp] += 1
+            
+            # M4 shifts - only for employees with skill_M4
+            if shift == "M4" and emp_skills.get("M4", False):
+                history["m4"][emp] += 1
+            
+            # Thursday shifts (excluding M and M3) - only for multi-skill employees
+            if schedule_date.weekday() == 3:  # Thursday
+                qualified_shifts = [
+                    s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                    if emp_skills.get(s, False)
+                ]
+                is_multi_skill = len(qualified_shifts) > 1
+                if is_multi_skill and shift not in ["M", "M3"]:
+                    history["thursdays"][emp] += 1
+            
+            # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
+            if schedule_date.weekday() in [4, 5]:  # Friday or Saturday
+                qualified_shifts = [
+                    s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                    if emp_skills.get(s, False)
+                ]
+                is_multi_skill = len(qualified_shifts) > 1
+                if is_multi_skill:
+                    history["weekends"][emp] += 1
+        
+        # Apply decayed carryover if method is "decayed_carryover"
+        if method == "decayed_carryover":
+            # Group schedules by month and compute decayed values
+            monthly_counts = {}
+            for schedule in schedules:
+                emp = schedule.employee_name
+                if emp not in employees:
+                    continue
+                
+                schedule_date = schedule.date
+                month_key = (schedule_date.year, schedule_date.month)
+                
+                if month_key not in monthly_counts:
+                    monthly_counts[month_key] = {
+                        "nights": {e: 0 for e in employees},
+                        "afternoons": {e: 0 for e in employees},
+                        "m4": {e: 0 for e in employees},
+                        "thursdays": {e: 0 for e in employees},
+                        "weekends": {e: 0 for e in employees}
+                    }
+                
+                emp_skills = skills.get(emp, {})
+                shift = schedule.shift
+                
+                # Count by category
+                if shift == "N" and emp_skills.get("N", False):
+                    monthly_counts[month_key]["nights"][emp] += 1
+                if shift == "A" and emp_skills.get("A", False):
+                    monthly_counts[month_key]["afternoons"][emp] += 1
+                if shift == "M4" and emp_skills.get("M4", False):
+                    monthly_counts[month_key]["m4"][emp] += 1
+                # Thursday shifts (excluding M and M3) - only for multi-skill employees
+                if schedule_date.weekday() == 3:  # Thursday
+                    qualified_shifts = [
+                        s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                        if emp_skills.get(s, False)
+                    ]
+                    is_multi_skill = len(qualified_shifts) > 1
+                    if is_multi_skill and shift not in ["M", "M3"]:
+                        monthly_counts[month_key]["thursdays"][emp] += 1
+                # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
+                if schedule_date.weekday() in [4, 5]:  # Weekend
+                    qualified_shifts = [
+                        s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                        if emp_skills.get(s, False)
+                    ]
+                    is_multi_skill = len(qualified_shifts) > 1
+                    if is_multi_skill:
+                        monthly_counts[month_key]["weekends"][emp] += 1
+            
+            # Compute decayed carryover: history = round(alpha * previous_history + last_month_count)
+            # Sort months chronologically
+            sorted_months = sorted(monthly_counts.keys())
+            
+            # Initialize decayed history
+            decayed_history = {
+                "nights": {emp: 0.0 for emp in employees},
+                "afternoons": {emp: 0.0 for emp in employees},
+                "m4": {emp: 0.0 for emp in employees},
+                "thursdays": {emp: 0.0 for emp in employees},
+                "weekends": {emp: 0.0 for emp in employees}
+            }
+            
+            # Apply decay recursively from oldest to newest month
+            for month_key in sorted_months:
+                for category in ["nights", "afternoons", "m4", "thursdays", "weekends"]:
+                    for emp in employees:
+                        last_month_count = monthly_counts[month_key][category][emp]
+                        decayed_history[category][emp] = alpha * decayed_history[category][emp] + last_month_count
+            
+            # Round final values
+            for category in ["nights", "afternoons", "m4", "thursdays", "weekends"]:
+                for emp in employees:
+                    history[category][emp] = round(decayed_history[category][emp])
+        
+        return history
+    finally:
+        if close_db:
+            db.close()
+# [HISTORY_AWARE_FAIRNESS] END - History extraction function
+
+
 def load_previous_month_last_days(year: int, month: int, db: Session = None) -> Dict[Tuple[str, date], str]:
     """Load the last 2 days of the immediately previous committed month.
     

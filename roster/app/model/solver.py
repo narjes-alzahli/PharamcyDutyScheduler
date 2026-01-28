@@ -101,8 +101,14 @@ class RosterSolver:
             working_shift_codes  # Pass working shift codes from database/config
         )
         
+        # [HISTORY_AWARE_FAIRNESS] Extract assignment history for fairness calculations
+        history_counts = None
+        if hasattr(data, 'history_counts'):
+            history_counts = data.history_counts
+        
         # Add objective
-        self.scoring.add_objective(model, x, employees, dates, demands, skills)
+        # [HISTORY_AWARE_FAIRNESS] Pass history_counts to scoring
+        self.scoring.add_objective(model, x, employees, dates, demands, skills, history_counts)
         
         # Solve
         solver = cp_model.CpSolver()

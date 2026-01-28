@@ -102,6 +102,8 @@ class RosterData:
         self.leave_dict: Dict[Tuple[str, date], str] = {}
         self.special_requirements_dict: Dict[Tuple[str, date, str], bool] = {}
         self.holidays_dict: Dict[date, str] = {}  # Separate holidays dict for pending_off calculation
+        # [HISTORY_AWARE_FAIRNESS] Assignment history for fairness calculations
+        self.history_counts: Dict[str, Dict[str, int]] = None
         
     def load_data(self) -> None:
         """Load all data from CSV files."""

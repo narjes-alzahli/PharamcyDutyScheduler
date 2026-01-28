@@ -329,6 +329,25 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             data = RosterData(temp_path, config)
             data.load_data()
             
+            # [HISTORY_AWARE_FAIRNESS] Extract assignment history for fairness calculations
+            # Build skills dict from employees data
+            skills_dict = {}
+            for emp_data in data.employees:
+                skills_dict[emp_data.employee] = data.get_employee_skills(emp_data.employee)
+            
+            # Extract history using rolling window method (default: 3 months)
+            from backend.roster_data_loader import load_assignment_history
+            history_counts = load_assignment_history(
+                request.year,
+                request.month,
+                data.get_employee_names(),
+                skills_dict,
+                db=db,
+                method="rolling_window",
+                window_months=3
+            )
+            data.history_counts = history_counts
+            
             solver = RosterSolver(config)
             
             success, assignments, metrics = solver.solve(

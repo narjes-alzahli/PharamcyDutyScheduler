@@ -15,6 +15,7 @@ class RosterScoring:
     def __init__(self, weights: Dict[str, float]):
         self.weights = weights
     
+    # [HISTORY_AWARE_FAIRNESS] Modified to accept history_counts parameter
     def add_objective(
         self,
         model: cp_model.CpModel,
@@ -22,9 +23,16 @@ class RosterScoring:
         employees: List[str],
         dates: List[date],
         demands: Dict[date, Dict[str, int]],
-        skills: Dict[str, Dict[str, bool]]
+        skills: Dict[str, Dict[str, bool]],
+        history_counts: Dict[str, Dict[str, int]] = None  # [HISTORY_AWARE_FAIRNESS] Added parameter
     ) -> None:
-        """Add objective function to minimize penalties."""
+        """Add objective function to minimize penalties.
+        
+        Args:
+            history_counts: Dict mapping category name to dict mapping employee name to history count.
+                          Categories: "nights", "afternoons", "m4", "thursdays", "weekends"
+                          [HISTORY_AWARE_FAIRNESS] This parameter enables history-aware fairness
+        """
         objectives = []
         
         # 1. Unfilled coverage penalty
@@ -41,9 +49,10 @@ class RosterScoring:
         if overstaffing_vars:
             objectives.append(sum(overstaffing_vars) * self.weights.get("overstaffing", 10.0))
         
-        # 2. Fairness penalty
+        # 2. Fairness penalty (with history awareness)
+        # [HISTORY_AWARE_FAIRNESS] Pass history_counts to fairness calculation
         fairness_vars = self._add_fairness_variables(
-            model, x, employees, dates, skills
+            model, x, employees, dates, skills, history_counts
         )
         if fairness_vars:
             objectives.append(sum(fairness_vars) * self.weights.get("fairness", 5.0))
@@ -124,16 +133,35 @@ class RosterScoring:
         
         return overstaffing_vars
     
+    # [HISTORY_AWARE_FAIRNESS] Modified to use history_counts in fairness calculations
     def _add_fairness_variables(
         self,
         model: cp_model.CpModel,
         x: Dict[Tuple[str, date, str], cp_model.IntVar],
         employees: List[str],
         dates: List[date],
-        skills: Dict[str, Dict[str, bool]]
+        skills: Dict[str, Dict[str, bool]],
+        history_counts: Dict[str, Dict[str, int]] = None  # [HISTORY_AWARE_FAIRNESS] Added parameter
     ) -> List[cp_model.IntVar]:
-        """Add variables to penalize unfair distribution of shifts."""
+        """Add variables to penalize unfair distribution of shifts.
+        
+        Args:
+            history_counts: Dict mapping category name to dict mapping employee name to history count.
+                          Categories: "nights", "afternoons", "m4", "thursdays", "weekends"
+                          If None, uses current period only (no history).
+                          [HISTORY_AWARE_FAIRNESS] This enables history-aware fairness across months
+        """
         fairness_vars = []
+        
+        # [HISTORY_AWARE_FAIRNESS] Default to empty history if not provided
+        if history_counts is None:
+            history_counts = {
+                "nights": {},
+                "afternoons": {},
+                "m4": {},
+                "thursdays": {},
+                "weekends": {}
+            }
         
         # Filter out clinicians (clinic-only employees: only have CL skill, no other skills)
         non_clinicians = []
@@ -153,11 +181,11 @@ class RosterScoring:
             return fairness_vars  # Need at least 2 non-clinicians for fairness
         
         # Count shifts per non-clinician employee (filtered by specific skills)
-        night_counts = []
-        afternoon_counts = []
-        m4_counts = []
-        thursday_counts = []
-        weekend_counts = []
+        night_total_loads = []
+        afternoon_total_loads = []
+        m4_total_loads = []
+        thursday_total_loads = []
+        weekend_total_loads = []
         total_working_counts = []
         
         for emp in non_clinicians:
@@ -178,46 +206,75 @@ class RosterScoring:
             # Night shifts - only for employees with skill_N
             if emp_skills.get("N", False):
                 night_vars = [x[(emp, day, "N")] for day in dates]
-                night_count = model.NewIntVar(0, len(dates), f"night_count_{emp}")
-                model.Add(night_count == sum(night_vars))
-                night_counts.append(night_count)
+                new_night_count = model.NewIntVar(0, len(dates), f"new_night_count_{emp}")
+                model.Add(new_night_count == sum(night_vars))
+                
+                # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
+                history_nights = history_counts.get("nights", {}).get(emp, 0)
+                total_night_load = model.NewIntVar(history_nights, history_nights + len(dates), f"total_night_load_{emp}")
+                model.Add(total_night_load == history_nights + new_night_count)
+                night_total_loads.append(total_night_load)
             
             # Afternoon shifts - only for employees with skill_A
             if emp_skills.get("A", False):
                 afternoon_vars = [x[(emp, day, "A")] for day in dates]
-                afternoon_count = model.NewIntVar(0, len(dates), f"afternoon_count_{emp}")
-                model.Add(afternoon_count == sum(afternoon_vars))
-                afternoon_counts.append(afternoon_count)
+                new_afternoon_count = model.NewIntVar(0, len(dates), f"new_afternoon_count_{emp}")
+                model.Add(new_afternoon_count == sum(afternoon_vars))
+                
+                # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
+                history_afternoons = history_counts.get("afternoons", {}).get(emp, 0)
+                total_afternoon_load = model.NewIntVar(history_afternoons, history_afternoons + len(dates), f"total_afternoon_load_{emp}")
+                model.Add(total_afternoon_load == history_afternoons + new_afternoon_count)
+                afternoon_total_loads.append(total_afternoon_load)
             
             # M4 shifts - only for employees with skill_M4
             if emp_skills.get("M4", False):
                 m4_vars = [x[(emp, day, "M4")] for day in dates]
-                m4_count = model.NewIntVar(0, len(dates), f"m4_count_{emp}")
-                model.Add(m4_count == sum(m4_vars))
-                m4_counts.append(m4_count)
+                new_m4_count = model.NewIntVar(0, len(dates), f"new_m4_count_{emp}")
+                model.Add(new_m4_count == sum(m4_vars))
+                
+                # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
+                history_m4 = history_counts.get("m4", {}).get(emp, 0)
+                total_m4_load = model.NewIntVar(history_m4, history_m4 + len(dates), f"total_m4_load_{emp}")
+                model.Add(total_m4_load == history_m4 + new_m4_count)
+                m4_total_loads.append(total_m4_load)
             
-            # Thursday shifts (excluding M and M3)
+            # Thursday shifts (excluding M and M3) - only for multi-skill employees
+            # Note: is_single_skill check above ensures we only process multi-skill employees here
             thursday_vars = []
             for day in dates:
                 if day.weekday() == 3:  # Thursday
                     for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
                         if shift not in ["M", "M3"]:  # Exclude M and M3
                             thursday_vars.append(x[(emp, day, shift)])
-            thursday_count = model.NewIntVar(0, len(dates), f"thursday_count_{emp}")
-            model.Add(thursday_count == sum(thursday_vars))
-            thursday_counts.append(thursday_count)
+            new_thursday_count = model.NewIntVar(0, len(dates), f"new_thursday_count_{emp}")
+            model.Add(new_thursday_count == sum(thursday_vars))
             
-            # Weekend shifts (Friday=4, Saturday=5)
+            # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
+            history_thursdays = history_counts.get("thursdays", {}).get(emp, 0)
+            total_thursday_load = model.NewIntVar(history_thursdays, history_thursdays + len(dates), f"total_thursday_load_{emp}")
+            model.Add(total_thursday_load == history_thursdays + new_thursday_count)
+            thursday_total_loads.append(total_thursday_load)
+            
+            # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
+            # Note: is_single_skill check above ensures we only process multi-skill employees here
             weekend_vars = []
             for day in dates:
                 if day.weekday() in [4, 5]:  # Friday or Saturday
                     for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
                         weekend_vars.append(x[(emp, day, shift)])
-            weekend_count = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), f"weekend_count_{emp}")
-            model.Add(weekend_count == sum(weekend_vars))
-            weekend_counts.append(weekend_count)
+            new_weekend_count = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), f"new_weekend_count_{emp}")
+            model.Add(new_weekend_count == sum(weekend_vars))
+            
+            # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
+            history_weekends = history_counts.get("weekends", {}).get(emp, 0)
+            max_weekend_possible = len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST)
+            total_weekend_load = model.NewIntVar(history_weekends, history_weekends + max_weekend_possible, f"total_weekend_load_{emp}")
+            model.Add(total_weekend_load == history_weekends + new_weekend_count)
+            weekend_total_loads.append(total_weekend_load)
             
             # Total working days (all shifts) - only for multi-skill employees
+            # Note: This category doesn't use history (as per requirements)
             working_vars = []
             for day in dates:
                 for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
@@ -226,44 +283,45 @@ class RosterScoring:
             model.Add(total_working == sum(working_vars))
             total_working_counts.append(total_working)
         
-        # Fairness penalties (minimize variance between non-clinicians)
-        if night_counts:
-            max_nights = model.NewIntVar(0, len(dates), "max_nights")
-            min_nights = model.NewIntVar(0, len(dates), "min_nights")
-            for count in night_counts:
-                model.Add(max_nights >= count)
-                model.Add(min_nights <= count)
-            night_fairness = model.NewIntVar(0, len(dates), "night_fairness")
+        # [HISTORY_AWARE_FAIRNESS] Fairness penalties (minimize variance between non-clinicians)
+        # Use total_load (history + new) for history-aware categories
+        if night_total_loads:
+            max_nights = model.NewIntVar(0, len(dates) * 10, "max_nights")  # Increased upper bound to account for history
+            min_nights = model.NewIntVar(0, len(dates) * 10, "min_nights")
+            for load in night_total_loads:
+                model.Add(max_nights >= load)
+                model.Add(min_nights <= load)
+            night_fairness = model.NewIntVar(0, len(dates) * 10, "night_fairness")
             model.Add(night_fairness == max_nights - min_nights)
             fairness_vars.append(night_fairness)
             
-        if afternoon_counts:
-            max_afternoons = model.NewIntVar(0, len(dates), "max_afternoons")
-            min_afternoons = model.NewIntVar(0, len(dates), "min_afternoons")
-            for count in afternoon_counts:
-                model.Add(max_afternoons >= count)
-                model.Add(min_afternoons <= count)
-            afternoon_fairness = model.NewIntVar(0, len(dates), "afternoon_fairness")
+        if afternoon_total_loads:
+            max_afternoons = model.NewIntVar(0, len(dates) * 10, "max_afternoons")
+            min_afternoons = model.NewIntVar(0, len(dates) * 10, "min_afternoons")
+            for load in afternoon_total_loads:
+                model.Add(max_afternoons >= load)
+                model.Add(min_afternoons <= load)
+            afternoon_fairness = model.NewIntVar(0, len(dates) * 10, "afternoon_fairness")
             model.Add(afternoon_fairness == max_afternoons - min_afternoons)
             fairness_vars.append(afternoon_fairness)
             
-        if m4_counts:
-            max_m4 = model.NewIntVar(0, len(dates), "max_m4")
-            min_m4 = model.NewIntVar(0, len(dates), "min_m4")
-            for count in m4_counts:
-                model.Add(max_m4 >= count)
-                model.Add(min_m4 <= count)
-            m4_fairness = model.NewIntVar(0, len(dates), "m4_fairness")
+        if m4_total_loads:
+            max_m4 = model.NewIntVar(0, len(dates) * 10, "max_m4")
+            min_m4 = model.NewIntVar(0, len(dates) * 10, "min_m4")
+            for load in m4_total_loads:
+                model.Add(max_m4 >= load)
+                model.Add(min_m4 <= load)
+            m4_fairness = model.NewIntVar(0, len(dates) * 10, "m4_fairness")
             model.Add(m4_fairness == max_m4 - min_m4)
             fairness_vars.append(m4_fairness)
             
-        if thursday_counts:
-            max_thursday = model.NewIntVar(0, len(dates), "max_thursday")
-            min_thursday = model.NewIntVar(0, len(dates), "min_thursday")
-            for count in thursday_counts:
-                model.Add(max_thursday >= count)
-                model.Add(min_thursday <= count)
-            thursday_fairness = model.NewIntVar(0, len(dates), "thursday_fairness")
+        if thursday_total_loads:
+            max_thursday = model.NewIntVar(0, len(dates) * 10, "max_thursday")
+            min_thursday = model.NewIntVar(0, len(dates) * 10, "min_thursday")
+            for load in thursday_total_loads:
+                model.Add(max_thursday >= load)
+                model.Add(min_thursday <= load)
+            thursday_fairness = model.NewIntVar(0, len(dates) * 10, "thursday_fairness")
             model.Add(thursday_fairness == max_thursday - min_thursday)
             fairness_vars.append(thursday_fairness)
             
@@ -277,13 +335,13 @@ class RosterScoring:
             model.Add(working_fairness == max_working - min_working)
             fairness_vars.append(working_fairness)
             
-        if weekend_counts:
-            max_weekends = model.NewIntVar(0, len(dates) * 8, "max_weekends")
-            min_weekends = model.NewIntVar(0, len(dates) * 8, "min_weekends")
-            for count in weekend_counts:
-                model.Add(max_weekends >= count)
-                model.Add(min_weekends <= count)
-            weekend_fairness = model.NewIntVar(0, len(dates) * 8, "weekend_fairness")
+        if weekend_total_loads:
+            max_weekends = model.NewIntVar(0, len(dates) * 20, "max_weekends")  # Increased upper bound
+            min_weekends = model.NewIntVar(0, len(dates) * 20, "min_weekends")
+            for load in weekend_total_loads:
+                model.Add(max_weekends >= load)
+                model.Add(min_weekends <= load)
+            weekend_fairness = model.NewIntVar(0, len(dates) * 20, "weekend_fairness")
             model.Add(weekend_fairness == max_weekends - min_weekends)
             fairness_vars.append(weekend_fairness)
         
