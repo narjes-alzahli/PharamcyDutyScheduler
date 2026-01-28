@@ -23,7 +23,6 @@ class Employee(BaseModel):
     skill_IP_P: bool = Field(alias="skill_IP_P")
     skill_P: bool = Field(alias="skill_P")
     skill_M_P: bool = Field(alias="skill_M_P")
-    clinic_only: bool = Field(default=False, alias="clinic_only")
     maxN: int = Field(ge=0, alias="maxN")
     maxA: int = Field(ge=0, alias="maxA")
     min_days_off: int = Field(ge=1, alias="min_days_off")

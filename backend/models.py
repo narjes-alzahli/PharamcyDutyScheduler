@@ -136,7 +136,6 @@ class EmployeeSkills(Base):
     skill_IP_P = Column(Boolean, default=True)
     skill_P = Column(Boolean, default=True)
     skill_M_P = Column(Boolean, default=True)
-    clinic_only = Column(Boolean, default=False)
     maxN = Column(Integer, default=3)  # Maximum night shifts
     maxA = Column(Integer, default=3)  # Maximum afternoon shifts
     min_days_off = Column(Integer, default=4)  # Minimum days off per period

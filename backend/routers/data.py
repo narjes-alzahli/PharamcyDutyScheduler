@@ -144,7 +144,6 @@ async def update_employees(
             emp.skill_IP_P = bool(emp_data.get('skill_IP_P', True))
             emp.skill_P = bool(emp_data.get('skill_P', True))
             emp.skill_M_P = bool(emp_data.get('skill_M_P', True))
-            emp.clinic_only = bool(emp_data.get('clinic_only', False))
             emp.maxN = int(emp_data.get('maxN', 3))
             emp.maxA = int(emp_data.get('maxA', 3))
             emp.min_days_off = int(emp_data.get('min_days_off', 4))
@@ -166,7 +165,6 @@ async def update_employees(
                 skill_IP_P=bool(emp_data.get('skill_IP_P', True)),
                 skill_P=bool(emp_data.get('skill_P', True)),
                 skill_M_P=bool(emp_data.get('skill_M_P', True)),
-                clinic_only=bool(emp_data.get('clinic_only', False)),
                 maxN=int(emp_data.get('maxN', 3)),
                 maxA=int(emp_data.get('maxA', 3)),
                 min_days_off=int(emp_data.get('min_days_off', 4)),

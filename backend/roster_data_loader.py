@@ -75,7 +75,6 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
             'skill_IP_P': emp.skill_IP_P,
             'skill_P': emp.skill_P,
             'skill_M_P': emp.skill_M_P,
-            'clinic_only': emp.clinic_only,
             'maxN': emp.maxN,
             'maxA': emp.maxA,
             'min_days_off': emp.min_days_off,
@@ -88,7 +87,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
         employees_df = pd.DataFrame(columns=[
             'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 
             'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E', 
-            'skill_IP_P', 'skill_P', 'skill_M_P', 'clinic_only',
+            'skill_IP_P', 'skill_P', 'skill_M_P',
             'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
         ])
     

@@ -221,7 +221,6 @@ export const RosterGenerator: React.FC = () => {
         time_limit: 120,
         unfilled_penalty: 1000.0,
         fairness_weight: 5.0,
-        switching_penalty: 1.0,
       };
 
       const response = await solverAPI.solve(request);

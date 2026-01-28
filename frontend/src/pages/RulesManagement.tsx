@@ -532,7 +532,6 @@ export const RulesManagement: React.FC = () => {
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>Ensures all shifts are covered (most important)</li>
                 <li>Distributes shifts fairly among staff</li>
-                <li>Minimizes switching between different work areas</li>
                 <li>Prefers giving days off after night shifts</li>
               </ul>
             </section>

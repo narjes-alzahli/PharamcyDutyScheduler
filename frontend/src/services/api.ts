@@ -264,7 +264,6 @@ export interface SolveRequest {
   time_limit?: number;
   unfilled_penalty?: number;
   fairness_weight?: number;
-  switching_penalty?: number;
 }
 
 export interface SolveResponse {

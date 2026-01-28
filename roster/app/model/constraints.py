@@ -102,8 +102,16 @@ def add_skill_constraints(
         employee_skills = skills[employee]
         
         for day in dates:
-            # Handle clinic_only employees
-            if employee_skills.get("clinic_only", False):
+            # Check if employee is clinic-only (only has CL skill, all others False)
+            has_cl_skill = employee_skills.get("CL", False)
+            has_other_skills = any(
+                employee_skills.get(shift, False)
+                for shift in working_shifts
+                if shift != "CL"
+            )
+            is_clinic_only = has_cl_skill and not has_other_skills
+            
+            if is_clinic_only:
                 # Clinic-only employees can only work CL shifts
                 # Forbid all working shifts except CL
                 for shift_type in working_shifts:
@@ -115,14 +123,6 @@ def add_skill_constraints(
             for shift_type in working_shifts:
                 if shift_type in employee_skills and not employee_skills[shift_type]:
                     # Employee cannot work this shift type
-                    model.Add(x[(employee, day, shift_type)] == 0)
-                
-                # Handle IP constraint (skill_IP)
-                if shift_type == "IP" and not employee_skills.get("skill_IP", True):
-                    model.Add(x[(employee, day, shift_type)] == 0)
-                
-                # Handle Harat constraint (skill_H)
-                if shift_type == "H" and not employee_skills.get("skill_H", True):
                     model.Add(x[(employee, day, shift_type)] == 0)
 
 

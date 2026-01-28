@@ -135,57 +135,96 @@ class RosterScoring:
         """Add variables to penalize unfair distribution of shifts."""
         fairness_vars = []
         
-        # Filter out clinicians (clinic_only employees)
-        non_clinicians = [emp for emp in employees if not skills.get(emp, {}).get("clinic_only", False)]
+        # Filter out clinicians (clinic-only employees: only have CL skill, no other skills)
+        non_clinicians = []
+        for emp in employees:
+            emp_skills = skills.get(emp, {})
+            has_cl_skill = emp_skills.get("CL", False)
+            has_other_skills = any(
+                emp_skills.get(shift, False)
+                for shift in _DEFAULT_STANDARD_SHIFTS_LIST
+                if shift != "CL"
+            )
+            is_clinic_only = has_cl_skill and not has_other_skills
+            if not is_clinic_only:
+                non_clinicians.append(emp)
         
         if len(non_clinicians) < 2:
             return fairness_vars  # Need at least 2 non-clinicians for fairness
         
-        # Count shifts per non-clinician employee
+        # Count shifts per non-clinician employee (filtered by specific skills)
         night_counts = []
         afternoon_counts = []
         m4_counts = []
-        total_working_counts = []
+        thursday_counts = []
         weekend_counts = []
+        total_working_counts = []
         
         for emp in non_clinicians:
-            # Night shifts
-            night_vars = [x[(emp, day, "N")] for day in dates]
-            night_count = model.NewIntVar(0, len(dates), f"night_count_{emp}")
-            model.Add(night_count == sum(night_vars))
-            night_counts.append(night_count)
+            emp_skills = skills.get(emp, {})
             
-            # Afternoon shifts
-            afternoon_vars = [x[(emp, day, "A")] for day in dates]
-            afternoon_count = model.NewIntVar(0, len(dates), f"afternoon_count_{emp}")
-            model.Add(afternoon_count == sum(afternoon_vars))
-            afternoon_counts.append(afternoon_count)
+            # Check if employee is single-skill (they work Sun-Thu, rest Fri-Sat)
+            qualified_shifts = [
+                shift for shift in _DEFAULT_STANDARD_SHIFTS_LIST
+                if emp_skills.get(shift, False)
+            ]
+            is_single_skill = len(qualified_shifts) == 1
             
-            # M4 shifts
-            m4_vars = [x[(emp, day, "M4")] for day in dates]
-            m4_count = model.NewIntVar(0, len(dates), f"m4_count_{emp}")
-            model.Add(m4_count == sum(m4_vars))
-            m4_counts.append(m4_count)
+            # Skip single-skill employees from all fairness calculations
+            # (they have fixed schedules: work Sun-Thu, rest Fri-Sat)
+            if is_single_skill:
+                continue
             
-            # Total working days (all shifts except DO)
-            working_shifts = _DEFAULT_STANDARD_SHIFTS_LIST
-            working_vars = []
+            # Night shifts - only for employees with skill_N
+            if emp_skills.get("N", False):
+                night_vars = [x[(emp, day, "N")] for day in dates]
+                night_count = model.NewIntVar(0, len(dates), f"night_count_{emp}")
+                model.Add(night_count == sum(night_vars))
+                night_counts.append(night_count)
+            
+            # Afternoon shifts - only for employees with skill_A
+            if emp_skills.get("A", False):
+                afternoon_vars = [x[(emp, day, "A")] for day in dates]
+                afternoon_count = model.NewIntVar(0, len(dates), f"afternoon_count_{emp}")
+                model.Add(afternoon_count == sum(afternoon_vars))
+                afternoon_counts.append(afternoon_count)
+            
+            # M4 shifts - only for employees with skill_M4
+            if emp_skills.get("M4", False):
+                m4_vars = [x[(emp, day, "M4")] for day in dates]
+                m4_count = model.NewIntVar(0, len(dates), f"m4_count_{emp}")
+                model.Add(m4_count == sum(m4_vars))
+                m4_counts.append(m4_count)
+            
+            # Thursday shifts (excluding M and M3)
+            thursday_vars = []
             for day in dates:
-                for shift in working_shifts:
-                    working_vars.append(x[(emp, day, shift)])
-            total_working = model.NewIntVar(0, len(dates) * len(working_shifts), f"total_working_{emp}")
-            model.Add(total_working == sum(working_vars))
-            total_working_counts.append(total_working)
+                if day.weekday() == 3:  # Thursday
+                    for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
+                        if shift not in ["M", "M3"]:  # Exclude M and M3
+                            thursday_vars.append(x[(emp, day, shift)])
+            thursday_count = model.NewIntVar(0, len(dates), f"thursday_count_{emp}")
+            model.Add(thursday_count == sum(thursday_vars))
+            thursday_counts.append(thursday_count)
             
             # Weekend shifts (Friday=4, Saturday=5)
             weekend_vars = []
             for day in dates:
                 if day.weekday() in [4, 5]:  # Friday or Saturday
-                    for shift in working_shifts:
+                    for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
                         weekend_vars.append(x[(emp, day, shift)])
-            weekend_count = model.NewIntVar(0, len(dates) * len(working_shifts), f"weekend_count_{emp}")
+            weekend_count = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), f"weekend_count_{emp}")
             model.Add(weekend_count == sum(weekend_vars))
             weekend_counts.append(weekend_count)
+            
+            # Total working days (all shifts) - only for multi-skill employees
+            working_vars = []
+            for day in dates:
+                for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
+                    working_vars.append(x[(emp, day, shift)])
+            total_working = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), f"total_working_{emp}")
+            model.Add(total_working == sum(working_vars))
+            total_working_counts.append(total_working)
         
         # Fairness penalties (minimize variance between non-clinicians)
         if night_counts:
@@ -218,13 +257,23 @@ class RosterScoring:
             model.Add(m4_fairness == max_m4 - min_m4)
             fairness_vars.append(m4_fairness)
             
+        if thursday_counts:
+            max_thursday = model.NewIntVar(0, len(dates), "max_thursday")
+            min_thursday = model.NewIntVar(0, len(dates), "min_thursday")
+            for count in thursday_counts:
+                model.Add(max_thursday >= count)
+                model.Add(min_thursday <= count)
+            thursday_fairness = model.NewIntVar(0, len(dates), "thursday_fairness")
+            model.Add(thursday_fairness == max_thursday - min_thursday)
+            fairness_vars.append(thursday_fairness)
+            
         if total_working_counts:
-            max_working = model.NewIntVar(0, len(dates) * 8, "max_working")
-            min_working = model.NewIntVar(0, len(dates) * 8, "min_working")
+            max_working = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), "max_working")
+            min_working = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), "min_working")
             for count in total_working_counts:
                 model.Add(max_working >= count)
                 model.Add(min_working <= count)
-            working_fairness = model.NewIntVar(0, len(dates) * 8, "working_fairness")
+            working_fairness = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), "working_fairness")
             model.Add(working_fairness == max_working - min_working)
             fairness_vars.append(working_fairness)
             
