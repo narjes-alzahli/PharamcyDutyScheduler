@@ -1,6 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { parseDateToISO } from '../utils/dateFormat';
 
+// Weekend color key (same as ScheduleTable uses)
+const SPECIAL_COLOR_KEYS = {
+  weekend: '__weekend',
+} as const;
+
+// Default weekend color (same as ScheduleTable)
+const defaultWeekendColor = '#5f8ace'; // Medium Blue - Weekend
+
 interface Request {
   request_id: string;
   employee: string;
@@ -58,16 +66,29 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
   }, [year, month]);
 
   // Get all unique employees - use allEmployees if provided, otherwise only show employees with requests
+  // Preserve order from EmployeeSkills (by ID) - same as schedule order
   const employees = useMemo(() => {
     if (allEmployees && allEmployees.length > 0) {
-      // Show all employees if provided
-      return [...allEmployees].sort();
+      // Show all employees if provided - preserve order (already ordered by EmployeeSkills.id from backend)
+      return [...allEmployees];
     }
     // Otherwise, only show employees who have requests
+    // Try to preserve EmployeeSkills order if allEmployees is available for reference
     const empSet = new Set<string>();
     leaveRequests.forEach(req => empSet.add(req.employee));
     shiftRequests.forEach(req => empSet.add(req.employee));
-    return Array.from(empSet).sort();
+    const employeesWithRequests = Array.from(empSet);
+    
+    // If we have allEmployees, use it to order the employees with requests
+    if (allEmployees && allEmployees.length > 0) {
+      const ordered = allEmployees.filter(emp => employeesWithRequests.includes(emp));
+      // Add any employees with requests that aren't in allEmployees (shouldn't happen, but just in case)
+      const unordered = employeesWithRequests.filter(emp => !allEmployees.includes(emp));
+      return [...ordered, ...unordered];
+    }
+    
+    // Fallback: alphabetical sort if no allEmployees reference
+    return employeesWithRequests.sort();
   }, [leaveRequests, shiftRequests, allEmployees]);
 
   // Create request map for quick lookup
@@ -153,6 +174,37 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return days[date.getDay()];
   };
+
+  const isFriday = (dateStr: string) => {
+    return getDayOfWeek(dateStr) === 'Fri';
+  };
+
+  const isSaturday = (dateStr: string) => {
+    return getDayOfWeek(dateStr) === 'Sat';
+  };
+
+  const isWeekend = (dateStr: string) => {
+    return isFriday(dateStr) || isSaturday(dateStr);
+  };
+
+  // Load weekend color from localStorage (same as ScheduleTable)
+  const getWeekendColor = (): string => {
+    try {
+      const saved = localStorage.getItem('shiftColors');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed[SPECIAL_COLOR_KEYS.weekend]) {
+          return parsed[SPECIAL_COLOR_KEYS.weekend];
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load weekend color:', e);
+    }
+    return defaultWeekendColor;
+  };
+
+  // Get weekend color (memoized to avoid recalculation)
+  const weekendColor = useMemo(() => getWeekendColor(), []);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -282,16 +334,21 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
                 <th className="border border-black px-1 py-1 text-left font-bold sticky left-0 bg-gray-100 z-10 text-[10px]">
                   Employee
                 </th>
-                {dates.map(dateStr => (
-                  <th
-                    key={dateStr}
-                    className="border border-black px-0.5 py-0.5 text-center font-semibold min-w-[28px]"
-                    title={`${getDayOfWeek(dateStr)} ${formatDate(dateStr)}`}
-                  >
-                    <div className="text-[10px] leading-tight">{formatDate(dateStr)}</div>
-                    <div className="text-[10px] text-gray-500 leading-tight">{getDayOfWeek(dateStr)}</div>
-                  </th>
-                ))}
+                {dates.map(dateStr => {
+                  const weekend = isWeekend(dateStr);
+                  
+                  return (
+                    <th
+                      key={dateStr}
+                      className="border border-black px-0.5 py-0.5 text-center font-semibold min-w-[28px]"
+                      title={`${getDayOfWeek(dateStr)} ${formatDate(dateStr)}`}
+                      style={weekend ? { backgroundColor: weekendColor } : undefined}
+                    >
+                      <div className="text-[10px] leading-tight">{formatDate(dateStr)}</div>
+                      <div className="text-[10px] text-gray-500 leading-tight">{getDayOfWeek(dateStr)}</div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -311,7 +368,15 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
                     const isRangeStart = range && dateStr === range.fromDate;
                     const isRangeEnd = range && dateStr === range.toDate;
                     
-                    const backgroundColor = request ? getStatusColor(request.status) : 'transparent';
+                    // Use request status color if there's a request, otherwise use weekend color for weekends
+                    const weekend = isWeekend(dateStr);
+                    let backgroundColor = request ? getStatusColor(request.status) : 'transparent';
+                    
+                    // Apply weekend background color for empty cells on weekends
+                    if (!request && weekend) {
+                      backgroundColor = weekendColor; // Same color for both Friday and Saturday
+                    }
+                    
                     const isHighlighted = isSelected;
                     const shouldHoverScale = isHovered;
                     

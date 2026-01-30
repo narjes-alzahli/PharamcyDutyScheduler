@@ -67,3 +67,8 @@ htmlcov/
 # Server-specific files (not for repository)
 SERVER_MIGRATION.md
 backend/migrate_server_data_to_database.py
+
+# Local schedule/request data files (exported from UI, not for repository)
+*_schedule.json
+*_requests.json
+shift_colors.json
