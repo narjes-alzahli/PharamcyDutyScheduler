@@ -784,8 +784,84 @@ def load_assignment_history(
 # [HISTORY_AWARE_FAIRNESS] END - History extraction function
 
 
+def load_previous_period_last_days(start_date: date, db: Session = None) -> Dict[Tuple[str, date], str]:
+    """Load the last 2 days of the immediately previous committed period.
+    
+    This function finds the most recent committed schedule before start_date and loads
+    the last 2 days of that period. This works for normal months and special periods
+    like Ramadan (pre-Ramadan, Ramadan, post-Ramadan).
+    
+    Args:
+        start_date: Start date of the period being generated
+        db: Database session (optional, will create one if not provided)
+    
+    Returns:
+        Dict mapping (employee_name, date) to shift code for the last 2 days of previous period.
+        Returns empty dict if no previous period exists or isn't committed.
+    """
+    from backend.models import CommittedSchedule
+    from backend.database import SessionLocal
+    
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        # Find all unique committed dates before start_date
+        # Get distinct dates ordered by date descending (most recent first)
+        # Limit to 2 to get the last 2 days of the previous period
+        period_dates_result = db.query(CommittedSchedule.date).filter(
+            CommittedSchedule.date < start_date
+        ).distinct().order_by(CommittedSchedule.date.desc()).limit(2).all()
+        
+        if not period_dates_result:
+            return {}
+        
+        # Extract date objects from query result (SQLAlchemy 1.4 returns tuples/Row objects)
+        last_2_dates = []
+        for row in period_dates_result:
+            # SQLAlchemy 1.4 returns tuples when querying a single column
+            if isinstance(row, tuple):
+                date_val = row[0]
+            elif hasattr(row, '__iter__') and not isinstance(row, (str, bytes)):
+                # Row object or other iterable
+                date_val = list(row)[0] if len(list(row)) > 0 else row
+            else:
+                date_val = row
+            
+            if isinstance(date_val, date):
+                last_2_dates.append(date_val)
+        
+        if not last_2_dates:
+            return {}
+        
+        # Sort to ensure chronological order (oldest first)
+        last_2_dates = sorted(last_2_dates)
+        
+        # Load committed schedules for these dates
+        prev_schedules = db.query(CommittedSchedule).filter(
+            CommittedSchedule.date.in_(last_2_dates)
+        ).all()
+        
+        # Build dict: (employee_name, date) -> shift
+        result = {}
+        for schedule in prev_schedules:
+            result[(schedule.employee_name, schedule.date)] = schedule.shift
+        
+        return result
+    finally:
+        if close_db:
+            db.close()
+
+
 def load_previous_month_last_days(year: int, month: int, db: Session = None) -> Dict[Tuple[str, date], str]:
     """Load the last 2 days of the immediately previous committed month.
+    
+    This is a backward-compatible wrapper that uses calendar month boundaries.
+    For better continuity (especially for Ramadan periods), use load_previous_period_last_days instead.
     
     Args:
         year: Year of the month being generated

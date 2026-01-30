@@ -28,7 +28,8 @@ from backend.roster_data_loader import (
     save_month_demands,
     load_month_holidays,
     load_holidays_by_date_range,
-    load_previous_month_last_days
+    load_previous_month_last_days,
+    load_previous_period_last_days
 )
 
 router = APIRouter()
@@ -186,78 +187,62 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 
                 locks_df = locks_df[locks_df.apply(lock_in_range, axis=1)]
             
-            # Load previous month's last 2 days and apply adjacency constraints
-            # Only apply if we're starting at the beginning of a month (for backward compatibility)
-            # For custom date ranges, use the start_date to determine previous month
-            if not request.start_date or request.start_date.day == 1:
-                # Use request.month for backward compatibility, or start_date.month for custom ranges
-                if request.start_date:
-                    # Custom date range - use start_date to determine previous month
-                    prev_year = start_date.year
-                    if start_date.month == 1:
-                        prev_month = 12
-                        prev_year = start_date.year - 1
-                    else:
-                        prev_month = start_date.month - 1
-                    prev_month_shifts = load_previous_month_last_days(prev_year, prev_month, db)
-                else:
-                    # Standard month - use request.month
-                    prev_month_shifts = load_previous_month_last_days(request.year, request.month, db)
+            # Load previous period's last 2 days and apply adjacency constraints
+            # This works for normal months and special periods (pre-Ramadan, Ramadan, post-Ramadan)
+            # Determine the start date of the period being generated
+            if request.start_date:
+                period_start = request.start_date
             else:
-                prev_month_shifts = {}
+                # Standard month - use first day of month
+                period_start = date(request.year, request.month, 1)
             
-            if prev_month_shifts:
-                import calendar
+            # Load the last 2 days of the previous committed period
+            # This finds the actual previous committed period, not just calendar month boundaries
+            prev_period_shifts = load_previous_period_last_days(period_start, db)
+            
+            if prev_period_shifts:
                 # Get first 2 days of the period being generated
-                if request.start_date:
-                    first_day = request.start_date
-                    # Only apply adjacency constraints if we're starting at day 1 of a month
-                    if first_day.day == 1:
-                        second_day = date(first_day.year, first_day.month, 2)
-                    else:
-                        # If not starting at day 1, skip adjacency constraints from previous month
-                        prev_month_shifts = {}
-                        second_day = None
-                else:
-                    first_day = date(request.year, request.month, 1)
-                    second_day = date(request.year, request.month, 2)
+                first_day = period_start
+                # Calculate second day (may not exist if period is only 1 day, but that's unlikely)
+                from datetime import timedelta
+                second_day = first_day + timedelta(days=1)
                 
-                # Get last 2 days of previous month for reference
-                if request.month == 1:
-                    prev_year = request.year - 1
-                    prev_month = 12
+                # Get the actual last 2 dates from the previous period
+                prev_dates = sorted(set(date for _, date in prev_period_shifts.keys()))
+                if len(prev_dates) >= 2:
+                    second_last_date = prev_dates[-2]  # Second to last
+                    last_date = prev_dates[-1]  # Last
+                elif len(prev_dates) == 1:
+                    second_last_date = None
+                    last_date = prev_dates[0]
                 else:
-                    prev_year = request.year
-                    prev_month = request.month - 1
-                
-                num_days_prev_month = calendar.monthrange(prev_year, prev_month)[1]
-                last_day_prev_month = date(prev_year, prev_month, num_days_prev_month)
-                second_last_day_prev_month = date(prev_year, prev_month, num_days_prev_month - 1)
+                    last_date = None
+                    second_last_date = None
                 
                 # Track which employees need rest on which days
                 rest_required = {}  # (employee, day) -> True if rest required
                 # Track forbidden shifts (forbidden adjacencies)
                 forbidden_shifts = {}  # (employee, day, shift) -> True if shift is forbidden
                 
-                # Apply adjacency rules based on previous month's shifts
-                for (emp, prev_date), shift in prev_month_shifts.items():
+                # Apply adjacency rules based on previous period's shifts
+                for (emp, prev_date), shift in prev_period_shifts.items():
                     if shift == "N":  # Night shift
-                        if prev_date == second_last_day_prev_month:
-                            # N on day -2: day -1 should already be O (in previous month)
+                        if second_last_date and prev_date == second_last_date:
+                            # N on day -2: day -1 should already be O (in previous period)
                             # Day 1 must be O (rest requirement from N on day -2)
                             # No forbidden adjacency needed since day -1 is O (not consecutive)
                             rest_required[(emp, first_day)] = True
-                        elif prev_date == last_day_prev_month:
+                        elif prev_date == last_date:
                             # N on day -1: day 1 and day 2 must be O (2 rest days required)
                             # Day 1 cannot be M or N (forbidden N→M and N→N, since day 1 is consecutive to day -1)
                             rest_required[(emp, first_day)] = True
                             rest_required[(emp, second_day)] = True
                             forbidden_shifts[(emp, first_day, "M")] = True
                             forbidden_shifts[(emp, first_day, "N")] = True
-                    elif shift == "M4" and prev_date == last_day_prev_month:
+                    elif shift == "M4" and prev_date == last_date:
                         # M4 on day -1: day 1 must be O (1 rest day required)
                         rest_required[(emp, first_day)] = True
-                    elif shift == "A" and prev_date == last_day_prev_month:
+                    elif shift == "A" and prev_date == last_date:
                         # A on day -1: day 1 must be O (1 rest day required)
                         # Day 1 cannot be N (forbidden A→N)
                         rest_required[(emp, first_day)] = True
@@ -272,7 +257,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                         'to_date': rest_day,
                         'shift': 'O',
                         'force': True,
-                        'reason': 'Adjacency constraint from previous month'
+                        'reason': 'Adjacency constraint from previous period'
                     })
                 
                 # Add locks to forbid specific shifts (forbidden adjacencies)
@@ -284,7 +269,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                         'to_date': forbid_day,
                         'shift': forbid_shift,
                         'force': False,  # False = forbid this shift
-                        'reason': 'Forbidden adjacency from previous month'
+                        'reason': 'Forbidden adjacency from previous period'
                     })
                 
                 # Merge all locks
