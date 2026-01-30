@@ -470,12 +470,14 @@ export const AllRostersPage: React.FC = () => {
     }
     
     // Add all other months that have committed schedules
-    // For 2026, skip January (1), February (2), and March (3) regular months
+    // For 2026, skip February (2) and March (3) regular months (they have period options)
+    // But allow January (1) to show since it's a committed schedule
     const allMonths = Array.from(new Set(yearSchedules.map(s => s.month))).sort();
     allMonths.forEach(month => {
       if (!processedMonths.has(month)) {
-        // For 2026, skip January, February, and March regular months
-        if (selectedYear === 2026 && (month === 1 || month === 2 || month === 3)) {
+        // For 2026, skip February and March regular months (they have period options)
+        // But allow January to show
+        if (selectedYear === 2026 && (month === 2 || month === 3)) {
           return;
         }
         regularOptions.push({

@@ -970,8 +970,8 @@ export const UserManagement: React.FC = () => {
 
   // Get combined month/year for schedule view
   const scheduleMonthDate = useMemo(() => {
-    // Use leave table filter date if available, otherwise shift, otherwise current month
-    return leaveTableFilterDate || shiftTableFilterDate || new Date();
+    // Use leave table filter date if available, otherwise shift, otherwise null (no selection)
+    return leaveTableFilterDate || shiftTableFilterDate || null;
   }, [leaveTableFilterDate, shiftTableFilterDate]);
 
   // Helper function to check if a date is in the selected period
