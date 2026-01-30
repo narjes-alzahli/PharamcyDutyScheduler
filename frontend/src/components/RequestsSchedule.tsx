@@ -13,6 +13,7 @@ interface RequestsScheduleProps {
   onLocksChange: (newData: any[]) => void;
   onSaveNotification: (notification: { message: string; type: 'success' | 'error' }) => void;
   onReload: () => void;
+  selectedPeriod?: string | null; // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
 }
 
 // Standard working shifts that go to locks
@@ -28,6 +29,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   onLocksChange,
   onSaveNotification,
   onReload,
+  selectedPeriod,
 }) => {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
@@ -86,21 +88,56 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   const getDynamicShiftColors = (): Record<string, string> => {
     const colors: Record<string, string> = { ...defaultShiftColors };
     leaveTypes.forEach(lt => {
-      colors[lt.code] = lt.color_hex || '#F5F5F5';
+      if (lt.color_hex) {
+        colors[lt.code] = lt.color_hex;
+      }
     });
     shiftTypes.forEach(st => {
-      colors[st.code] = st.color_hex || '#E5E7EB';
+      if (st.color_hex) {
+        colors[st.code] = st.color_hex;
+      }
     });
     return colors;
   };
 
   const getShiftColor = (shift: string): string => {
     const dynamicColors = getDynamicShiftColors();
-    return dynamicColors[shift] || '#FFFFFF';
+    return dynamicColors[shift] || defaultShiftColors[shift] || '#FFFFFF';
   };
 
-  // Get all dates in the month
+  // Get date range based on selected period
+  const getPeriodDateRange = () => {
+    if (year === 2026 && (month === 2 || month === 3) && selectedPeriod) {
+      if (selectedPeriod === 'pre-ramadan') {
+        return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
+      } else if (selectedPeriod === 'ramadan') {
+        return { start: new Date('2026-02-19'), end: new Date('2026-03-19') };
+      } else if (selectedPeriod === 'post-ramadan') {
+        return { start: new Date('2026-03-20'), end: new Date('2026-03-31') };
+      }
+    }
+    return null;
+  };
+
+  // Get all dates in the month (or period)
   const dates = useMemo(() => {
+    const dateRange = getPeriodDateRange();
+    
+    if (dateRange) {
+      // Filter by date range
+      const dates: string[] = [];
+      let currentDate = new Date(dateRange.start);
+      while (currentDate <= dateRange.end) {
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        dates.push(`${year}-${month}-${day}`);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      return dates;
+    }
+    
+    // Default: all dates in the month
     const daysInMonth = new Date(year, month, 0).getDate();
     return Array.from({ length: daysInMonth }, (_, i) => {
       const day = i + 1;
@@ -108,7 +145,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
       const dayStr = String(day).padStart(2, '0');
       return `${year}-${monthStr}-${dayStr}`;
     });
-  }, [year, month]);
+  }, [year, month, selectedPeriod]);
 
   // Create pivot data structure for requests
   const pivotData = useMemo(() => {

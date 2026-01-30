@@ -537,19 +537,34 @@ async def update_time_off(
             updated_shift_count += 1
             logger.info(f"Updated shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
         else:
-            # Always create new request if no request_id (new entry)
-            new_request = ShiftRequest(
-                user_id=user.id,
-                shift_type_id=shift_type.id,
-                from_date=from_date,
-                to_date=to_date,
-                force=True,  # force=True means "must have this shift"
-                reason='Added via Roster Generator',
-                status=RequestStatus.APPROVED
-            )
-            db.add(new_request)
-            created_shift_count += 1
-            logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
+            # Check if identical request already exists to prevent duplicates
+            existing_identical = db.query(ShiftRequest).filter(
+                ShiftRequest.user_id == user.id,
+                ShiftRequest.shift_type_id == shift_type.id,
+                ShiftRequest.from_date == from_date,
+                ShiftRequest.to_date == to_date,
+                ShiftRequest.force == True,
+                ShiftRequest.reason == 'Added via Roster Generator',
+                ShiftRequest.status == RequestStatus.APPROVED
+            ).first()
+            
+            if existing_identical:
+                # Identical request already exists - skip creating duplicate
+                logger.info(f"Skipping duplicate shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (already exists as ID {existing_identical.id})")
+            else:
+                # Create new request only if no identical one exists
+                new_request = ShiftRequest(
+                    user_id=user.id,
+                    shift_type_id=shift_type.id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    force=True,  # force=True means "must have this shift"
+                    reason='Added via Roster Generator',
+                    status=RequestStatus.APPROVED
+                )
+                db.add(new_request)
+                created_shift_count += 1
+                logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.code} (force=True)")
     
     db.commit()
     total_created = created_leave_count + created_shift_count
@@ -735,20 +750,35 @@ async def update_locks(
                 created_count += 1
                 logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
         else:
-            # No request_id provided - always create new request (allow duplicates)
-            # This prevents overwriting existing requests when user adds a new one
-            new_request = ShiftRequest(
-                user_id=user.id,
-                shift_type_id=shift_type.id,
-                from_date=from_date,
-                to_date=to_date,
-                force=entry.force,
-                reason='Added via Roster Generator',
-                status=RequestStatus.APPROVED  # Auto-approve when manager adds via Roster Generator
-            )
-            db.add(new_request)
-            created_count += 1
-            logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
+            # No request_id provided - check if identical request already exists to prevent duplicates
+            # An identical request has same user, shift, dates, force, reason, and status
+            existing_identical = db.query(ShiftRequest).filter(
+                ShiftRequest.user_id == user.id,
+                ShiftRequest.shift_type_id == shift_type.id,
+                ShiftRequest.from_date == from_date,
+                ShiftRequest.to_date == to_date,
+                ShiftRequest.force == entry.force,
+                ShiftRequest.reason == 'Added via Roster Generator',
+                ShiftRequest.status == RequestStatus.APPROVED
+            ).first()
+            
+            if existing_identical:
+                # Identical request already exists - skip creating duplicate
+                logger.info(f"Skipping duplicate shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force} (already exists as ID {existing_identical.id})")
+            else:
+                # Create new request only if no identical one exists
+                new_request = ShiftRequest(
+                    user_id=user.id,
+                    shift_type_id=shift_type.id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    force=entry.force,
+                    reason='Added via Roster Generator',
+                    status=RequestStatus.APPROVED  # Auto-approve when manager adds via Roster Generator
+                )
+                db.add(new_request)
+                created_count += 1
+                logger.info(f"Created shift request: {entry.employee}, {entry.from_date} to {entry.to_date}, {entry.shift}, force={entry.force}")
     
     db.commit()
     logger.info(f"Committed {created_count} new shift requests, {updated_count} updated")

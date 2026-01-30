@@ -318,6 +318,68 @@ def load_month_demands(year: int, month: int, db: Session = None) -> pd.DataFram
             db.close()
 
 
+def load_demands_by_date_range(start_date: date, end_date: date, db: Session = None) -> pd.DataFrame:
+    """Load demands for a specific date range from database.
+    
+    Args:
+        start_date: Start date (inclusive)
+        end_date: End date (inclusive)
+        db: Database session (optional, will create one if not provided)
+    
+    Returns:
+        DataFrame with demands data filtered to the date range
+    """
+    from backend.models import Demand
+    from backend.database import SessionLocal
+    
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        # Load from database filtered by date range
+        demands = db.query(Demand).filter(
+            Demand.date >= start_date,
+            Demand.date <= end_date
+        ).all()
+        
+        if demands:
+            demands_data = []
+            for demand in demands:
+                demand_dict = {
+                    'date': demand.date,
+                    'need_M': demand.need_M,
+                    'need_IP': demand.need_IP,
+                    'need_A': demand.need_A,
+                    'need_N': demand.need_N,
+                    'need_M3': demand.need_M3,
+                    'need_M4': demand.need_M4,
+                    'need_H': demand.need_H,
+                    'need_CL': demand.need_CL,
+                    'need_E': demand.need_E,
+                    'need_IP_P': demand.need_IP_P,
+                    'need_P': demand.need_P,
+                    'need_M_P': demand.need_M_P
+                }
+                demands_data.append(demand_dict)
+            
+            df = pd.DataFrame(demands_data)
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            return df
+
+        # Return empty DataFrame if no demands found
+        return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N',
+                                      'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E',
+                                      'need_IP_P', 'need_P', 'need_M_P'])
+    finally:
+        if close_db:
+            db.close()
+
+
 def save_month_demands(year: int, month: int, demands_df: pd.DataFrame, db: Session = None):
     """Save demands for a specific month to database (without holiday column).
     
@@ -467,6 +529,39 @@ def load_month_holidays(year: int, month: int, db: Session = None) -> Dict[str, 
         holidays = db.query(Holiday).filter(
             Holiday.year == year,
             Holiday.month == month
+        ).all()
+        
+        return {holiday.date.isoformat(): holiday.name for holiday in holidays}
+    finally:
+        if close_db:
+            db.close()
+
+
+def load_holidays_by_date_range(start_date: date, end_date: date, db: Session = None) -> Dict[str, str]:
+    """Load holidays for a specific date range from database.
+    
+    Args:
+        start_date: Start date (inclusive)
+        end_date: End date (inclusive)
+        db: Database session (optional, will create one if not provided)
+    
+    Returns:
+        Dict mapping date strings (YYYY-MM-DD) to holiday names
+    """
+    from backend.models import Holiday
+    from backend.database import SessionLocal
+    
+    # Use provided session or create a new one
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    else:
+        close_db = False
+    
+    try:
+        holidays = db.query(Holiday).filter(
+            Holiday.date >= start_date,
+            Holiday.date <= end_date
         ).all()
         
         return {holiday.date.isoformat(): holiday.name for holiday in holidays}

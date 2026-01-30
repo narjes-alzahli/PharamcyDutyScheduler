@@ -259,21 +259,46 @@ async def commit_schedule(
         employees = schedule_data.get('employees', [])  # Optional employee report data
         metrics = schedule_data.get('metrics', {})  # Optional metrics
         
-        # Delete existing schedule for this month
-        db.query(CommittedSchedule).filter(
-            CommittedSchedule.year == year,
-            CommittedSchedule.month == month
-        ).delete()
+        # Determine the date range of the schedule being committed
+        # This allows us to delete only entries in this specific range (important for periods)
+        schedule_dates = []
+        for entry in schedule:
+            date_val = pd.to_datetime(entry['date'], errors='coerce').date()
+            if not pd.isna(date_val):
+                schedule_dates.append(date_val)
+        
+        if schedule_dates:
+            min_date = min(schedule_dates)
+            max_date = max(schedule_dates)
+            
+            # Delete existing schedule entries only for dates in this range
+            # This prevents deleting entries from other periods (e.g., Pre-Ramadan when committing Ramadan)
+            db.query(CommittedSchedule).filter(
+                CommittedSchedule.date >= min_date,
+                CommittedSchedule.date <= max_date
+            ).delete()
+        else:
+            # Fallback: if no valid dates, delete by year/month (backward compatibility)
+            db.query(CommittedSchedule).filter(
+                CommittedSchedule.year == year,
+                CommittedSchedule.month == month
+            ).delete()
         
         # Insert new schedule entries
+        # Use each date's actual year/month (important for periods that span months like Ramadan)
         for entry in schedule:
             date_val = pd.to_datetime(entry['date'], errors='coerce').date()
             if pd.isna(date_val):
                 continue
             
+            # Use the date's actual year and month (not the requested year/month)
+            # This allows periods spanning months (like Ramadan) to be committed correctly
+            entry_year = date_val.year
+            entry_month = date_val.month
+            
             schedule_entry = CommittedSchedule(
-                year=year,
-                month=month,
+                year=entry_year,
+                month=entry_month,
                 employee_name=entry['employee'],
                 date=date_val,
                 shift=entry['shift']

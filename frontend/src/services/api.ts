@@ -264,6 +264,8 @@ export interface SolveRequest {
   time_limit?: number;
   unfilled_penalty?: number;
   fairness_weight?: number;
+  start_date?: string; // Optional: YYYY-MM-DD format for custom date range
+  end_date?: string; // Optional: YYYY-MM-DD format for custom date range
 }
 
 export interface SolveResponse {

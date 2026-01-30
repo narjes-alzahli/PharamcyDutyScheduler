@@ -24,8 +24,10 @@ from backend.models import LeaveType
 from backend.roster_data_loader import (
     load_roster_data_from_db, 
     load_month_demands, 
+    load_demands_by_date_range,
     save_month_demands,
     load_month_holidays,
+    load_holidays_by_date_range,
     load_previous_month_last_days
 )
 
@@ -42,6 +44,8 @@ class SolveRequest(BaseModel):
     time_limit: int = 300
     unfilled_penalty: float = 1000.0
     fairness_weight: float = 5.0
+    start_date: Optional[date] = None  # Optional: if provided, filter to this date range
+    end_date: Optional[date] = None  # Optional: if provided, filter to this date range
 
 
 class SolveResponse(BaseModel):
@@ -74,18 +78,42 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             # Save employees
             roster_data['employees'].to_csv(temp_path / "employees.csv", index=False)
             
-            # Load month-specific demands from database
-            month_demands = load_month_demands(request.year, request.month, db)
+            # Determine date range for filtering
+            if request.start_date and request.end_date:
+                # Use custom date range (treat as one continuous period, even if it spans multiple months)
+                start_date = request.start_date
+                end_date = request.end_date
+                month_demands = load_demands_by_date_range(start_date, end_date, db)
+                holidays_dict = load_holidays_by_date_range(start_date, end_date)
+                period_name = f"{start_date} to {end_date}"
+            else:
+                # Use full month (backward compatible)
+                import calendar
+                start_date = date(request.year, request.month, 1)
+                end_date = date(request.year, request.month, calendar.monthrange(request.year, request.month)[1])
+                month_demands = load_month_demands(request.year, request.month, db)
+                holidays_dict = load_month_holidays(request.year, request.month)
+                period_name = f"{request.year}-{request.month:02d}"
             
             # Demands must exist in database - do not auto-generate
             if month_demands.empty:
-                error_msg = f"No demands data found for {request.year}-{request.month:02d}. Please add demands in the Staffing Needs tab before solving."
+                error_msg = f"No demands data found for {period_name}. Please add demands in the Staffing Needs tab before solving."
                 solver_jobs[job_id]["status"] = "failed"
                 solver_jobs[job_id]["error"] = error_msg
                 return
             
-            # Load holidays separately (not from demands CSV)
-            holidays_dict = load_month_holidays(request.year, request.month)
+            # Filter demands to date range if custom range is provided (double-check, though load_demands_by_date_range should already filter)
+            if request.start_date and request.end_date:
+                month_demands = month_demands[
+                    (pd.to_datetime(month_demands['date']) >= pd.Timestamp(start_date)) &
+                    (pd.to_datetime(month_demands['date']) <= pd.Timestamp(end_date))
+                ]
+                # Ensure we have demands for all dates in the range (important for cross-month periods)
+                if month_demands.empty:
+                    error_msg = f"No demands data found for {period_name}. Please add demands in the Staffing Needs tab before solving."
+                    solver_jobs[job_id]["status"] = "failed"
+                    solver_jobs[job_id]["error"] = error_msg
+                    return
             # Convert date strings to date objects for the holidays CSV
             holidays_for_csv = {}
             for date_str, holiday_name in holidays_dict.items():
@@ -115,8 +143,21 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 holidays_df.to_csv(temp_path / "holidays.csv", index=False)
             
             # Save time_off and locks - ensure dates are formatted as YYYY-MM-DD strings
+            # Filter time_off to date range if custom range is provided
             time_off_for_csv = roster_data['time_off'].copy()
             if not time_off_for_csv.empty:
+                if request.start_date and request.end_date:
+                    # Filter time_off to only include ranges that overlap with the date range
+                    def overlaps_range(row):
+                        from_date = pd.to_datetime(row.get('from_date', ''), errors='coerce')
+                        to_date = pd.to_datetime(row.get('to_date', ''), errors='coerce')
+                        if pd.isna(from_date) or pd.isna(to_date):
+                            return False
+                        # Check if the range overlaps with [start_date, end_date]
+                        return not (to_date.date() < start_date or from_date.date() > end_date)
+                    
+                    time_off_for_csv = time_off_for_csv[time_off_for_csv.apply(overlaps_range, axis=1)]
+                
                 if 'from_date' in time_off_for_csv.columns:
                     time_off_for_csv['from_date'] = pd.to_datetime(time_off_for_csv['from_date'], errors='coerce').dt.strftime('%Y-%m-%d')
                 if 'to_date' in time_off_for_csv.columns:
@@ -133,14 +174,53 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 # Only keep standard shifts in locks - non-standard shifts are in time_off
                 locks_df = locks_df[locks_df['shift'].isin(STANDARD_WORKING_SHIFTS)]
             
+            # Filter locks to date range if custom range is provided
+            if request.start_date and request.end_date and not locks_df.empty:
+                def lock_in_range(row):
+                    from_date = pd.to_datetime(row.get('from_date', ''), errors='coerce')
+                    to_date = pd.to_datetime(row.get('to_date', ''), errors='coerce')
+                    if pd.isna(from_date) or pd.isna(to_date):
+                        return False
+                    # Check if the lock range overlaps with [start_date, end_date]
+                    return not (to_date.date() < start_date or from_date.date() > end_date)
+                
+                locks_df = locks_df[locks_df.apply(lock_in_range, axis=1)]
+            
             # Load previous month's last 2 days and apply adjacency constraints
-            prev_month_shifts = load_previous_month_last_days(request.year, request.month, db)
+            # Only apply if we're starting at the beginning of a month (for backward compatibility)
+            # For custom date ranges, use the start_date to determine previous month
+            if not request.start_date or request.start_date.day == 1:
+                # Use request.month for backward compatibility, or start_date.month for custom ranges
+                if request.start_date:
+                    # Custom date range - use start_date to determine previous month
+                    prev_year = start_date.year
+                    if start_date.month == 1:
+                        prev_month = 12
+                        prev_year = start_date.year - 1
+                    else:
+                        prev_month = start_date.month - 1
+                    prev_month_shifts = load_previous_month_last_days(prev_year, prev_month, db)
+                else:
+                    # Standard month - use request.month
+                    prev_month_shifts = load_previous_month_last_days(request.year, request.month, db)
+            else:
+                prev_month_shifts = {}
             
             if prev_month_shifts:
                 import calendar
-                # Get first 2 days of the month being generated
-                first_day = date(request.year, request.month, 1)
-                second_day = date(request.year, request.month, 2)
+                # Get first 2 days of the period being generated
+                if request.start_date:
+                    first_day = request.start_date
+                    # Only apply adjacency constraints if we're starting at day 1 of a month
+                    if first_day.day == 1:
+                        second_day = date(first_day.year, first_day.month, 2)
+                    else:
+                        # If not starting at day 1, skip adjacency constraints from previous month
+                        prev_month_shifts = {}
+                        second_day = None
+                else:
+                    first_day = date(request.year, request.month, 1)
+                    second_day = date(request.year, request.month, 2)
                 
                 # Get last 2 days of previous month for reference
                 if request.month == 1:
@@ -336,10 +416,13 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 skills_dict[emp_data.employee] = data.get_employee_skills(emp_data.employee)
             
             # Extract history using rolling window method (default: 3 months)
+            # Use the start date for history calculation (or first day of month if no custom range)
             from backend.roster_data_loader import load_assignment_history
+            history_year = start_date.year
+            history_month = start_date.month
             history_counts = load_assignment_history(
-                request.year,
-                request.month,
+                history_year,
+                history_month,
                 data.get_employee_names(),
                 skills_dict,
                 db=db,

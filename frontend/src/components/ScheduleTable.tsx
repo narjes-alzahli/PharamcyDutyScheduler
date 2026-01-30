@@ -21,6 +21,7 @@ interface ScheduleTableProps {
   editable?: boolean;
   canChangeColors?: boolean;
   onScheduleChange?: (updatedSchedule: ScheduleEntry[]) => void;
+  selectedPeriod?: string | null; // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
 }
 
 interface MobileAssignment {
@@ -46,6 +47,8 @@ const SPECIAL_COLOR_KEYS = {
 const defaultSpecialColors: Record<string, string> = {
   [SPECIAL_COLOR_KEYS.weekend]: '#5f8ace',  // Medium Blue - Weekend
   [SPECIAL_COLOR_KEYS.totals]: '#684d80',   // Dark Purple-Gray - Totals Row
+  '0': '#FFFFFF',      // White - Empty/Default
+  '': '#FFFFFF',       // White - Empty
 };
 
 const adjustColorBrightness = (hexColor: string, factor: number): string => {
@@ -88,7 +91,8 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   employees: employeeData,
   editable = false,
   canChangeColors = false,
-  onScheduleChange
+  onScheduleChange,
+  selectedPeriod
 }) => {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
@@ -116,11 +120,15 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     const colors: Record<string, string> = { ...defaultShiftColors };
     // Add leave types with their colors from database
     leaveTypes.forEach(lt => {
-      colors[lt.code] = lt.color_hex || '#F5F5F5';
+      if (lt.color_hex) {
+        colors[lt.code] = lt.color_hex;
+      }
     });
     // Add shift types with their colors from database
     shiftTypes.forEach(st => {
-      colors[st.code] = st.color_hex || '#E5E7EB';
+      if (st.color_hex) {
+        colors[st.code] = st.color_hex;
+      }
     });
     return colors;
   };
@@ -144,26 +152,58 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   // Load custom colors from localStorage or use defaults
   const loadCustomColors = (): Record<string, string> => {
     try {
-      const saved = localStorage.getItem('shiftColors');
+      // Always get fresh dynamic colors from database
       const dynamicColors = getDynamicShiftColors();
+      const saved = localStorage.getItem('shiftColors');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Merge: defaults -> dynamic (from DB) -> custom (from localStorage)
-        return { ...dynamicColors, ...defaultSpecialColors, ...parsed };
+        // Merge: defaults -> database colors -> special colors (with correct defaults) -> user customizations
+        // Special colors always start with their specified defaults unless user explicitly customized them
+        const colors = { ...defaultShiftColors, ...dynamicColors, ...defaultSpecialColors, ...parsed };
+        // If user hasn't customized special colors, ensure they use defaults
+        // Check if they exist in parsed - if not, they should use defaults
+        if (!parsed.hasOwnProperty(SPECIAL_COLOR_KEYS.weekend)) {
+          colors[SPECIAL_COLOR_KEYS.weekend] = defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend];
+        }
+        if (!parsed.hasOwnProperty(SPECIAL_COLOR_KEYS.totals)) {
+          colors[SPECIAL_COLOR_KEYS.totals] = defaultSpecialColors[SPECIAL_COLOR_KEYS.totals];
+        }
+        return colors;
       }
     } catch (e) {
       console.error('Failed to load custom colors:', e);
     }
-    return { ...getDynamicShiftColors(), ...defaultSpecialColors };
+    // Return: defaults + dynamic DB colors + special colors (with correct defaults)
+    return { ...defaultShiftColors, ...getDynamicShiftColors(), ...defaultSpecialColors };
   };
 
   const [customColors, setCustomColors] = useState<Record<string, string>>(loadCustomColors);
   const [editingColor, setEditingColor] = useState<string | null>(null);
   
-  // Update colors when leave types load
+  // Update colors when leave types or shift types load
   useEffect(() => {
-    setCustomColors(loadCustomColors());
-  }, [leaveTypes]);
+    const loadedColors = loadCustomColors();
+    // Ensure special colors are reset to defaults if they were customized
+    // Reset weekend and totals to specified defaults
+    loadedColors[SPECIAL_COLOR_KEYS.weekend] = defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend];
+    loadedColors[SPECIAL_COLOR_KEYS.totals] = defaultSpecialColors[SPECIAL_COLOR_KEYS.totals];
+    setCustomColors(loadedColors);
+    
+    // Also update localStorage to remove any custom weekend/totals colors
+    const saved = localStorage.getItem('shiftColors');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Remove weekend and totals from localStorage so they use defaults
+        delete parsed[SPECIAL_COLOR_KEYS.weekend];
+        delete parsed[SPECIAL_COLOR_KEYS.totals];
+        localStorage.setItem('shiftColors', JSON.stringify(parsed));
+      } catch (e) {
+        // If parsing fails, just clear it
+        localStorage.removeItem('shiftColors');
+      }
+    }
+  }, [leaveTypes, shiftTypes]);
 
   // Save colors to localStorage when they change
   useEffect(() => {
@@ -268,19 +308,20 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     setEditingCell(null);
   };
 
-  // Get shift color (use custom if available, otherwise default)
+  // Get shift color (prioritize user manual changes, then database, then defaults)
   const getShiftColor = (shift: string): string => {
-    // Check custom colors first
+    // customColors already contains: defaults -> database -> user overrides (in that merge order)
+    // So if a color exists in customColors, it's either:
+    // 1. A user override (if it's different from database/default)
+    // 2. A database color (if user hasn't overridden it)
+    // 3. A default color (if database doesn't have it and user hasn't overridden it)
+    // Since user overrides are merged last, customColors[shift] will have the correct priority
     if (customColors[shift]) {
       return customColors[shift];
     }
-    // Check dynamic colors from leave types
+    // Fallback (shouldn't happen, but just in case)
     const dynamicColors = getDynamicShiftColors();
-    if (dynamicColors[shift]) {
-      return dynamicColors[shift];
-    }
-    // Fall back to default
-    return defaultShiftColors[shift] || '#FFFFFF';
+    return dynamicColors[shift] || defaultShiftColors[shift] || '#FFFFFF';
   };
 
   // Get month name
@@ -290,12 +331,102 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   ];
   const monthName = monthNames[month - 1];
 
-  // Filter data for the specific month - ensure strict date matching
-  const monthData = schedule.filter(entry => {
-    const dateStr = entry.date.split('T')[0]; // Get just the date part (YYYY-MM-DD)
-    const [entryYear, entryMonth, entryDay] = dateStr.split('-').map(Number);
-    return entryMonth === month && entryYear === year;
-  });
+  // Get date range for display
+  const getDateRange = () => {
+    if (selectedPeriod && year === 2026 && (month === 2 || month === 3)) {
+      if (selectedPeriod === 'pre-ramadan') {
+        return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
+      } else if (selectedPeriod === 'ramadan') {
+        return { start: new Date('2026-02-19'), end: new Date('2026-03-19') };
+      } else if (selectedPeriod === 'post-ramadan') {
+        return { start: new Date('2026-03-20'), end: new Date('2026-03-31') };
+      }
+    }
+    return null;
+  };
+  
+  const dateRange = getDateRange();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  
+  // Calculate dates array - memoized to avoid recalculation
+  const dates = React.useMemo(() => {
+    if (dateRange) {
+      const dateList: string[] = [];
+      let currentDate = new Date(dateRange.start);
+      const endDate = new Date(dateRange.end);
+      // Use date arithmetic to avoid timezone issues
+      while (currentDate <= endDate) {
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        dateList.push(`${year}-${month}-${day}`);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // Debug: Log dates for Ramadan
+      if (selectedPeriod === 'ramadan') {
+        const febDates = dateList.filter(d => d.startsWith('2026-02'));
+        const marDates = dateList.filter(d => d.startsWith('2026-03'));
+        console.log(`Ramadan dates array: ${febDates.length} Feb dates, ${marDates.length} Mar dates, total: ${dateList.length}`);
+        console.log('First few dates:', dateList.slice(0, 5), 'Last few dates:', dateList.slice(-5));
+      }
+      
+      return dateList;
+    }
+    return Array.from({ length: daysInMonth }, (_, i) => {
+      const day = i + 1;
+      // Format as YYYY-MM-DD using local date (avoid timezone conversion issues)
+      const monthStr = String(month).padStart(2, '0');
+      const dayStr = String(day).padStart(2, '0');
+      return `${year}-${monthStr}-${dayStr}`;
+    });
+  }, [dateRange, daysInMonth, year, month, selectedPeriod]);
+  
+  // Filter schedule by period if selected
+  const filteredSchedule = React.useMemo(() => {
+    if (!selectedPeriod || year !== 2026 || (month !== 2 && month !== 3)) {
+      return schedule;
+    }
+    
+    // For periods that span months, filter by the dates array (which includes all dates in the range)
+    const filtered = schedule.filter(entry => {
+      const entryDateStr = entry.date.split('T')[0]; // Get just the date part (YYYY-MM-DD)
+      return dates.includes(entryDateStr);
+    });
+    
+    // Debug: Log filtering results for Ramadan (only if schedule has entries)
+    if (selectedPeriod === 'ramadan' && schedule.length > 0) {
+      const febDates = filtered.filter(e => e.date.split('T')[0].startsWith('2026-02'));
+      const marDates = filtered.filter(e => e.date.split('T')[0].startsWith('2026-03'));
+      console.log(`Ramadan filtering: ${febDates.length} Feb entries, ${marDates.length} Mar entries, ${dates.length} total dates in range`);
+      // Only warn if we have some entries but missing March ones (indicates a problem)
+      if (filtered.length > 0 && marDates.length === 0 && dates.some(d => d.startsWith('2026-03'))) {
+        console.warn('⚠️ No March entries found in schedule for Ramadan period!');
+        console.log('Schedule entries sample:', schedule.slice(0, 5).map(e => e.date));
+        console.log('Expected March dates:', dates.filter(d => d.startsWith('2026-03')).slice(0, 5));
+      }
+    }
+    
+    return filtered;
+  }, [schedule, selectedPeriod, year, month, dates]);
+
+  // Filter data for the specific month or period - use dates array for periods that span months
+  const monthData = React.useMemo(() => {
+    if (dateRange) {
+      // For periods that span months (like Ramadan), use the dates array which includes all dates in the range
+      return filteredSchedule.filter(entry => {
+        const entryDateStr = entry.date.split('T')[0]; // Get just the date part (YYYY-MM-DD)
+        return dates.includes(entryDateStr);
+      });
+    } else {
+      // For regular months, filter by month
+      return filteredSchedule.filter(entry => {
+        const dateStr = entry.date.split('T')[0]; // Get just the date part (YYYY-MM-DD)
+        const [entryYear, entryMonth, entryDay] = dateStr.split('-').map(Number);
+        return entryMonth === month && entryYear === year;
+      });
+    }
+  }, [filteredSchedule, dateRange, dates, month, year]);
 
   if (monthData.length === 0) {
     return (
@@ -328,16 +459,6 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     // Fallback: only show employees who have shifts in the schedule
     employees = employeesInSchedule.sort();
   }
-
-  // Get all dates in the month - use local date formatting to avoid timezone issues
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const dates = Array.from({ length: daysInMonth }, (_, i) => {
-    const day = i + 1;
-    // Format as YYYY-MM-DD using local date (avoid timezone conversion issues)
-    const monthStr = String(month).padStart(2, '0');
-    const dayStr = String(day).padStart(2, '0');
-    return `${year}-${monthStr}-${dayStr}`;
-  });
 
   // Create employee pending_off lookup
   const pendingOffMap: Record<string, number> = {};
@@ -378,8 +499,9 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     return days[date.getDay()];
   };
 
-  const weekendColor =
-    customColors[SPECIAL_COLOR_KEYS.weekend] || defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend];
+  // Get special colors from customColors (which includes user customizations from localStorage)
+  // Fall back to defaults if not customized
+  const weekendColor = customColors[SPECIAL_COLOR_KEYS.weekend] || defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend];
   const derivedWeekendHeaderColor = weekendColor;
   const totalsColor = customColors[SPECIAL_COLOR_KEYS.totals] || defaultSpecialColors[SPECIAL_COLOR_KEYS.totals];
 
@@ -439,8 +561,10 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                   const shift = pivotData[employee][dateStr] || '';
                   const baseColor = getShiftColor(shift);
                   const weekend = isWeekend(dateStr);
+                  // Apply weekend color for empty cells or 'O' (Off Duty) on weekends
+                  // But keep shift colors for actual shifts on weekends
                   const backgroundColor =
-                    weekend && (!shift || shift === 'O')
+                    weekend && (!shift || shift === 'O' || shift === '')
                       ? weekendColor
                       : baseColor;
                   const isDark = shift === 'M' || shift === 'M3' || shift === 'M4';
@@ -620,8 +744,21 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
         <div className="flex justify-between items-center mb-3">
           <button
             onClick={() => {
-              if (window.confirm('Reset all colors to defaults?')) {
-                setCustomColors({ ...defaultShiftColors, ...defaultSpecialColors });
+              if (window.confirm('Reset all colors to database defaults?')) {
+                // Reset to database colors (which include defaults for any missing)
+                const dynamicColors = getDynamicShiftColors();
+                // Ensure special colors use their specified defaults
+                const resetColors = { 
+                  ...defaultShiftColors, 
+                  ...dynamicColors, 
+                  [SPECIAL_COLOR_KEYS.weekend]: defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend],
+                  [SPECIAL_COLOR_KEYS.totals]: defaultSpecialColors[SPECIAL_COLOR_KEYS.totals],
+                  '0': defaultSpecialColors['0'],
+                  '': defaultSpecialColors['']
+                };
+                setCustomColors(resetColors);
+                // Clear localStorage so it uses database defaults
+                localStorage.removeItem('shiftColors');
               }
             }}
             className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
@@ -686,7 +823,9 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
               label: 'Totals',
             },
           ].map(({ key, defaultColor, label }) => {
-            const currentColor = customColors[key] || defaultColor;
+            // Use getShiftColor to ensure legend colors match schedule colors exactly
+            // This ensures both use the same priority: user customizations > database > defaults
+            const currentColor = getShiftColor(key);
             const isEditing = editingColor === key;
             
             return (

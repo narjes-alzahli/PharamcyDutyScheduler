@@ -9,6 +9,7 @@ interface DemandsTabProps {
   selectedYear: number | null;
   selectedMonth: number | null;
   monthNames: string[];
+  selectedPeriod?: string | null; // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
 }
 
 const SHIFT_CODES = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'] as const;
@@ -49,7 +50,7 @@ const getFixedShiftSortKey = (shift: string) => {
   return idx === -1 ? FIXED_SHIFT_ORDER.length : idx;
 };
 
-export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMonth, monthNames }) => {
+export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMonth, monthNames, selectedPeriod }) => {
   const [monthDemands, setMonthDemands] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
@@ -132,8 +133,8 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
   // Get shift color from database or fallback to default colors
   const getShiftColor = (shiftCode: string): string => {
     const shiftType = shiftTypes.find(st => st.code === shiftCode);
-    if (shiftType) {
-      return shiftType.color_hex || defaultShiftColors[shiftCode] || '#FFFFFF';
+    if (shiftType && shiftType.color_hex) {
+      return shiftType.color_hex;
     }
     return defaultShiftColors[shiftCode] || '#FFFFFF';
   };
@@ -203,12 +204,43 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
         const now = Date.now();
         const isLocalRecent = localTimestamp > 0 && (now - localTimestamp) < 300000; // 5 minutes
         
-        // Load from backend
+        // Determine which months to load based on period
+        const monthsToLoad: number[] = [];
+        if (selectedYear === 2026 && selectedPeriod) {
+          // For periods that span multiple months, load all relevant months
+          if (selectedPeriod === 'ramadan') {
+            // Ramadan spans Feb 19 - March 19, so load both months
+            monthsToLoad.push(2, 3);
+          } else if (selectedPeriod === 'pre-ramadan') {
+            // Pre-Ramadan is Feb 1-18, only February
+            monthsToLoad.push(2);
+          } else if (selectedPeriod === 'post-ramadan') {
+            // Post-Ramadan is March 20-31, only March
+            monthsToLoad.push(3);
+          } else {
+            monthsToLoad.push(selectedMonth);
+          }
+        } else {
+          monthsToLoad.push(selectedMonth);
+        }
+        
+        // Load from backend for all relevant months
         let backendDemands: any[] = [];
         let backendTimestamp = 0;
         try {
-          const response = await api.get(`/api/data/demands/month/${selectedYear}/${selectedMonth}`);
-          backendDemands = response.data || [];
+          // Load demands from all relevant months
+          const allDemandsPromises = monthsToLoad.map(month => 
+            api.get(`/api/data/demands/month/${selectedYear}/${month}`)
+              .then(response => response.data || [])
+              .catch(error => {
+                console.error(`Failed to load demands for ${selectedYear}/${month}:`, error);
+                return [];
+              })
+          );
+          
+          const allDemandsArrays = await Promise.all(allDemandsPromises);
+          backendDemands = allDemandsArrays.flat();
+          
           // Use file modification time as proxy for backend timestamp
           // Since we can't get this directly, we'll compare data instead
           backendTimestamp = 0; // We'll use data comparison instead
@@ -259,7 +291,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
       } finally {
         setLoading(false);
       }
-  }, [selectedYear, selectedMonth, showToast]);
+  }, [selectedYear, selectedMonth, selectedPeriod, showToast]);
     
   useEffect(() => {
     loadMonthDemands();
@@ -294,6 +326,33 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
 
   // Debounce timer for saving demands
   const demandSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Helper function to save demands to backend, handling periods that span multiple months
+  const saveDemandsToBackend = useCallback(async (demands: any[]) => {
+    if (!selectedYear || !selectedMonth) return;
+    
+    // If period spans multiple months, split demands by month and save to each month's endpoint
+    if (selectedYear === 2026 && selectedPeriod === 'ramadan') {
+      // Ramadan spans Feb 19 - March 19, so split by month
+      const febDemands = demands.filter((d: any) => {
+        const date = new Date(d.date);
+        return date.getMonth() + 1 === 2; // February is month 2
+      });
+      const marDemands = demands.filter((d: any) => {
+        const date = new Date(d.date);
+        return date.getMonth() + 1 === 3; // March is month 3
+      });
+      
+      // Save to both months
+      await Promise.all([
+        febDemands.length > 0 ? api.post(`/api/data/demands/month/${selectedYear}/2`, febDemands) : Promise.resolve(),
+        marDemands.length > 0 ? api.post(`/api/data/demands/month/${selectedYear}/3`, marDemands) : Promise.resolve()
+      ]);
+    } else {
+      // Regular month or period within single month - save normally
+      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demands);
+    }
+  }, [selectedYear, selectedMonth, selectedPeriod]);
 
   // Save demands to localStorage as backup with timestamp
   const saveDemandsToLocalStorage = useCallback((demands: any[]) => {
@@ -355,7 +414,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
     
     // Save to backend immediately (no debounce) - user wants changes saved to backend
     try {
-      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demandsWithoutHoliday);
+      await saveDemandsToBackend(demandsWithoutHoliday);
       // Save successful - update localStorage with the saved version
       saveDemandsToLocalStorage(demandsWithoutHoliday);
     } catch (error: any) {
@@ -459,12 +518,30 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
         }
       });
       
-      // Save holidays separately
-      await api.post(`/api/data/holidays/month/${selectedYear}/${selectedMonth}`, holidays);
+      // Save holidays separately - need to save to both months if period spans multiple months
+      if (selectedYear === 2026 && selectedPeriod === 'ramadan') {
+        // Split holidays by month
+        const febHolidays: Record<string, string> = {};
+        const marHolidays: Record<string, string> = {};
+        Object.entries(holidays).forEach(([date, holiday]) => {
+          const dateObj = new Date(date);
+          if (dateObj.getMonth() + 1 === 2) {
+            febHolidays[date] = holiday;
+          } else if (dateObj.getMonth() + 1 === 3) {
+            marHolidays[date] = holiday;
+          }
+        });
+        await Promise.all([
+          Object.keys(febHolidays).length > 0 ? api.post(`/api/data/holidays/month/${selectedYear}/2`, febHolidays) : Promise.resolve(),
+          Object.keys(marHolidays).length > 0 ? api.post(`/api/data/holidays/month/${selectedYear}/3`, marHolidays) : Promise.resolve()
+        ]);
+      } else {
+        await api.post(`/api/data/holidays/month/${selectedYear}/${selectedMonth}`, holidays);
+      }
       
       // Save demands - backend will automatically apply holiday-specific demands for holiday days
       const demandsWithoutHoliday = stripDayNames(updatedDemands.map(({ holiday, ...rest }) => rest));
-      await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demandsWithoutHoliday);
+      await saveDemandsToBackend(demandsWithoutHoliday);
       
       // Reload demands from backend to get the updated values
       // This ensures the UI shows the correct demands immediately
@@ -635,7 +712,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
 
         // Save to backend
         const demandsWithoutHoliday = stripDayNames(updatedDemands.map(({ holiday, ...rest }) => rest));
-        await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demandsWithoutHoliday);
+        await saveDemandsToBackend(demandsWithoutHoliday);
         
         // Save to localStorage
         saveDemandsToLocalStorage(demandsWithoutHoliday);
@@ -658,7 +735,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
         clearTimeout(applyFixedShiftsTimeoutRef.current);
       }
     };
-  }, [fixedShiftsConfig, selectedYear, selectedMonth, monthDemands, showToast, saveDemandsToLocalStorage]);
+  }, [fixedShiftsConfig, selectedYear, selectedMonth, monthDemands, showToast, saveDemandsToLocalStorage, saveDemandsToBackend]);
 
   const handleRegenerate = async () => {
     if (!selectedYear || !selectedMonth) return;
@@ -694,7 +771,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
       
       // Explicitly save to backend to ensure it's persisted (even though generate already saves)
       try {
-        await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, generatedDemands);
+        await saveDemandsToBackend(generatedDemands);
       } catch (saveError) {
         console.error('Failed to save regenerated demands:', saveError);
         // Continue anyway since generate endpoint should have saved it
@@ -719,41 +796,75 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
     }
   };
 
+  // Get date range based on selected period
+  const getDateRange = () => {
+    if (!selectedYear || !selectedMonth) return null;
+    
+    if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
+      if (selectedPeriod === 'pre-ramadan') {
+        return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
+      } else if (selectedPeriod === 'ramadan') {
+        return { start: new Date('2026-02-19'), end: new Date('2026-03-19') };
+      } else if (selectedPeriod === 'post-ramadan') {
+        return { start: new Date('2026-03-20'), end: new Date('2026-03-31') };
+      }
+    }
+    return null;
+  };
+
   // Generate calendar grid
   const generateCalendarGrid = () => {
     if (!selectedYear || !selectedMonth || monthDemands.length === 0) return [];
 
-    const firstDay = new Date(selectedYear, selectedMonth - 1, 1);
-    const lastDay = new Date(selectedYear, selectedMonth, 0);
-    const daysInMonth = lastDay.getDate();
+    const dateRange = getDateRange();
+    const firstDay = dateRange ? dateRange.start : new Date(selectedYear, selectedMonth - 1, 1);
+    const lastDay = dateRange ? dateRange.end : new Date(selectedYear, selectedMonth, 0);
+    
+    // For cross-month periods, we need to handle multiple months
+    const startMonth = firstDay.getMonth() + 1;
+    const startYear = firstDay.getFullYear();
+    const endMonth = lastDay.getMonth() + 1;
+    const endYear = lastDay.getFullYear();
+    
     const startWeekday = firstDay.getDay(); // 0 = Sunday
+    const daysInRange = Math.ceil((lastDay.getTime() - firstDay.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
     const weeks: any[][] = [];
     let currentWeek: any[] = [];
 
-    // Add empty cells for days before month starts
+    // Add empty cells for days before range starts
     for (let i = 0; i < startWeekday; i++) {
       currentWeek.push(null);
     }
 
-    // Add days of the month
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    // Add days in the range
+    let currentDate = new Date(firstDay);
+    for (let i = 0; i < daysInRange; i++) {
+      const day = currentDate.getDate();
+      const month = currentDate.getMonth() + 1;
+      const year = currentDate.getFullYear();
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      
       const demand = monthDemands.find(d => {
         const dDate = new Date(d.date);
-        return dDate.getDate() === day && dDate.getMonth() === selectedMonth - 1;
+        return dDate.toISOString().split('T')[0] === dateStr;
       });
       
       currentWeek.push({
         day,
         date: dateStr,
-        demand: demand || null
+        demand: demand || null,
+        month,
+        year
       });
 
       if (currentWeek.length === 7) {
         weeks.push(currentWeek);
         currentWeek = [];
       }
+      
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
     }
 
     // Add empty cells for remaining days in last week
@@ -814,7 +925,11 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
                     }
 
                     const { day, date, demand } = dayData;
-                    const isWeekend = dayIdx === 0 || dayIdx === 6; // Sunday or Saturday
+                    // In Oman: Weekends = Friday(5), Saturday(6)
+                    // Use the actual date's weekday instead of array index
+                    const dateObj = new Date(date);
+                    const weekday = dateObj.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+                    const isWeekend = weekday === 5 || weekday === 6; // Friday or Saturday
                     const isToday = new Date().toDateString() === new Date(date).toDateString();
 
                     return (

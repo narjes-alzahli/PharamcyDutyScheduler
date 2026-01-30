@@ -80,6 +80,8 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # CORS configuration
 dev_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "http://localhost:3333",
     "http://127.0.0.1:3333",
 ]

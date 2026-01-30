@@ -6,6 +6,7 @@ interface YearMonthCombo {
   month: number;
   value: string;
   label: string;
+  period?: string; // Optional period identifier (e.g., 'pre-ramadan', 'ramadan', 'post-ramadan')
 }
 
 interface DatePickerProps {
@@ -20,6 +21,10 @@ interface DatePickerProps {
   className?: string;
   /** Use combined month/year picker (single input) */
   combined?: boolean;
+  /** Optional callback when value changes, receives full value (including period if present) */
+  onValueChange?: (value: string) => void;
+  /** Optional selected period to help determine the correct dropdown value */
+  selectedPeriod?: string | null;
 }
 
 export const DatePicker: React.FC<DatePickerProps> = ({
@@ -29,6 +34,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   availableYearMonthCombos,
   className = '',
   combined = true,
+  onValueChange,
+  selectedPeriod,
 }) => {
   const { selectedYear, selectedMonth, setDate } = useDate();
 
@@ -67,10 +74,21 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
   // Handle combined month/year input (HTML5 month input or custom select)
   const handleCombinedChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const value = e.target.value; // Format: "YYYY-MM"
+    const value = e.target.value; // Format: "YYYY-MM" or "YYYY-MM-period"
+    if (onValueChange) {
+      // Call custom callback with full value (including period if present)
+      onValueChange(value);
+    }
     if (value) {
-      const [year, month] = value.split('-').map(Number);
-      setDate(year, month);
+      // Extract year and month (handle period-specific values like "2026-2-ramadan")
+      const parts = value.split('-');
+      const year = parseInt(parts[0]);
+      const month = parseInt(parts[1]);
+      if (!isNaN(year) && !isNaN(month)) {
+        setDate(year, month);
+      } else {
+        setDate(null, null);
+      }
     } else {
       setDate(null, null);
     }
@@ -81,9 +99,31 @@ export const DatePicker: React.FC<DatePickerProps> = ({
     ? `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}`
     : '';
 
-  // Format current selection for custom select (YYYY-M)
+  // Format current selection for custom select (YYYY-M or YYYY-M-period)
+  // If we have availableYearMonthCombos, find the matching one to get the full value
   const combinedSelectValue = selectedYear && selectedMonth 
-    ? `${selectedYear}-${selectedMonth}`
+    ? (availableYearMonthCombos && availableYearMonthCombos.length > 0
+        ? (() => {
+            // If we have a selectedPeriod, try to find exact match with period first
+            if (selectedPeriod) {
+              const periodMatch = availableYearMonthCombos.find(
+                opt => opt.year === selectedYear && opt.month === selectedMonth && opt.period === selectedPeriod
+              );
+              if (periodMatch) {
+                return periodMatch.value;
+              }
+            }
+            // Try to find exact match by year and month
+            const exactMatch = availableYearMonthCombos.find(
+              opt => opt.year === selectedYear && opt.month === selectedMonth
+            );
+            if (exactMatch) {
+              return exactMatch.value;
+            }
+            // Fallback to standard format
+            return `${selectedYear}-${selectedMonth}`;
+          })()
+        : `${selectedYear}-${selectedMonth}`)
     : '';
 
   if (combined) {

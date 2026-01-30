@@ -14,6 +14,7 @@ export const RosterGenerator: React.FC = () => {
   const [activeTab, setActiveTab] = useState('employees');
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null); // 'pre-ramadan', 'ramadan', 'post-ramadan', or null for full month
   const [rosterData, setRosterData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [solving, setSolving] = useState(false);
@@ -106,7 +107,11 @@ export const RosterGenerator: React.FC = () => {
   useEffect(() => {
     clearGeneratedResults();
     setSolving(false);
-  }, [selectedYear, selectedMonth]);
+    // Reset period selection when year/month changes (unless it's still 2026 Feb/Mar)
+    if (!(selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3))) {
+      setSelectedPeriod(null);
+    }
+  }, [selectedYear, selectedMonth, selectedPeriod]);
 
   useEffect(() => {
     if (jobId && solving) {
@@ -215,12 +220,34 @@ export const RosterGenerator: React.FC = () => {
 
     try {
       setSolving(true);
+      
+      // Determine date range based on selected period (for 2026 February/March)
+      let startDate: string | undefined;
+      let endDate: string | undefined;
+      
+      if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
+        if (selectedPeriod === 'pre-ramadan') {
+          // February (Pre-Ramadan): Feb 1-18, 2026
+          startDate = '2026-02-01';
+          endDate = '2026-02-18';
+        } else if (selectedPeriod === 'ramadan') {
+          // Ramadan: Feb 19 - March 19, 2026
+          startDate = '2026-02-19';
+          endDate = '2026-03-19';
+        } else if (selectedPeriod === 'post-ramadan') {
+          // March (Post-Ramadan): March 20-31, 2026
+          startDate = '2026-03-20';
+          endDate = '2026-03-31';
+        }
+      }
+      
       const request: SolveRequest = {
         year: selectedYear,
         month: selectedMonth,
         time_limit: 120,
         unfilled_penalty: 1000.0,
         fairness_weight: 5.0,
+        ...(startDate && endDate ? { start_date: startDate, end_date: endDate } : {}),
       };
 
       const response = await solverAPI.solve(request);
@@ -978,20 +1005,40 @@ export const RosterGenerator: React.FC = () => {
     
     if (!selectedYear) return [];
     
+    // Special handling for 2026: show periods in addition to months
+    if (selectedYear === 2026) {
+      const months: Array<{ month: string; number: number; isPeriod?: boolean; periodId?: string }> = [];
+      
+      // Add the three periods first with unique identifiers
+      months.push({ month: 'February (Pre-Ramadan)', number: 2, isPeriod: true, periodId: 'pre-ramadan' });
+      months.push({ month: 'Ramadan', number: 2, isPeriod: true, periodId: 'ramadan' });
+      months.push({ month: 'March (Post-Ramadan)', number: 3, isPeriod: true, periodId: 'post-ramadan' });
+      
+      // Add regular months (excluding Feb and Mar since we have periods)
+      monthNames.forEach((month, index) => {
+        const monthNum = index + 1;
+        if (monthNum !== 2 && monthNum !== 3) {
+          months.push({ month, number: monthNum, periodId: undefined });
+        }
+      });
+      
+      return months;
+    }
+    
     // If selected year is current year, only show future months
     if (selectedYear === currentYear) {
       return monthNames
-        .map((month, index) => ({ month, number: index + 1 }))
+        .map((month, index) => ({ month, number: index + 1, isPeriod: false as boolean, periodId: undefined }))
         .filter(({ number }) => number > currentMonth);
     }
     
     // If selected year is in the future, show all months
     if (selectedYear > currentYear) {
-      return monthNames.map((month, index) => ({ month, number: index + 1 }));
+      return monthNames.map((month, index) => ({ month, number: index + 1, isPeriod: false as boolean, periodId: undefined }));
     }
     
     return [];
-  }, [selectedYear]);
+  }, [selectedYear, monthNames]);
 
   if (loading) {
     return (
@@ -1029,6 +1076,16 @@ export const RosterGenerator: React.FC = () => {
     if (!selectedYear || !selectedMonth || !data) return [];
     return data.filter((item: any) => {
       const date = new Date(item[dateField]);
+      // Filter by period if selected
+      if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
+        if (selectedPeriod === 'pre-ramadan') {
+          return date >= new Date('2026-02-01') && date <= new Date('2026-02-18');
+        } else if (selectedPeriod === 'ramadan') {
+          return date >= new Date('2026-02-19') && date <= new Date('2026-03-19');
+        } else if (selectedPeriod === 'post-ramadan') {
+          return date >= new Date('2026-03-20') && date <= new Date('2026-03-31');
+        }
+      }
       return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
     });
   };
@@ -1136,17 +1193,67 @@ export const RosterGenerator: React.FC = () => {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Select Month</label>
           <select
-            value={selectedMonth || ''}
-            onChange={(e) => setSelectedMonth(e.target.value ? parseInt(e.target.value) : null)}
+            value={
+              selectedYear === 2026 && selectedPeriod
+                ? selectedPeriod
+                : selectedMonth?.toString() || ''
+            }
+            onChange={(e) => {
+              const value = e.target.value;
+              if (!value) {
+                setSelectedMonth(null);
+                setSelectedPeriod(null);
+                return;
+              }
+              
+              // Auto-select period for 2026 periods
+              if (selectedYear === 2026) {
+                // Check if this is a period (starts with period identifier)
+                const option = availableMonths.find(m => {
+                  if (m.isPeriod && m.periodId) {
+                    return value === m.periodId;
+                  }
+                  return value === m.number.toString();
+                });
+                
+                if (option?.isPeriod && option.periodId) {
+                  // This is a period - use the periodId as the value
+                  setSelectedPeriod(option.periodId);
+                  // Set the month number based on the period
+                  setSelectedMonth(option.number);
+                } else {
+                  // Regular month
+                  const monthNum = parseInt(value);
+                  setSelectedMonth(monthNum);
+                  setSelectedPeriod(null);
+                }
+              } else {
+                // Regular year - just set the month
+                const monthNum = parseInt(value);
+                setSelectedMonth(monthNum);
+                setSelectedPeriod(null);
+              }
+            }}
             disabled={!selectedYear}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100"
           >
             <option value="">Select Month...</option>
-            {availableMonths.map(({ month, number }: { month: string; number: number }) => (
-              <option key={number} value={number}>{month}</option>
+            {availableMonths.map(({ month, number, isPeriod, periodId }: { month: string; number: number; isPeriod?: boolean; periodId?: string }) => (
+              <option key={`${number}-${month}`} value={isPeriod && periodId ? periodId : number.toString()}>{month}</option>
             ))}
           </select>
         </div>
+        {/* Show period info when a period is selected */}
+        {selectedYear === 2026 && selectedPeriod && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
+            <p className="font-semibold">Selected Period:</p>
+            <p className="text-sm">
+              {selectedPeriod === 'pre-ramadan' && 'February (Pre-Ramadan) - Feb 1-18, 2026'}
+              {selectedPeriod === 'ramadan' && 'Ramadan - Feb 19 to Mar 19, 2026'}
+              {selectedPeriod === 'post-ramadan' && 'March (Post-Ramadan) - Mar 20-31, 2026'}
+            </p>
+          </div>
+        )}
       </div>
       {(!selectedYear || !selectedMonth) && (
         <div className="mt-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
@@ -1309,6 +1416,7 @@ export const RosterGenerator: React.FC = () => {
               selectedYear={selectedYear}
               selectedMonth={selectedMonth}
               monthNames={monthNames}
+              selectedPeriod={selectedPeriod}
             />
           )}
 
@@ -1329,6 +1437,7 @@ export const RosterGenerator: React.FC = () => {
                 onLocksChange={handleLocksChange}
                 onSaveNotification={setSaveNotification}
                 onReload={loadRosterData}
+                selectedPeriod={selectedPeriod}
               />
             </div>
           )}
@@ -2108,9 +2217,11 @@ export const RosterGenerator: React.FC = () => {
                               month={selectedMonth}
                               employees={generatedEmployees || rosterData?.employees}
                               editable={true}
+                              canChangeColors={true}
                               onScheduleChange={(updatedSchedule) => {
                                 setGeneratedSchedule(updatedSchedule);
                               }}
+                              selectedPeriod={selectedPeriod}
                             />
                             </div>
                           );
@@ -2127,18 +2238,35 @@ export const RosterGenerator: React.FC = () => {
                               month={selectedMonth}
                               employees={generatedEmployees}
                               editable={true}
+                              canChangeColors={true}
                               onScheduleChange={(updatedSchedule) => {
                                 setGeneratedSchedule(updatedSchedule);
                               }}
+                              selectedPeriod={selectedPeriod}
                             />
                             </div>
                           );
                         }
                         
                         // Calculate initial pending_off by reverse-calculating from original schedule
-                        const originalScheduleEntries = originalGeneratedSchedule.filter((entry: any) => {
-                          const date = new Date(entry.date);
+                        // Helper to check if date is in selected period range
+                        const isDateInRange = (dateStr: string): boolean => {
+                          if (!selectedYear || !selectedMonth) return false;
+                          const date = new Date(dateStr);
+                          if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
+                            if (selectedPeriod === 'pre-ramadan') {
+                              return date >= new Date('2026-02-01') && date <= new Date('2026-02-18');
+                            } else if (selectedPeriod === 'ramadan') {
+                              return date >= new Date('2026-02-19') && date <= new Date('2026-03-19');
+                            } else if (selectedPeriod === 'post-ramadan') {
+                              return date >= new Date('2026-03-20') && date <= new Date('2026-03-31');
+                            }
+                          }
                           return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
+                        };
+                        
+                        const originalScheduleEntries = originalGeneratedSchedule.filter((entry: any) => {
+                          return isDateInRange(entry.date);
                         });
                         
                         const originalCalculated = calculatePendingOff(originalScheduleEntries, {}, {}, selectedYear, selectedMonth);
@@ -2166,8 +2294,7 @@ export const RosterGenerator: React.FC = () => {
                         
                         // Calculate from current (edited) schedule
                         const currentScheduleEntries = generatedSchedule.filter((entry: any) => {
-                          const date = new Date(entry.date);
-                          return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
+                          return isDateInRange(entry.date);
                         });
                         
                         const recalculated = calculatePendingOff(currentScheduleEntries, initialPendingOff, {}, selectedYear, selectedMonth);
@@ -2217,9 +2344,11 @@ export const RosterGenerator: React.FC = () => {
                               month={selectedMonth}
                               employees={dynamicEmployees}
                               editable={true}
+                              canChangeColors={true}
                               onScheduleChange={(updatedSchedule) => {
                                 setGeneratedSchedule(updatedSchedule);
                               }}
+                              selectedPeriod={selectedPeriod}
                             />
                             </div>
                             

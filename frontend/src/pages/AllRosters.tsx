@@ -5,7 +5,6 @@ import * as htmlToImage from 'html-to-image';
 import { useAuth } from '../contexts/AuthContext';
 import { useAuthGuard } from '../hooks/useAuthGuard';
 import { useDate } from '../contexts/DateContext';
-import { DatePicker } from '../components/DatePicker';
 import { isTokenExpired } from '../utils/tokenUtils';
 import Plot from 'react-plotly.js';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
@@ -41,6 +40,87 @@ export const AllRostersPage: React.FC = () => {
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
+  // Period date ranges configuration (2026 only)
+  const PERIOD_RANGES = {
+    'pre-ramadan': { start: '2026-02-01', end: '2026-02-18' },
+    'ramadan': { start: '2026-02-19', end: '2026-03-19' },
+    'post-ramadan': { start: '2026-03-20', end: '2026-03-31' }
+  } as const;
+
+  // Helper to check if a date is in a period range
+  const isDateInPeriod = (dateStr: string, period: keyof typeof PERIOD_RANGES): boolean => {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return false;
+    const range = PERIOD_RANGES[period];
+    return date >= new Date(range.start) && date <= new Date(range.end);
+  };
+
+  // Helper to filter schedule entries by period
+  const filterScheduleByPeriod = (schedule: any[], period: keyof typeof PERIOD_RANGES): any[] => {
+    return schedule.filter((e: any) => {
+      const dateStr = e.date?.split('T')[0] || e.date;
+      return dateStr ? isDateInPeriod(dateStr, period) : false;
+    });
+  };
+
+  // Split and merge Feb and Mar 2026 schedules into pre-ramadan, ramadan, and post-ramadan
+  const mergeRamadanSchedules = (schedules: Schedule[]): Schedule[] => {
+    const febSchedule = schedules.find(s => s.year === 2026 && s.month === 2);
+    const marSchedule = schedules.find(s => s.year === 2026 && s.month === 3);
+    
+    if (!febSchedule && !marSchedule) {
+      return schedules;
+    }
+    
+    const result: Schedule[] = [];
+    
+    // Split schedules by period
+    if (febSchedule) {
+      const preRamadanEntries = filterScheduleByPeriod(febSchedule.schedule, 'pre-ramadan');
+      if (preRamadanEntries.length > 0) {
+        result.push({
+          year: 2026,
+          month: 2,
+          schedule: preRamadanEntries,
+          employees: febSchedule.employees,
+          metrics: febSchedule.metrics
+        });
+      }
+    }
+    
+    // Merge Ramadan from both months
+    const febRamadanEntries = febSchedule ? filterScheduleByPeriod(febSchedule.schedule, 'ramadan') : [];
+    const marRamadanEntries = marSchedule ? filterScheduleByPeriod(marSchedule.schedule, 'ramadan') : [];
+    
+    if (febRamadanEntries.length > 0 || marRamadanEntries.length > 0) {
+      result.push({
+        year: 2026,
+        month: 2,
+        schedule: [...febRamadanEntries, ...marRamadanEntries],
+        employees: marSchedule?.employees || febSchedule?.employees,
+        metrics: marSchedule?.metrics || febSchedule?.metrics
+      });
+    }
+    
+    if (marSchedule) {
+      const postRamadanEntries = filterScheduleByPeriod(marSchedule.schedule, 'post-ramadan');
+      if (postRamadanEntries.length > 0) {
+        result.push({
+          year: 2026,
+          month: 3,
+          schedule: postRamadanEntries,
+          employees: marSchedule.employees,
+          metrics: marSchedule.metrics
+        });
+      }
+    }
+    
+    // Add all other schedules
+    result.push(...schedules.filter(s => !(s.year === 2026 && (s.month === 2 || s.month === 3))));
+    
+    return result;
+  };
+
   const loadSchedules = useCallback(async (signal?: AbortSignal) => {
     // FIX: Double-check token is still valid right before making the call
     // This prevents race conditions where token expires between guard check and API call
@@ -71,16 +151,18 @@ export const AllRostersPage: React.FC = () => {
         return;
       }
       
-      setSchedules(data);
+      // Merge Feb and Mar 2026 schedules if they form Ramadan
+      const mergedSchedules = mergeRamadanSchedules(data);
+      setSchedules(mergedSchedules);
 
-      if (data.length === 0) {
+      if (mergedSchedules.length === 0) {
         setSelectedYear(null);
         setSelectedMonth(null);
         setCurrentSchedule(null);
       } else if (
         selectedYear &&
         selectedMonth &&
-        !data.some((s) => s.year === selectedYear && s.month === selectedMonth)
+        !mergedSchedules.some((s) => s.year === selectedYear && s.month === selectedMonth)
       ) {
         // Previously selected schedule no longer exists
         setCurrentSchedule(null);
@@ -129,27 +211,162 @@ export const AllRostersPage: React.FC = () => {
     };
   }, [authReady, loadSchedules, loadEmployees]);
 
+  // Store the selected period to help identify which schedule to load
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
+  
   // Load specific schedule ONLY after schedules list is loaded
   useEffect(() => {
     if (!schedulesLoaded) return; // Wait for schedules list to be loaded first
     
     if (selectedYear && selectedMonth) {
-      // Verify the schedule exists in the list before trying to load it
-      const scheduleExists = schedules.some(
+      // Find all schedules with this year/month (there might be multiple: pre-ramadan and ramadan both have month=2)
+      const matchingSchedules = schedules.filter(
         (s) => s.year === selectedYear && s.month === selectedMonth
       );
-      if (scheduleExists) {
-        loadSchedule(selectedYear, selectedMonth);
-      } else {
+      
+      if (matchingSchedules.length === 0) {
         // Selected schedule doesn't exist, clear selection
         setCurrentSchedule(null);
+        setSelectedPeriod(null);
+        return;
       }
+      
+      // Determine which schedule to load based on selectedPeriod
+      let scheduleToLoad = matchingSchedules[0];
+      let periodToUse = selectedPeriod;
+      
+      if (matchingSchedules.length > 1) {
+        // Multiple schedules exist - use selectedPeriod to find the right one
+        if (selectedPeriod) {
+          const periodSchedule = matchingSchedules.find(s => detectPeriod(s) === selectedPeriod);
+          if (periodSchedule) {
+            scheduleToLoad = periodSchedule;
+            periodToUse = selectedPeriod;
+          } else {
+            // Period not found, detect from first schedule
+            periodToUse = detectPeriod(scheduleToLoad);
+          }
+        } else {
+          // No period selected, detect from first schedule
+          periodToUse = detectPeriod(scheduleToLoad);
+        }
+      } else {
+        // Single schedule, detect its period
+        periodToUse = detectPeriod(scheduleToLoad) || selectedPeriod;
+      }
+      
+      // Update selectedPeriod if we detected it
+      if (periodToUse && periodToUse !== selectedPeriod) {
+        setSelectedPeriod(periodToUse);
+      }
+      
+      loadSchedule(selectedYear, selectedMonth, periodToUse);
     }
-  }, [selectedYear, selectedMonth, schedulesLoaded, schedules]);
+  }, [selectedYear, selectedMonth, schedulesLoaded, schedules, selectedPeriod]);
 
-  const loadSchedule = async (year: number, month: number) => {
+  const loadSchedule = async (year: number, month: number, period?: string | null) => {
     try {
       setLoadingSchedule(true);
+      
+      // For 2026 Feb/Mar, we need special handling for periods
+      if (year === 2026 && (month === 2 || month === 3)) {
+        // Load both months to check what we have
+        const [febSchedule, marSchedule] = await Promise.all([
+          schedulesAPI.getSchedule(2026, 2).catch(() => null),
+          schedulesAPI.getSchedule(2026, 3).catch(() => null)
+        ]);
+        
+        // Find ALL schedules in our merged list with this year/month (there might be multiple: pre-ramadan and ramadan both have month=2)
+        const schedulesInList = schedules.filter(s => s.year === year && s.month === month);
+        if (schedulesInList.length === 0) {
+          // Fall back to loading single month
+          const schedule = await schedulesAPI.getSchedule(year, month);
+          setCurrentSchedule(schedule);
+          setOriginalSchedule(JSON.parse(JSON.stringify(schedule)));
+          setHasUnsavedChanges(false);
+          setSaveSuccess(false);
+          setError(null);
+          return;
+        }
+        
+        // Use the provided period if available, otherwise detect it
+        let detectedPeriod = period;
+        let scheduleInList = schedulesInList[0];
+        
+        // If period is provided, find the schedule matching that period
+        if (period && schedulesInList.length > 1) {
+          const periodSchedule = schedulesInList.find(s => detectPeriod(s) === period);
+          if (periodSchedule) {
+            scheduleInList = periodSchedule;
+            detectedPeriod = period;
+          } else {
+            detectedPeriod = detectPeriod(scheduleInList);
+          }
+        } else {
+          // Detect period for the schedule
+          detectedPeriod = detectPeriod(scheduleInList);
+          
+          // If we have multiple schedules with month=2 and no period specified, prefer ramadan if it exists
+          if (schedulesInList.length > 1 && !period) {
+            const ramadanSchedule = schedulesInList.find(s => detectPeriod(s) === 'ramadan');
+            if (ramadanSchedule) {
+              scheduleInList = ramadanSchedule;
+              detectedPeriod = 'ramadan';
+            }
+          }
+        }
+        
+        // Filter schedule by detected period
+        if (detectedPeriod && detectedPeriod in PERIOD_RANGES) {
+          let filteredSchedule: Schedule;
+          
+          if (detectedPeriod === 'ramadan') {
+            // Ramadan spans both months
+            const febEntries = febSchedule ? filterScheduleByPeriod(febSchedule.schedule, 'ramadan') : [];
+            const marEntries = marSchedule ? filterScheduleByPeriod(marSchedule.schedule, 'ramadan') : [];
+            filteredSchedule = {
+              year: 2026,
+              month: 2,
+              schedule: [...febEntries, ...marEntries],
+              employees: marSchedule?.employees || febSchedule?.employees,
+              metrics: marSchedule?.metrics || febSchedule?.metrics
+            };
+          } else if (detectedPeriod === 'pre-ramadan') {
+            // Pre-ramadan is only in February
+            if (!febSchedule) {
+              throw new Error('Pre-ramadan schedule not found');
+            }
+            filteredSchedule = {
+              ...febSchedule,
+              schedule: filterScheduleByPeriod(febSchedule.schedule, 'pre-ramadan')
+            };
+          } else if (detectedPeriod === 'post-ramadan') {
+            // Post-ramadan is only in March
+            if (!marSchedule) {
+              throw new Error('Post-ramadan schedule not found');
+            }
+            filteredSchedule = {
+              ...marSchedule,
+              schedule: filterScheduleByPeriod(marSchedule.schedule, 'post-ramadan')
+            };
+          } else {
+            throw new Error(`Unknown period: ${detectedPeriod}`);
+          }
+          
+          setCurrentSchedule(filteredSchedule);
+          setOriginalSchedule(JSON.parse(JSON.stringify(filteredSchedule)));
+          // Ensure selectedPeriod is set correctly
+          if (detectedPeriod && detectedPeriod !== selectedPeriod) {
+            setSelectedPeriod(detectedPeriod);
+          }
+          setHasUnsavedChanges(false);
+          setSaveSuccess(false);
+          setError(null);
+          return;
+        }
+      }
+      
+      // Default: load single month
       const schedule = await schedulesAPI.getSchedule(year, month);
       setCurrentSchedule(schedule);
       // Store original schedule for cancel functionality
@@ -166,18 +383,104 @@ export const AllRostersPage: React.FC = () => {
     }
   };
 
-  // Get available years and months
+  // Detect period from schedule date range (for 2026 Feb/Mar)
+  const detectPeriod = (schedule: Schedule): keyof typeof PERIOD_RANGES | null => {
+    if (!schedule || !schedule.schedule || schedule.year !== 2026 || (schedule.month !== 2 && schedule.month !== 3)) {
+      return null;
+    }
+    
+    const dates: Date[] = schedule.schedule
+      .map((entry: any) => {
+        const dateStr = entry.date?.split('T')[0] || entry.date;
+        if (!dateStr) return null;
+        const date = new Date(dateStr);
+        return !isNaN(date.getTime()) ? date : null;
+      })
+      .filter((d: Date | null): d is Date => d !== null)
+      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+    
+    if (dates.length === 0) return null;
+    
+    const minDate = dates[0];
+    const maxDate = dates[dates.length - 1];
+    
+    // Check each period range
+    for (const [period, range] of Object.entries(PERIOD_RANGES)) {
+      if (minDate >= new Date(range.start) && maxDate <= new Date(range.end)) {
+        return period as keyof typeof PERIOD_RANGES;
+      }
+    }
+    
+    return null;
+  };
+
+  // Get available years (only committed ones)
   const availableYears = Array.from(new Set(schedules.map(s => s.year))).sort();
-  // Get all available year-month combinations for the combined picker
-  const availableYearMonthCombos = schedules.map(s => ({
-    year: s.year,
-    month: s.month,
-    value: `${s.year}-${s.month}`,
-    label: `${monthNames[s.month - 1]} ${s.year}`
-  })).sort((a, b) => {
-    if (a.year !== b.year) return a.year - b.year;
-    return a.month - b.month;
-  });
+  
+  // Get available month options for the selected year
+  // For 2026 Feb/Mar, show period-specific options instead of just "February" and "March"
+  const availableMonthOptions = useMemo(() => {
+    if (!selectedYear) return [];
+    
+    const yearSchedules = schedules.filter(s => s.year === selectedYear);
+    if (yearSchedules.length === 0) return [];
+    
+    const options: Array<{ value: string; label: string; month: number; period: string | null }> = [];
+    const processedMonths = new Set<number>();
+    
+    // Special handling for 2026 Feb/Mar - show period-specific options
+    if (selectedYear === 2026) {
+      // Check for pre-ramadan (Feb 1-18)
+      const hasPreRamadan = yearSchedules.some(s => {
+        const period = detectPeriod(s);
+        return period === 'pre-ramadan';
+      });
+      if (hasPreRamadan) {
+        options.push({ value: '2-pre', label: 'February (Pre-Ramadan)', month: 2, period: 'pre-ramadan' });
+        processedMonths.add(2);
+      }
+      
+      // Check for ramadan (Feb 19 - Mar 19)
+      const hasRamadan = yearSchedules.some(s => {
+        const period = detectPeriod(s);
+        return period === 'ramadan';
+      });
+      if (hasRamadan) {
+        options.push({ value: '2-ramadan', label: 'Ramadan', month: 2, period: 'ramadan' });
+        processedMonths.add(2);
+        processedMonths.add(3); // Ramadan spans both months
+      }
+      
+      // Check for post-ramadan (Mar 20-31)
+      const hasPostRamadan = yearSchedules.some(s => {
+        const period = detectPeriod(s);
+        return period === 'post-ramadan';
+      });
+      if (hasPostRamadan) {
+        options.push({ value: '3-post', label: 'March (Post-Ramadan)', month: 3, period: 'post-ramadan' });
+        processedMonths.add(3);
+      }
+    }
+    
+    // Add all other months that have committed schedules (excluding months already processed for 2026)
+    const allMonths = Array.from(new Set(yearSchedules.map(s => s.month))).sort();
+    allMonths.forEach(month => {
+      if (!processedMonths.has(month)) {
+        options.push({
+          value: month.toString(),
+          label: monthNames[month - 1],
+          month,
+          period: null as string | null
+        });
+      }
+    });
+    
+    // Sort options by month
+    return options.sort((a, b) => a.month - b.month);
+  }, [schedules, selectedYear]);
+  
+  // Use selectedPeriod if available, otherwise detect from current schedule
+  const currentPeriod = selectedPeriod || (currentSchedule ? detectPeriod(currentSchedule) : null);
 
   const generateScheduleImage = async (): Promise<string | null> => {
     if (!scheduleImageRef.current || !selectedYear || !selectedMonth || !currentSchedule) {
@@ -634,11 +937,92 @@ export const AllRostersPage: React.FC = () => {
       ) : (
         <>
           {/* Year and Month Selection */}
-          <DatePicker 
-            className="mb-6"
-            combined={true}
-            availableYearMonthCombos={availableYearMonthCombos}
-          />
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Year</label>
+                <select
+                  value={selectedYear || ''}
+                  onChange={(e) => {
+                    const year = e.target.value ? parseInt(e.target.value) : null;
+                    setSelectedYear(year);
+                    if (!year) {
+                      setSelectedMonth(null);
+                      setSelectedPeriod(null);
+                    } else {
+                      // Clear month and period when year changes
+                      setSelectedMonth(null);
+                      setSelectedPeriod(null);
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                >
+                  <option value="">Select Year...</option>
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Month</label>
+                <select
+                  value={(() => {
+                    if (!selectedYear || !selectedMonth) return '';
+                    // For 2026, check if we need period-specific value
+                    if (selectedYear === 2026 && selectedPeriod) {
+                      if (selectedPeriod === 'pre-ramadan' && selectedMonth === 2) return '2-pre';
+                      if (selectedPeriod === 'ramadan' && selectedMonth === 2) return '2-ramadan';
+                      if (selectedPeriod === 'post-ramadan' && selectedMonth === 3) return '3-post';
+                    }
+                    // For regular months, find the matching option
+                    const matchingOption = availableMonthOptions.find(opt => opt.month === selectedMonth && !opt.period);
+                    if (matchingOption) return matchingOption.value;
+                    return selectedMonth.toString();
+                  })()}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (!value) {
+                      setSelectedMonth(null);
+                      setSelectedPeriod(null);
+                      return;
+                    }
+                    
+                    // Handle period-specific values for 2026
+                    if (selectedYear === 2026 && value.includes('-')) {
+                      const parts = value.split('-');
+                      const month = parseInt(parts[0]);
+                      const periodPart = parts[1];
+                      
+                      setSelectedMonth(month);
+                      if (periodPart === 'pre') {
+                        setSelectedPeriod('pre-ramadan');
+                      } else if (periodPart === 'ramadan') {
+                        setSelectedPeriod('ramadan');
+                      } else if (periodPart === 'post') {
+                        setSelectedPeriod('post-ramadan');
+                      } else {
+                        setSelectedPeriod(null);
+                      }
+                    } else {
+                      // Regular month selection
+                      const month = parseInt(value);
+                      setSelectedMonth(month);
+                      setSelectedPeriod(null);
+                    }
+                  }}
+                  disabled={!selectedYear}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                >
+                  <option value="">Select Month...</option>
+                  {availableMonthOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
 
           {selectedYear && selectedMonth && loadingSchedule && (
             <div className="flex items-center justify-center py-12">
@@ -658,7 +1042,13 @@ export const AllRostersPage: React.FC = () => {
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <h3 className="text-xl font-bold text-gray-900">
-                      {monthNames[selectedMonth - 1]} {selectedYear} Schedule
+                      {currentPeriod === 'pre-ramadan' 
+                        ? `February ${selectedYear} (Pre-Ramadan) Schedule`
+                        : currentPeriod === 'ramadan'
+                        ? `Ramadan ${selectedYear} Schedule`
+                        : currentPeriod === 'post-ramadan'
+                        ? `March ${selectedYear} (Post-Ramadan) Schedule`
+                        : `${monthNames[selectedMonth - 1]} ${selectedYear} Schedule`}
                     </h3>
                     {isManager && !hasUnsavedChanges && !saveSuccess && (
                       <span className="text-sm text-gray-500 italic">Click any cell to edit</span>
@@ -727,6 +1117,7 @@ export const AllRostersPage: React.FC = () => {
                     editable={isManager}
                     canChangeColors={isManager}
                     onScheduleChange={handleScheduleChange}
+                    selectedPeriod={currentPeriod}
                   />
                 </div>
               </div>

@@ -5,7 +5,6 @@ export const shiftColors: Record<string, string> = {
   // Shift Types
   '0': '#FFFFFF',      // White - Empty/Default
   'M': '#FFFFFF',      // White - Main / Morning
-  'O': '#ffffff',      // White - Off Duty
   'IP': '#ffffff',     // White - Inpatient
   'A': '#845699',      // Purple/Violet - Afternoon
   'N': '#FFFF00',      // Bright Yellow - Night
@@ -14,10 +13,12 @@ export const shiftColors: Record<string, string> = {
   'H': '#ffcd9e',      // Peach/Light Orange - Harat Pharmacy
   'CL': '#ffffff',     // White - Clinic
   'MS': '#ffffff',     // White - Medical Store
+  'E': '#4575d3',      // Blue - Evening
   'C': '#e66bcf',      // Pink/Magenta - Course
   'P': '#FFA07A',      // Light Salmon/Peach - Preparation
   'M+P': '#ec7c13',    // Orange/Brown-Orange - Main + Preparation
   'IP+P': '#ec7c13',   // Orange/Brown-Orange - Inpatient + Preparation
+  'O': '#ffffff',      // White - Off Duty
   // Leave Types
   'DO': '#70c770',     // Medium Green - Day Off
   'AL': '#FFD27F',     // Light Orange/Peach - Annual Leave
