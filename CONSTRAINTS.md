@@ -47,6 +47,11 @@ After working certain shifts, staff must have rest days:
 - **After M4 shift**: Must have 1 rest day (Off Duty) the next day
 - **After Afternoon shift**: Must have 1 rest day (Off Duty) the next day
 
+*Exceptions:*
+- If staff have approved leave (e.g., DO, AL, etc.) on the rest day, the rest requirement is skipped (leave counts as rest)
+- If staff **requested** the shift (e.g., requested N, M4, or A) AND **requested** another shift on the rest day(s), the rest requirement is skipped to respect their wishes
+- **Important**: If the solver assigns a shift (not requested), it must still respect the rest requirement and choose days where rest is possible
+
 ### 11. Single-Skill Staff
 Staff who are only qualified for one type of shift:
 - Work that shift Sunday through Thursday

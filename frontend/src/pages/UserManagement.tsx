@@ -891,6 +891,9 @@ export const UserManagement: React.FC = () => {
       });
 
     const result: Array<{ value: string; label: string; year: number; month: number; period: string | null }> = [];
+    const periodOptions: Array<{ value: string; label: string; year: number; month: number; period: string | null }> = [];
+    const regularOptions: Array<{ value: string; label: string; year: number; month: number; period: string | null }> = [];
+    
     const hasFeb2026 = allOptions.some(opt => {
       const [year, month] = opt.value.split('-').map(Number);
       return year === 2026 && month === 2;
@@ -906,23 +909,45 @@ export const UserManagement: React.FC = () => {
       
       if (year === 2026 && month === 2) {
         // Add period options for February
-        result.push({ value: `${year}-2-pre`, label: 'February 2026 (Pre-Ramadan)', year, month: 2, period: 'pre-ramadan' });
-        result.push({ value: `${year}-2-ramadan`, label: 'Ramadan 2026', year, month: 2, period: 'ramadan' });
+        periodOptions.push({ value: `${year}-2-pre`, label: 'February 2026 (Pre-Ramadan)', year, month: 2, period: 'pre-ramadan' });
+        periodOptions.push({ value: `${year}-2-ramadan`, label: 'Ramadan 2026', year, month: 2, period: 'ramadan' });
         ramadanAdded = true;
       } else if (year === 2026 && month === 3) {
         // Add period options for March (but avoid duplicate Ramadan if Feb also exists)
         if (!ramadanAdded) {
-          result.push({ value: `${year}-3-ramadan`, label: 'Ramadan 2026', year, month: 3, period: 'ramadan' });
+          periodOptions.push({ value: `${year}-3-ramadan`, label: 'Ramadan 2026', year, month: 3, period: 'ramadan' });
         }
-        result.push({ value: `${year}-3-post`, label: 'March 2026 (Post-Ramadan)', year, month: 3, period: 'post-ramadan' });
+        periodOptions.push({ value: `${year}-3-post`, label: 'March 2026 (Post-Ramadan)', year, month: 3, period: 'post-ramadan' });
       } else {
-        // Regular month
-        result.push({ value: opt.value, label: opt.label, year, month, period: null });
+        // Regular month - for 2026, skip January (1), February (2), and March (3)
+        if (year === 2026 && (month === 1 || month === 2 || month === 3)) {
+          // Skip these months for 2026
+          return;
+        }
+        regularOptions.push({ value: opt.value, label: opt.label, year, month, period: null });
       }
     });
     
-    // Sort by year, then month
-    return result.sort((a, b) => {
+    // For 2026, order periods first, then regular months
+    if (hasFeb2026 || hasMar2026) {
+      // Sort periods: pre-ramadan, ramadan, post-ramadan
+      periodOptions.sort((a, b) => {
+        const periodOrder: { [key: string]: number } = { 'pre-ramadan': 1, 'ramadan': 2, 'post-ramadan': 3 };
+        return (periodOrder[a.period || ''] || 0) - (periodOrder[b.period || ''] || 0);
+      });
+      
+      // Sort regular options by year, then month
+      regularOptions.sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return a.month - b.month;
+      });
+      
+      // Combine: periods first, then regular months
+      return [...periodOptions, ...regularOptions];
+    }
+    
+    // For other years, just sort normally
+    return regularOptions.sort((a, b) => {
       if (a.year !== b.year) return a.year - b.year;
       return a.month - b.month;
     });

@@ -1005,22 +1005,25 @@ export const RosterGenerator: React.FC = () => {
     
     if (!selectedYear) return [];
     
-    // Special handling for 2026: show periods in addition to months
+    // Special handling for 2026: show periods first, then remaining months starting from April
     if (selectedYear === 2026) {
       const months: Array<{ month: string; number: number; isPeriod?: boolean; periodId?: string }> = [];
       
-      // Add regular months first (excluding Feb and Mar since we have periods)
-      monthNames.forEach((month, index) => {
-        const monthNum = index + 1;
-        if (monthNum !== 2 && monthNum !== 3) {
-          months.push({ month, number: monthNum, periodId: undefined });
-        }
-      });
-      
-      // Add the three periods after regular months
+      // Add the three Ramadan periods FIRST
       months.push({ month: 'February (Pre-Ramadan)', number: 2, isPeriod: true, periodId: 'pre-ramadan' });
       months.push({ month: 'Ramadan', number: 2, isPeriod: true, periodId: 'ramadan' });
       months.push({ month: 'March (Post-Ramadan)', number: 3, isPeriod: true, periodId: 'post-ramadan' });
+      
+      // Then add remaining months starting from April (skip January since it's passed)
+      // Also skip February and March since we have periods for them
+      monthNames.forEach((month, index) => {
+        const monthNum = index + 1;
+        // Skip January (1), February (2), and March (3)
+        // Start from April (4) onwards
+        if (monthNum >= 4) {
+          months.push({ month, number: monthNum, isPeriod: false, periodId: undefined });
+        }
+      });
       
       return months;
     }

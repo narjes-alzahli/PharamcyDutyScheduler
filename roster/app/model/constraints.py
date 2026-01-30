@@ -392,6 +392,14 @@ def add_sequencing_constraints(
                 if (emp, day, shift_code) not in x:
                     continue
                 
+                # Check if this shift was requested (forced) by the employee
+                # Only apply exception if the shift itself was requested, not if solver-assigned
+                shift_is_requested = False
+                if locks:
+                    lock_key = (emp, day, shift_code)
+                    if locks.get(lock_key) is True:
+                        shift_is_requested = True
+                
                 # Check if employee already has a leave type assigned (skip rest requirement if so)
                 # A leave type is any code in time_off that is not a working shift
                 def has_leave_on_day(target_day):
@@ -423,8 +431,11 @@ def add_sequencing_constraints(
                         continue
                     
                     # Skip if employee has a lock forcing them to work a working shift on this day
-                    # (e.g., if they requested A after M, don't require rest after A)
-                    if has_forced_work_on_day(rest_day):
+                    # BUT only if the shift itself was requested (not solver-assigned)
+                    # This applies to N (2 rest days), M4 (1 rest day), and A (1 rest day)
+                    # (e.g., if they requested N/M4/A and then requested another shift, respect their wishes)
+                    # If solver assigned N/M4/A, it must still respect the O requirement
+                    if shift_is_requested and has_forced_work_on_day(rest_day):
                         continue
                     
                     # Add constraint: shift_today <= rest_code_rest_day

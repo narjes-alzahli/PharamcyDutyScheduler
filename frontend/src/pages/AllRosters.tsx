@@ -425,10 +425,11 @@ export const AllRostersPage: React.FC = () => {
     const yearSchedules = schedules.filter(s => s.year === selectedYear);
     if (yearSchedules.length === 0) return [];
     
-    const options: Array<{ value: string; label: string; month: number; period: string | null }> = [];
+    const periodOptions: Array<{ value: string; label: string; month: number; period: string | null }> = [];
+    const regularOptions: Array<{ value: string; label: string; month: number; period: string | null }> = [];
     const processedMonths = new Set<number>();
     
-    // Special handling for 2026 Feb/Mar - show period-specific options
+    // Special handling for 2026 Feb/Mar - show period-specific options FIRST
     if (selectedYear === 2026) {
       // Check for pre-ramadan (Feb 1-18)
       const hasPreRamadan = yearSchedules.some(s => {
@@ -436,7 +437,7 @@ export const AllRostersPage: React.FC = () => {
         return period === 'pre-ramadan';
       });
       if (hasPreRamadan) {
-        options.push({ value: '2-pre', label: 'February (Pre-Ramadan)', month: 2, period: 'pre-ramadan' });
+        periodOptions.push({ value: '2-pre', label: 'February (Pre-Ramadan)', month: 2, period: 'pre-ramadan' });
         processedMonths.add(2);
       }
       
@@ -446,7 +447,7 @@ export const AllRostersPage: React.FC = () => {
         return period === 'ramadan';
       });
       if (hasRamadan) {
-        options.push({ value: '2-ramadan', label: 'Ramadan', month: 2, period: 'ramadan' });
+        periodOptions.push({ value: '2-ramadan', label: 'Ramadan', month: 2, period: 'ramadan' });
         processedMonths.add(2);
         processedMonths.add(3); // Ramadan spans both months
       }
@@ -457,16 +458,27 @@ export const AllRostersPage: React.FC = () => {
         return period === 'post-ramadan';
       });
       if (hasPostRamadan) {
-        options.push({ value: '3-post', label: 'March (Post-Ramadan)', month: 3, period: 'post-ramadan' });
+        periodOptions.push({ value: '3-post', label: 'March (Post-Ramadan)', month: 3, period: 'post-ramadan' });
         processedMonths.add(3);
       }
+      
+      // Sort periods in order: pre-ramadan, ramadan, post-ramadan
+      periodOptions.sort((a, b) => {
+        const periodOrder: { [key: string]: number } = { 'pre-ramadan': 1, 'ramadan': 2, 'post-ramadan': 3 };
+        return (periodOrder[a.period || ''] || 0) - (periodOrder[b.period || ''] || 0);
+      });
     }
     
-    // Add all other months that have committed schedules (excluding months already processed for 2026)
+    // Add all other months that have committed schedules
+    // For 2026, skip January (1), February (2), and March (3) regular months
     const allMonths = Array.from(new Set(yearSchedules.map(s => s.month))).sort();
     allMonths.forEach(month => {
       if (!processedMonths.has(month)) {
-        options.push({
+        // For 2026, skip January, February, and March regular months
+        if (selectedYear === 2026 && (month === 1 || month === 2 || month === 3)) {
+          return;
+        }
+        regularOptions.push({
           value: month.toString(),
           label: monthNames[month - 1],
           month,
@@ -475,8 +487,11 @@ export const AllRostersPage: React.FC = () => {
       }
     });
     
-    // Sort options by month
-    return options.sort((a, b) => a.month - b.month);
+    // Sort regular options by month
+    regularOptions.sort((a, b) => a.month - b.month);
+    
+    // Return periods first, then regular months
+    return [...periodOptions, ...regularOptions];
   }, [schedules, selectedYear]);
   
   // Use selectedPeriod if available, otherwise detect from current schedule
