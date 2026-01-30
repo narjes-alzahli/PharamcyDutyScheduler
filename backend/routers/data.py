@@ -25,7 +25,7 @@ from backend.roster_data_loader import (
     load_month_holidays,
     get_holiday_demands
 )
-from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills
+from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills, CommittedSchedule, ScheduleMetrics
 from sqlalchemy.orm import Session
 from sqlalchemy import not_
 from datetime import date
@@ -199,11 +199,34 @@ async def update_employees(
                 db.add(new_user)
     
     # Update employee_name in user accounts if employee name changed
+    # Also track name changes to update committed schedules
+    name_changes = {}  # Map old_name -> new_name
     for employee_name in new_employee_names:
         username = re.sub(r'\s+', '_', employee_name.strip().lower())
         user = db.query(User).filter(User.username == username).first()
         if user and user.employee_name != employee_name:
+            old_name = user.employee_name
+            name_changes[old_name] = employee_name
             user.employee_name = employee_name
+    
+    # Update committed schedules and metrics for any name changes
+    for old_name, new_name in name_changes.items():
+        # Update all CommittedSchedule entries with the old name
+        committed_schedules = db.query(CommittedSchedule).filter(
+            CommittedSchedule.employee_name == old_name
+        ).all()
+        for schedule in committed_schedules:
+            schedule.employee_name = new_name
+        
+        # Update all ScheduleMetrics JSON that contain the old name
+        all_metrics = db.query(ScheduleMetrics).all()
+        for metrics_record in all_metrics:
+            if metrics_record.metrics and isinstance(metrics_record.metrics, dict):
+                # Update employees array if it exists
+                if 'employees' in metrics_record.metrics and isinstance(metrics_record.metrics['employees'], list):
+                    for emp_data in metrics_record.metrics['employees']:
+                        if isinstance(emp_data, dict) and emp_data.get('employee') == old_name:
+                            emp_data['employee'] = new_name
     
     db.commit()
     
