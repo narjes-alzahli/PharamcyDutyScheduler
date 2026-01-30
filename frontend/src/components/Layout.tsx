@@ -150,7 +150,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         { name: 'Rules Management', path: '/rules' },
       ]
     : [
-        { name: 'Roster Requests', path: '/requests' },
+        { name: 'Requests', path: '/requests' },
         { name: 'All Rosters', path: '/rosters' },
       ];
 

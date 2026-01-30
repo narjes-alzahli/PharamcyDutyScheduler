@@ -417,7 +417,7 @@ export const RosterRequests: React.FC = () => {
   if (loading) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Requests</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Requests</h2>
         <LoadingSkeleton type="list" rows={5} />
       </div>
     );
@@ -425,7 +425,7 @@ export const RosterRequests: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Requests</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Requests</h2>
 
       {/* Auto-dismissing notification toast */}
       {notification && (
@@ -611,9 +611,13 @@ export const RosterRequests: React.FC = () => {
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleEditLeave(req)}
-                              className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+                              className="rounded-full bg-blue-600 p-1.5 text-white shadow hover:bg-blue-700 flex-shrink-0"
+                              title="Edit request"
+                              aria-label="Edit request"
                             >
-                              Edit
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                <path d="M11.6667 2.5L15.8333 6.66667M13.3333 3.33333L4.16667 12.5L2.5 17.5L7.5 15.8333L16.6667 6.66667M13.3333 3.33333L11.6667 2.5M13.3333 3.33333L15.8333 5.83333" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleDeleteLeave(req.request_id)}
@@ -691,9 +695,13 @@ export const RosterRequests: React.FC = () => {
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => handleEditLeave(req)}
-                                    className="rounded-lg bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+                                    className="rounded-full bg-blue-600 p-1 text-white shadow hover:bg-blue-700 flex-shrink-0"
+                                    title="Edit request"
+                                    aria-label="Edit request"
                                   >
-                                    Edit
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                      <path d="M11.6667 2.5L15.8333 6.66667M13.3333 3.33333L4.16667 12.5L2.5 17.5L7.5 15.8333L16.6667 6.66667M13.3333 3.33333L11.6667 2.5M13.3333 3.33333L15.8333 5.83333" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
                                   </button>
                                   <button
                                     onClick={() => handleDeleteLeave(req.request_id)}
@@ -899,9 +907,13 @@ export const RosterRequests: React.FC = () => {
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleEditShiftRequest(req)}
-                              className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+                              className="rounded-full bg-blue-600 p-1.5 text-white shadow hover:bg-blue-700 flex-shrink-0"
+                              title="Edit request"
+                              aria-label="Edit request"
                             >
-                              Edit
+                              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                                <path d="M11.6667 2.5L15.8333 6.66667M13.3333 3.33333L4.16667 12.5L2.5 17.5L7.5 15.8333L16.6667 6.66667M13.3333 3.33333L11.6667 2.5M13.3333 3.33333L15.8333 5.83333" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleDeleteShift(req.request_id)}
@@ -985,9 +997,13 @@ export const RosterRequests: React.FC = () => {
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => handleEditShiftRequest(req)}
-                                    className="rounded-lg bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+                                    className="rounded-full bg-blue-600 p-1 text-white shadow hover:bg-blue-700 flex-shrink-0"
+                                    title="Edit request"
+                                    aria-label="Edit request"
                                   >
-                                    Edit
+                                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5">
+                                      <path d="M11.6667 2.5L15.8333 6.66667M13.3333 3.33333L4.16667 12.5L2.5 17.5L7.5 15.8333L16.6667 6.66667M13.3333 3.33333L11.6667 2.5M13.3333 3.33333L15.8333 5.83333" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
                                   </button>
                                   <button
                                     onClick={() => handleDeleteShift(req.request_id)}

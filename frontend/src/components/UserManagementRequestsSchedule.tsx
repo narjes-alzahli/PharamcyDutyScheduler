@@ -31,7 +31,6 @@ interface UserManagementRequestsScheduleProps {
   onSelectRequest: (requestId: string | null) => void;
   onApprove: (requestId: string, type: 'leave' | 'shift') => void;
   onReject: (requestId: string, type: 'leave' | 'shift') => void;
-  onDelete: (requestId: string, type: 'leave' | 'shift') => void;
   processingRequestId: string | null;
   allEmployees?: string[]; // Optional: if provided, show all employees even if they have no requests
 }
@@ -45,7 +44,6 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
   onSelectRequest,
   onApprove,
   onReject,
-  onDelete,
   processingRequestId,
   allEmployees,
 }) => {
@@ -431,49 +429,38 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
               transform: popupPosition.side === 'left' ? 'translateX(-100%)' : 'none',
             }}
           >
-            <button
-              onClick={() => {
-                onApprove(selectedRequestId, requestType);
-                onSelectRequest(null);
-                setPopupPosition(null);
-              }}
-              disabled={processingRequestId === selectedRequestId || request.status !== 'Pending'}
-              className="rounded-full bg-green-600 p-1.5 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
-              title="Approve request"
-            >
-              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
-                <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <button
-              onClick={() => {
-                onReject(selectedRequestId, requestType);
-                onSelectRequest(null);
-                setPopupPosition(null);
-              }}
-              disabled={processingRequestId === selectedRequestId || request.status !== 'Pending'}
-              className="rounded-full bg-red-600 p-1.5 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
-              title="Reject request"
-            >
-              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
-                <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <button
-              onClick={() => {
-                onDelete(selectedRequestId, requestType);
-                onSelectRequest(null);
-                setPopupPosition(null);
-              }}
-              disabled={processingRequestId === selectedRequestId}
-              className="rounded-full bg-gray-700 p-1.5 text-white shadow hover:bg-gray-800 disabled:opacity-60 flex-shrink-0"
-              title="Delete request"
-            >
-              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
-                <path d="M5 6H6.66667H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M8.33333 6V4.66667C8.33333 4.31305 8.47381 3.97391 8.72386 3.72386C8.97391 3.47381 9.31305 3.33333 9.66667 3.33333H10.3333C10.687 3.33333 11.0261 3.47381 11.2761 3.72386C11.5262 3.97391 11.6667 4.31305 11.6667 4.66667V6M13.3333 6V15.3333C13.3333 15.687 13.1929 16.0261 12.9428 16.2761C12.6928 16.5262 12.3536 16.6667 12 16.6667H8C7.64638 16.6667 7.30724 16.5262 7.05719 16.2761C6.80714 16.0261 6.66667 15.687 6.66667 15.3333V6H13.3333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+            {request.status !== 'Approved' && (
+              <button
+                onClick={() => {
+                  onApprove(selectedRequestId, requestType);
+                  onSelectRequest(null);
+                  setPopupPosition(null);
+                }}
+                disabled={processingRequestId === selectedRequestId}
+                className="rounded-full bg-green-600 p-1.5 text-white shadow hover:bg-green-700 disabled:opacity-60 flex-shrink-0"
+                title="Approve request"
+              >
+                <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                  <path d="M16.25 5.75L8.5 13.5L4.75 9.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+            {request.status !== 'Rejected' && (
+              <button
+                onClick={() => {
+                  onReject(selectedRequestId, requestType);
+                  onSelectRequest(null);
+                  setPopupPosition(null);
+                }}
+                disabled={processingRequestId === selectedRequestId}
+                className="rounded-full bg-red-600 p-1.5 text-white shadow hover:bg-red-700 disabled:opacity-60 flex-shrink-0"
+                title="Reject request"
+              >
+                <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                  <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
           </div>
         );
       })()}

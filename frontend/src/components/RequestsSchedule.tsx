@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { leaveTypesAPI, shiftTypesAPI, LeaveType, ShiftType, requestsAPI, dataAPI } from '../services/api';
+import { leaveTypesAPI, shiftTypesAPI, LeaveType, ShiftType, requestsAPI } from '../services/api';
 import { parseDateToISO } from '../utils/dateFormat';
 import { shiftColors as defaultShiftColors } from '../utils/shiftColors';
 
@@ -40,16 +40,28 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   const [dragStartCell, setDragStartCell] = useState<{ employee: string; date: string } | null>(null);
   const [justFinishedDrag, setJustFinishedDrag] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [pendingRejection, setPendingRejection] = useState<{
+    requestId: string;
+    employee: string;
+    type: 'leave' | 'shift';
+    cell: { employee: string; date: string };
+  } | null>(null);
+  const [allLeaveRequests, setAllLeaveRequests] = useState<any[]>([]);
+  const [allShiftRequests, setAllShiftRequests] = useState<any[]>([]);
 
   useEffect(() => {
     const loadTypes = async () => {
       try {
-        const [leaveTypesData, shiftTypesData] = await Promise.all([
+        const [leaveTypesData, shiftTypesData, leaveReqs, shiftReqs] = await Promise.all([
           leaveTypesAPI.getLeaveTypes(true),
           shiftTypesAPI.getShiftTypes(true),
+          requestsAPI.getAllLeaveRequests().catch(() => []), // Load all requests to get employee names
+          requestsAPI.getAllShiftRequests().catch(() => []),
         ]);
         setLeaveTypes(leaveTypesData);
         setShiftTypes(shiftTypesData);
+        setAllLeaveRequests(leaveReqs);
+        setAllShiftRequests(shiftReqs);
       } catch (error) {
         console.error('Failed to load types:', error);
       }
@@ -600,6 +612,37 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     const cellKey = { employee, date };
     const isSelected = selectedCells.some(c => c.employee === employee && c.date === date);
     
+    // Check if this cell has an approved request
+    const cell = pivotData[employee]?.[date];
+    const cellRequestId = cell?.requestId;
+    const hasApprovedRequest = cellRequestId && (
+      cellRequestId.startsWith('LR_') || cellRequestId.startsWith('SR_')
+    );
+    
+    // If cell has an approved request, check if it's actually approved
+    let approvedRequestInfo: { requestId: string; employee: string; type: 'leave' | 'shift' } | null = null;
+    if (hasApprovedRequest && cellRequestId) {
+      if (cellRequestId.startsWith('LR_')) {
+        const req = allLeaveRequests.find(r => r.request_id === cellRequestId);
+        if (req && req.status === 'Approved') {
+          approvedRequestInfo = {
+            requestId: cellRequestId,
+            employee: req.employee || employee,
+            type: 'leave',
+          };
+        }
+      } else if (cellRequestId.startsWith('SR_')) {
+        const req = allShiftRequests.find(r => r.request_id === cellRequestId);
+        if (req && req.status === 'Approved') {
+          approvedRequestInfo = {
+            requestId: cellRequestId,
+            employee: req.employee || employee,
+            type: 'shift',
+          };
+        }
+      }
+    }
+    
     if (e.ctrlKey || e.metaKey) {
       // Ctrl/Cmd + Click: Toggle selection
       e.preventDefault();
@@ -630,6 +673,16 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         setSelectedCells(newCells);
       }
     } else {
+      // Regular click: Check for approved request first
+      if (approvedRequestInfo) {
+        // Show confirmation dialog
+        setPendingRejection({
+          ...approvedRequestInfo,
+          cell: { employee, date },
+        });
+        return;
+      }
+      
       // Regular click: Open dropdown (or close if already open)
       if (editingCell?.employee === employee && editingCell?.date === date) {
         setEditingCell(null);
@@ -673,8 +726,75 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     return groups;
   }, [searchTerm, leaveTypes, shiftTypes]);
 
+  const handleRejectRequest = async (shouldReject: boolean) => {
+    if (!pendingRejection) return;
+
+    if (shouldReject) {
+      try {
+        // Reject the request
+        if (pendingRejection.type === 'leave') {
+          await requestsAPI.rejectLeaveRequest(pendingRejection.requestId);
+        } else {
+          await requestsAPI.rejectShiftRequest(pendingRejection.requestId);
+        }
+        
+        // Reload requests list to get updated status
+        const [leaveReqs, shiftReqs] = await Promise.all([
+          requestsAPI.getAllLeaveRequests().catch(() => []),
+          requestsAPI.getAllShiftRequests().catch(() => []),
+        ]);
+        setAllLeaveRequests(leaveReqs);
+        setAllShiftRequests(shiftReqs);
+        
+        // Reload data to reflect the rejection
+        onReload();
+        onSaveNotification({ 
+          message: '✅ Request rejected and removed from schedule', 
+          type: 'success' 
+        });
+      } catch (error: any) {
+        onSaveNotification({ 
+          message: `❌ Failed to reject request: ${error.response?.data?.detail || 'Unknown error'}`,
+          type: 'error'
+        });
+      }
+    }
+    
+    // Clear pending rejection
+    setPendingRejection(null);
+  };
+
   return (
     <div className="space-y-4">
+      {/* Rejection Confirmation Dialog */}
+      {pendingRejection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Reject Approved Request?
+            </h3>
+            <p className="text-sm text-gray-600 mb-6">
+              This cell contains an approved {pendingRejection.type === 'leave' ? 'leave' : 'shift'} request 
+              made by <strong>{pendingRejection.employee}</strong>. If you want to change this assignment, 
+              you need to reject the request first. The entire request will be rejected and removed from the schedule.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => handleRejectRequest(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRejectRequest(true)}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+              >
+                Reject Request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <div className="inline-block min-w-full">
           <table className={`min-w-full border-2 border-black text-sm ${isDragging ? 'select-none' : ''}`}>

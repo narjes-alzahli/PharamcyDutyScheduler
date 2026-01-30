@@ -747,8 +747,9 @@ async def approve_leave_request(
     if db_id:
         req = db.query(LeaveRequestModel).filter(LeaveRequestModel.id == db_id).first()
         if req:
-            if req.status != RequestStatus.PENDING:
-                raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
+            # Allow approving PENDING or REJECTED requests (toggle to APPROVED)
+            if req.status == RequestStatus.APPROVED:
+                raise HTTPException(status_code=400, detail="Request is already approved")
     
             req.status = RequestStatus.APPROVED
             req.approved_by = current_user['employee_name']
@@ -776,8 +777,9 @@ async def reject_leave_request(
     if db_id:
         req = db.query(LeaveRequestModel).filter(LeaveRequestModel.id == db_id).first()
         if req:
-            if req.status != RequestStatus.PENDING:
-                raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
+            # Allow rejecting PENDING or APPROVED requests, but not already REJECTED
+            if req.status == RequestStatus.REJECTED:
+                raise HTTPException(status_code=400, detail="Request is already rejected")
             
             req.status = RequestStatus.REJECTED
             req.approved_by = current_user['employee_name']
@@ -808,8 +810,9 @@ async def approve_shift_request(
             joinedload(ShiftRequestModel.user)
         ).filter(ShiftRequestModel.id == db_id).first()
         if req:
-            if req.status != RequestStatus.PENDING:
-                raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
+            # Allow approving PENDING or REJECTED requests (toggle to APPROVED)
+            if req.status == RequestStatus.APPROVED:
+                raise HTTPException(status_code=400, detail="Request is already approved")
     
             req.status = RequestStatus.APPROVED
             req.approved_by = current_user['employee_name']
@@ -840,8 +843,9 @@ async def reject_shift_request(
             joinedload(ShiftRequestModel.user)
         ).filter(ShiftRequestModel.id == db_id).first()
         if req:
-            if req.status != RequestStatus.PENDING:
-                raise HTTPException(status_code=400, detail=f"Request is already {req.status.value}")
+            # Allow rejecting PENDING or APPROVED requests, but not already REJECTED
+            if req.status == RequestStatus.REJECTED:
+                raise HTTPException(status_code=400, detail="Request is already rejected")
             
             req.status = RequestStatus.REJECTED
             req.approved_by = current_user['employee_name']
