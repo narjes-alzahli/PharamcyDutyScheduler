@@ -148,6 +148,16 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
     for (emp, day), locked_shifts in employee_day_locks.items():
         if len(locked_shifts) > 1:
             unique_shifts = list(set(locked_shifts))
+            
+            # Allow conflicts between O (automatic rest) and working shifts (user requests)
+            # The solver will honor the user request and skip the automatic rest requirement
+            if len(unique_shifts) == 2 and "O" in unique_shifts:
+                # Check if the other shift is a working shift
+                other_shift = [s for s in unique_shifts if s != "O"][0]
+                if other_shift in STANDARD_WORKING_SHIFTS:
+                    # This is OK - user request overrides automatic rest requirement
+                    continue
+            
             date_str = day.strftime('%d %B %Y')
             issue = (
                 f"❌ Conflicting lock assignments for {emp} on {date_str}: "

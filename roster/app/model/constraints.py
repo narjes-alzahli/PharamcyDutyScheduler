@@ -172,17 +172,54 @@ def add_lock_constraints(
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
     employees: List[str],
     dates: List[date],
-    locks: Dict[Tuple[str, date, str], bool]
+    locks: Dict[Tuple[str, date, str], bool],
+    working_shift_codes: Optional[List[str]] = None
 ) -> None:
-    """Add lock constraints: force or forbid specific assignments."""
+    """Add lock constraints: force or forbid specific assignments.
+    
+    Args:
+        working_shift_codes: List of working shift codes. If provided, working shift locks
+                            will override O (Off Duty) locks when both exist on the same day.
+    """
+    # Determine working shifts
+    if working_shift_codes:
+        working_shifts = set(working_shift_codes)
+    else:
+        # Fallback to default working shifts
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
+    
+    # Group locks by (employee, day) to detect conflicts
+    locks_by_employee_day = {}
+    for (employee, day, shift), force in locks.items():
+        if employee in employees and day in dates and force:
+            key = (employee, day)
+            if key not in locks_by_employee_day:
+                locks_by_employee_day[key] = []
+            locks_by_employee_day[key].append(shift)
+    
+    # Process locks, prioritizing working shifts over O when both exist
     for (employee, day, shift), force in locks.items():
         if employee in employees and day in dates:
             if force:
+                # Check if there's a conflict: both O and a working shift are forced
+                key = (employee, day)
+                forced_shifts = locks_by_employee_day.get(key, [])
+                
+                # If both O and a working shift are forced, prioritize the working shift
+                if shift == "O" and len(forced_shifts) > 1:
+                    # Check if any working shift is also forced
+                    has_working_shift = any(s in working_shifts for s in forced_shifts if s != "O")
+                    if has_working_shift:
+                        # Skip the O lock - user request (working shift) overrides automatic rest
+                        continue
+                
                 # Must work this shift
-                model.Add(x[(employee, day, shift)] == 1)
+                if (employee, day, shift) in x:
+                    model.Add(x[(employee, day, shift)] == 1)
             else:
                 # Cannot work this shift
-                model.Add(x[(employee, day, shift)] == 0)
+                if (employee, day, shift) in x:
+                    model.Add(x[(employee, day, shift)] == 0)
 
 
 def add_cap_constraints(
@@ -423,7 +460,7 @@ def add_all_constraints(
     
     # Time off and locks
     add_time_off_constraints(model, x, employees, dates, time_off)
-    add_lock_constraints(model, x, employees, dates, locks)
+    add_lock_constraints(model, x, employees, dates, locks, working_shift_codes)
     
     # Caps and rest
     add_cap_constraints(model, x, employees, dates, caps)
