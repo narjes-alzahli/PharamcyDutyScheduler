@@ -832,15 +832,13 @@ export const UserManagement: React.FC = () => {
   const [leaveTableFilterDate, setLeaveTableFilterDate] = useState<Date | null>(null);
   const [shiftTableFilterDate, setShiftTableFilterDate] = useState<Date | null>(null);
   const [selectedCalendarEntryId, setSelectedCalendarEntryId] = useState<string | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null); // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
   
   // Pagination state
   const [usersPage, setUsersPage] = useState(1);
   const [leavePage, setLeavePage] = useState(1);
   const [shiftPage, setShiftPage] = useState(1);
   const itemsPerPage = 15;
-
-  const pendingLeaveCount = leaveRequests.filter((req) => req.status === 'Pending').length;
-  const pendingShiftCount = shiftRequests.filter((req) => req.status === 'Pending').length;
   
   // Get available month/year combinations from requests
   const availableLeaveMonthYears = useMemo(() => {
@@ -881,6 +879,55 @@ export const UserManagement: React.FC = () => {
       });
   }, [shiftRequests]);
 
+  // Generate month options with period options for 2026 (similar to All Rosters)
+  const availableMonthYearOptions = useMemo(() => {
+    const allOptions = [...availableLeaveMonthYears, ...availableShiftMonthYears]
+      .filter((v, i, a) => a.findIndex(t => t.value === v.value) === i)
+      .sort((a, b) => {
+        const [aYear, aMonth] = a.value.split('-').map(Number);
+        const [bYear, bMonth] = b.value.split('-').map(Number);
+        if (aYear !== bYear) return aYear - bYear;
+        return aMonth - bMonth;
+      });
+
+    const result: Array<{ value: string; label: string; year: number; month: number; period: string | null }> = [];
+    const hasFeb2026 = allOptions.some(opt => {
+      const [year, month] = opt.value.split('-').map(Number);
+      return year === 2026 && month === 2;
+    });
+    const hasMar2026 = allOptions.some(opt => {
+      const [year, month] = opt.value.split('-').map(Number);
+      return year === 2026 && month === 3;
+    });
+    let ramadanAdded = false;
+    
+    allOptions.forEach(opt => {
+      const [year, month] = opt.value.split('-').map(Number);
+      
+      if (year === 2026 && month === 2) {
+        // Add period options for February
+        result.push({ value: `${year}-2-pre`, label: 'February 2026 (Pre-Ramadan)', year, month: 2, period: 'pre-ramadan' });
+        result.push({ value: `${year}-2-ramadan`, label: 'Ramadan 2026', year, month: 2, period: 'ramadan' });
+        ramadanAdded = true;
+      } else if (year === 2026 && month === 3) {
+        // Add period options for March (but avoid duplicate Ramadan if Feb also exists)
+        if (!ramadanAdded) {
+          result.push({ value: `${year}-3-ramadan`, label: 'Ramadan 2026', year, month: 3, period: 'ramadan' });
+        }
+        result.push({ value: `${year}-3-post`, label: 'March 2026 (Post-Ramadan)', year, month: 3, period: 'post-ramadan' });
+      } else {
+        // Regular month
+        result.push({ value: opt.value, label: opt.label, year, month, period: null });
+      }
+    });
+    
+    // Sort by year, then month
+    return result.sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+    });
+  }, [availableLeaveMonthYears, availableShiftMonthYears]);
+
   // Get filtered requests based on filter dropdown (must be before date filtering)
   const filteredLeaveRequests = useMemo(() => {
     if (requestFilter === 'all' || requestFilter === 'leave') {
@@ -902,27 +949,86 @@ export const UserManagement: React.FC = () => {
     return leaveTableFilterDate || shiftTableFilterDate || new Date();
   }, [leaveTableFilterDate, shiftTableFilterDate]);
 
-  // Filter requests by year/month for table view (must be after state declarations)
+  // Helper function to check if a date is in the selected period
+  const isDateInPeriod = (date: Date): boolean => {
+    if (!scheduleMonthDate || !selectedPeriod) return true;
+    const filterYear = scheduleMonthDate.getFullYear();
+    const filterMonth = scheduleMonthDate.getMonth() + 1; // 1-12
+    
+    if (filterYear === 2026 && (filterMonth === 2 || filterMonth === 3)) {
+      const dateStr = date.toISOString().split('T')[0];
+      if (selectedPeriod === 'pre-ramadan') {
+        return dateStr >= '2026-02-01' && dateStr <= '2026-02-18';
+      } else if (selectedPeriod === 'ramadan') {
+        return dateStr >= '2026-02-19' && dateStr <= '2026-03-19';
+      } else if (selectedPeriod === 'post-ramadan') {
+        return dateStr >= '2026-03-20' && dateStr <= '2026-03-31';
+      }
+    }
+    return true;
+  };
+
+  // Filter requests by year/month/period for table view (must be after state declarations)
   // Use scheduleMonthDate to sync with schedule view
   const filteredLeaveRequestsByDate = useMemo(() => {
     if (!scheduleMonthDate) return [];
     const filterYear = scheduleMonthDate.getFullYear();
     const filterMonth = scheduleMonthDate.getMonth();
-    return filteredLeaveRequests.filter((req: any) => {
+    
+    let filtered = filteredLeaveRequests.filter((req: any) => {
       const reqDate = new Date(req.from_date);
       return reqDate.getFullYear() === filterYear && reqDate.getMonth() === filterMonth;
     });
-  }, [filteredLeaveRequests, scheduleMonthDate]);
+    
+    // If period is selected, filter by period
+    if (selectedPeriod) {
+      filtered = filtered.filter((req: any) => {
+        const fromDate = new Date(req.from_date);
+        const toDate = new Date(req.to_date);
+        // Check if request overlaps with selected period
+        let currentDate = new Date(fromDate);
+        while (currentDate <= toDate) {
+          if (isDateInPeriod(currentDate)) {
+            return true;
+          }
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+        return false;
+      });
+    }
+    
+    return filtered;
+  }, [filteredLeaveRequests, scheduleMonthDate, selectedPeriod]);
   
   const filteredShiftRequestsByDate = useMemo(() => {
     if (!scheduleMonthDate) return [];
     const filterYear = scheduleMonthDate.getFullYear();
     const filterMonth = scheduleMonthDate.getMonth();
-    return filteredShiftRequests.filter((req: any) => {
+    
+    let filtered = filteredShiftRequests.filter((req: any) => {
       const reqDate = new Date(req.from_date);
       return reqDate.getFullYear() === filterYear && reqDate.getMonth() === filterMonth;
     });
-  }, [filteredShiftRequests, scheduleMonthDate]);
+    
+    // If period is selected, filter by period
+    if (selectedPeriod) {
+      filtered = filtered.filter((req: any) => {
+        const fromDate = new Date(req.from_date);
+        const toDate = new Date(req.to_date);
+        // Check if request overlaps with selected period
+        let currentDate = new Date(fromDate);
+        while (currentDate <= toDate) {
+          if (isDateInPeriod(currentDate)) {
+            return true;
+          }
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+        return false;
+      });
+    }
+    
+    return filtered;
+  }, [filteredShiftRequests, scheduleMonthDate, selectedPeriod]);
   
   // Search and sort for leave requests (after date filtering)
   const { searchTerm: leaveSearchTerm, setSearchTerm: setLeaveSearchTerm, filteredData: searchedLeaveRequests } = useTableSearch(filteredLeaveRequestsByDate, ['employee', 'leave_type', 'reason', 'status']);
@@ -931,6 +1037,31 @@ export const UserManagement: React.FC = () => {
   // Search and sort for shift requests (after date filtering)
   const { searchTerm: shiftSearchTerm, setSearchTerm: setShiftSearchTerm, filteredData: searchedShiftRequests } = useTableSearch(filteredShiftRequestsByDate, ['employee', 'shift', 'reason', 'status']);
   const { sortedData: sortedShiftRequests, sortConfig: shiftSortConfig, handleSort: handleShiftSort } = useTableSort(searchedShiftRequests);
+
+  // Pending counts - filtered by selected month/period if available
+  const pendingLeaveCount = useMemo(() => {
+    if (scheduleMonthDate) {
+      // Use filtered requests by date (which already includes period filtering)
+      return filteredLeaveRequestsByDate.filter((req) => req.status === 'Pending').length;
+    }
+    // If no month selected, show all pending
+    return leaveRequests.filter((req) => req.status === 'Pending').length;
+  }, [scheduleMonthDate, filteredLeaveRequestsByDate, leaveRequests]);
+
+  const pendingShiftCount = useMemo(() => {
+    if (scheduleMonthDate) {
+      // Use filtered requests by date (which already includes period filtering)
+      return filteredShiftRequestsByDate.filter((req) => req.status === 'Pending').length;
+    }
+    // If no month selected, show all pending
+    return shiftRequests.filter((req) => req.status === 'Pending').length;
+  }, [scheduleMonthDate, filteredShiftRequestsByDate, shiftRequests]);
+  
+  // Total pending count for tab badge (always show all, not filtered)
+  const totalPendingCount = useMemo(() => {
+    return leaveRequests.filter((req) => req.status === 'Pending').length +
+           shiftRequests.filter((req) => req.status === 'Pending').length;
+  }, [leaveRequests, shiftRequests]);
 
   const loadRequests = useCallback(async (isRefresh = false) => {
     // MAJOR RESTRUCTURE: Only make API calls if auth guard confirms we're ready
@@ -1534,9 +1665,9 @@ export const UserManagement: React.FC = () => {
             >
               <span className="inline-flex items-center space-x-2">
                 <span>Requests</span>
-                {(pendingLeaveCount + pendingShiftCount) > 0 && (
+                {totalPendingCount > 0 && (
                   <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
-                    {pendingLeaveCount + pendingShiftCount}
+                    {totalPendingCount}
                   </span>
                 )}
               </span>
@@ -1564,32 +1695,52 @@ export const UserManagement: React.FC = () => {
                 </select>
                 <label className="text-sm font-medium text-gray-700">Select Month/Year:</label>
                 <select
-                  value={scheduleMonthDate ? `${scheduleMonthDate.getFullYear()}-${scheduleMonthDate.getMonth() + 1}` : ''}
+                  value={scheduleMonthDate ? (() => {
+                    const year = scheduleMonthDate.getFullYear();
+                    const month = scheduleMonthDate.getMonth() + 1;
+                    if (year === 2026 && selectedPeriod) {
+                      if (selectedPeriod === 'pre-ramadan' && month === 2) return `${year}-2-pre`;
+                      if (selectedPeriod === 'ramadan' && month === 2) return `${year}-2-ramadan`;
+                      if (selectedPeriod === 'ramadan' && month === 3) return `${year}-3-ramadan`;
+                      if (selectedPeriod === 'post-ramadan' && month === 3) return `${year}-3-post`;
+                    }
+                    return `${year}-${month}`;
+                  })() : ''}
                   onChange={(e) => {
                     if (e.target.value) {
-                      const [year, month] = e.target.value.split('-').map(Number);
-                      const newDate = new Date(year, month - 1, 1);
-                      setLeaveTableFilterDate(newDate);
-                      setShiftTableFilterDate(newDate);
+                      const parts = e.target.value.split('-');
+                      const year = parseInt(parts[0]);
+                      const month = parseInt(parts[1]);
+                      
+                      if (parts.length === 3 && parts[2] === 'pre') {
+                        setSelectedPeriod('pre-ramadan');
+                        setLeaveTableFilterDate(new Date(year, 1, 1));
+                        setShiftTableFilterDate(new Date(year, 1, 1));
+                      } else if (parts.length === 3 && parts[2] === 'ramadan') {
+                        setSelectedPeriod('ramadan');
+                        setLeaveTableFilterDate(new Date(year, month - 1, 1));
+                        setShiftTableFilterDate(new Date(year, month - 1, 1));
+                      } else if (parts.length === 3 && parts[2] === 'post') {
+                        setSelectedPeriod('post-ramadan');
+                        setLeaveTableFilterDate(new Date(year, 2, 1));
+                        setShiftTableFilterDate(new Date(year, 2, 1));
+                      } else {
+                        setSelectedPeriod(null);
+                        setLeaveTableFilterDate(new Date(year, month - 1, 1));
+                        setShiftTableFilterDate(new Date(year, month - 1, 1));
+                      }
                     } else {
                       setLeaveTableFilterDate(null);
                       setShiftTableFilterDate(null);
+                      setSelectedPeriod(null);
                     }
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-[200px]"
                 >
                   <option value="">Select Month & Year...</option>
-                  {[...availableLeaveMonthYears, ...availableShiftMonthYears]
-                    .filter((v, i, a) => a.findIndex(t => t.value === v.value) === i)
-                    .sort((a, b) => {
-                      const [aYear, aMonth] = a.value.split('-').map(Number);
-                      const [bYear, bMonth] = b.value.split('-').map(Number);
-                      if (aYear !== bYear) return aYear - bYear;
-                      return aMonth - bMonth;
-                    })
-                    .map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
+                  {availableMonthYearOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
               {(pendingLeaveCount + pendingShiftCount) > 0 && (
@@ -1620,6 +1771,7 @@ export const UserManagement: React.FC = () => {
                   onReject={(requestId, type) => handleRequestAction(requestId, type, 'reject')}
                   processingRequestId={processingRequest}
                   allEmployees={employees.map(emp => emp.employee)}
+                  selectedPeriod={selectedPeriod}
                 />
               </div>
 

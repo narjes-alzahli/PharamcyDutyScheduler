@@ -398,21 +398,25 @@ export const RosterRequests: React.FC = () => {
     return `${day}-${month}-${year} ${hours}:${minutes}`;
   };
 
+  // Use requests directly without filtering
+  const filteredLeaveRequests = leaveRequests;
+  const filteredShiftRequests = shiftRequests;
+
   // Paginated data
   const paginatedLeaveRequests = useMemo(() => {
     const start = (leavePage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
-    return leaveRequests.slice(start, end);
-  }, [leaveRequests, leavePage]);
+    return filteredLeaveRequests.slice(start, end);
+  }, [filteredLeaveRequests, leavePage]);
 
   const paginatedShiftRequests = useMemo(() => {
     const start = (shiftPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
-    return shiftRequests.slice(start, end);
-  }, [shiftRequests, shiftPage]);
+    return filteredShiftRequests.slice(start, end);
+  }, [filteredShiftRequests, shiftPage]);
 
-  const leaveTotalPages = Math.ceil(leaveRequests.length / itemsPerPage);
-  const shiftTotalPages = Math.ceil(shiftRequests.length / itemsPerPage);
+  const leaveTotalPages = Math.ceil(filteredLeaveRequests.length / itemsPerPage);
+  const shiftTotalPages = Math.ceil(filteredShiftRequests.length / itemsPerPage);
 
   if (loading) {
     return (
@@ -569,7 +573,7 @@ export const RosterRequests: React.FC = () => {
               </form>
 
               {/* Your Leave Requests */}
-              {leaveRequests.length > 0 ? (
+              {filteredLeaveRequests.length > 0 ? (
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-4">Your Leave Requests</h3>
                   <div className="space-y-4 md:hidden">
@@ -731,7 +735,7 @@ export const RosterRequests: React.FC = () => {
                       totalPages={leaveTotalPages}
                       onPageChange={setLeavePage}
                       itemsPerPage={itemsPerPage}
-                      totalItems={leaveRequests.length}
+                      totalItems={filteredLeaveRequests.length}
                     />
                   )}
                 </div>
@@ -858,7 +862,7 @@ export const RosterRequests: React.FC = () => {
               </form>
 
               {/* Your Shift Requests */}
-              {shiftRequests.length > 0 ? (
+              {filteredShiftRequests.length > 0 ? (
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-4">Your Shift Requests</h3>
                   <div className="space-y-4 md:hidden">
@@ -1033,7 +1037,7 @@ export const RosterRequests: React.FC = () => {
                       totalPages={shiftTotalPages}
                       onPageChange={setShiftPage}
                       itemsPerPage={itemsPerPage}
-                      totalItems={shiftRequests.length}
+                      totalItems={filteredShiftRequests.length}
                     />
                   )}
                 </div>

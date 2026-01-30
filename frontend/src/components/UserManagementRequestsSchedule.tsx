@@ -33,6 +33,7 @@ interface UserManagementRequestsScheduleProps {
   onReject: (requestId: string, type: 'leave' | 'shift') => void;
   processingRequestId: string | null;
   allEmployees?: string[]; // Optional: if provided, show all employees even if they have no requests
+  selectedPeriod?: string | null; // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
 }
 
 export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsScheduleProps> = ({
@@ -46,14 +47,46 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
   onReject,
   processingRequestId,
   allEmployees,
+  selectedPeriod,
 }) => {
   const [hoveredRequestId, setHoveredRequestId] = useState<string | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number; side: 'left' | 'right' } | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const scheduleRef = useRef<HTMLDivElement>(null);
 
-  // Get all dates in the month
+  // Get date range based on selected period
+  const getPeriodDateRange = () => {
+    if (year === 2026 && (month === 2 || month === 3) && selectedPeriod) {
+      if (selectedPeriod === 'pre-ramadan') {
+        return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
+      } else if (selectedPeriod === 'ramadan') {
+        return { start: new Date('2026-02-19'), end: new Date('2026-03-19') };
+      } else if (selectedPeriod === 'post-ramadan') {
+        return { start: new Date('2026-03-20'), end: new Date('2026-03-31') };
+      }
+    }
+    return null;
+  };
+
+  // Get all dates in the month (or period)
   const dates = useMemo(() => {
+    const dateRange = getPeriodDateRange();
+    
+    if (dateRange) {
+      // Filter by date range
+      const dates: string[] = [];
+      let currentDate = new Date(dateRange.start);
+      while (currentDate <= dateRange.end) {
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        dates.push(`${year}-${month}-${day}`);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      return dates;
+    }
+    
+    // Default: all dates in the month
     const daysInMonth = new Date(year, month, 0).getDate();
     return Array.from({ length: daysInMonth }, (_, i) => {
       const day = i + 1;
@@ -61,7 +94,7 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
       const dayStr = String(day).padStart(2, '0');
       return `${year}-${monthStr}-${dayStr}`;
     });
-  }, [year, month]);
+  }, [year, month, selectedPeriod]);
 
   // Get all unique employees - use allEmployees if provided, otherwise only show employees with requests
   // Preserve order from EmployeeSkills (by ID) - same as schedule order
