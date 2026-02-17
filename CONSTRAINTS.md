@@ -8,7 +8,7 @@ Each staff member is assigned exactly one shift per day (either a working shift 
 ### 2. Qualifications
 Staff can only be assigned to shifts they are qualified for:
 - Each staff member has specific skills (Main, Inpatient, Afternoon, Night, M3, M4, Harat, Clinic)
-- Clinic-only staff (those who only have Clinic skill and no other skills) can only work Clinic shifts
+- Staff who have only the Clinic (CL) skill can only work Clinic shifts
 - Staff must have the corresponding skill flag enabled to work a shift (e.g., skill_IP=True for IP shifts, skill_H=True for H shifts)
 
 ### 3. Coverage Requirements

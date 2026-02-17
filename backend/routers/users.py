@@ -102,7 +102,6 @@ async def create_user(
             skill_M4=True,
             skill_H=False,
             skill_CL=True,
-            clinic_only=False,
             min_days_off=4,
             weight=1.0,
             pending_off=0.0
@@ -202,7 +201,6 @@ async def update_user(
                 skill_M4=True,
                 skill_H=False,
                 skill_CL=True,
-                clinic_only=False,
                 min_days_off=4,
                 weight=1.0,
                 pending_off=0.0

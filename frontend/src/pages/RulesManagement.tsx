@@ -475,7 +475,7 @@ export const RulesManagement: React.FC = () => {
                 <li>Each person works one shift per day (or has a day off)</li>
                 <li>People only work shifts they're trained for</li>
                 <li>Every day must have enough staff to cover all shifts</li>
-                <li>Clinic-only staff only work clinic shifts</li>
+                <li>Staff with only the Clinic (CL) skill only work clinic shifts</li>
               </ul>
             </section>
 

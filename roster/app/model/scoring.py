@@ -253,7 +253,7 @@ class RosterScoring:
                 "P": {}
             }
         
-        # Filter out clinicians (clinic-only employees: only have CL skill, no other skills)
+        # Filter out employees who have only CL skill (they are not included in fairness balance)
         non_clinicians = []
         for emp in employees:
             emp_skills = skills.get(emp, {})
@@ -263,8 +263,8 @@ class RosterScoring:
                 for shift in _DEFAULT_STANDARD_SHIFTS_LIST
                 if shift != "CL"
             )
-            is_clinic_only = has_cl_skill and not has_other_skills
-            if not is_clinic_only:
+            cl_only = has_cl_skill and not has_other_skills
+            if not cl_only:
                 non_clinicians.append(emp)
         
         if len(non_clinicians) < 2:

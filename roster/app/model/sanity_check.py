@@ -68,10 +68,6 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
                 if shift_type in emp_skills and emp_skills.get(shift_type, False):
                     has_skill = True
                 elif shift_type == "CL":
-                    # CL can be worked by non-clinic-only employees
-                    # get_employee_skills doesn't include clinic_only, so we need to check the employee data
-                    # For now, we'll check this separately in Issue 5
-                    # Assume CL is available if employee has skill_CL
                     has_skill = emp_skills.get("CL", False)
                 
                 if not has_skill:
@@ -242,11 +238,7 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
                 )
                 issues.append(issue)
     
-    # Issue 5: Check if clinic-only employees are forced to work non-CL shifts
-    # Note: clinic_only is not in skills dict, need to check employee data directly
-    # For now, we'll skip this check as we don't have direct access to employee objects
-    # This could be added if we pass employee data to the sanity checker
-    
+    # Issue 5: Single-skill employees (including those with only CL) cannot be forced to work other shifts
     # Issue 6: Check if single-skill employees are forced to work wrong shifts
     for emp in employees:
         emp_skills = skills.get(emp, {})
