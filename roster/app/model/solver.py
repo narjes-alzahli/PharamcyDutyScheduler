@@ -102,9 +102,17 @@ class RosterSolver:
         if hasattr(data, 'history_counts'):
             history_counts = data.history_counts
         
-        # Add objective
-        # [HISTORY_AWARE_FAIRNESS] Pass history_counts to scoring
-        self.scoring.add_objective(model, x, employees, dates, demands, skills, history_counts)
+        # Add objective (rest-after-shift is soft, high-priority penalty)
+        required_rest = getattr(self.config, "required_rest_after_shifts", None)
+        leave_codes_set = set(self.config.leave_codes) if getattr(self.config, "leave_codes", None) else None
+        working_shift_codes = getattr(self.config, "working_shift_codes", None)
+        self.scoring.add_objective(
+            model, x, employees, dates, demands, skills, history_counts,
+            required_rest_after_shifts=required_rest,
+            leave_codes=leave_codes_set,
+            locks=locks,
+            working_shift_codes=working_shift_codes
+        )
         
         # Solve
         solver = cp_model.CpSolver()

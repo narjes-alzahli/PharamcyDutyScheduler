@@ -985,9 +985,9 @@ export const UserManagement: React.FC = () => {
       if (selectedPeriod === 'pre-ramadan') {
         return dateStr >= '2026-02-01' && dateStr <= '2026-02-18';
       } else if (selectedPeriod === 'ramadan') {
-        return dateStr >= '2026-02-19' && dateStr <= '2026-03-19';
+        return dateStr >= '2026-02-19' && dateStr <= '2026-03-18';
       } else if (selectedPeriod === 'post-ramadan') {
-        return dateStr >= '2026-03-20' && dateStr <= '2026-03-31';
+        return dateStr >= '2026-03-19' && dateStr <= '2026-03-31';
       }
     }
     return true;

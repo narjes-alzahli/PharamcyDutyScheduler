@@ -335,7 +335,12 @@ def add_sequencing_constraints(
     working_shift_codes: Optional[List[str]] = None,
     locks: Dict[Tuple[str, date, str], bool] = None
 ) -> None:
-    """Add sequencing constraints for shift patterns.
+    """Sequencing / rest-after-shift rules.
+    
+    Rest rules (e.g. 2 O after N, 1 O after M4, 1 O after A) are no longer enforced as hard
+    constraints here. They are implemented as soft constraints with high priority in scoring
+    (see scoring.py: _add_rest_after_shift_variables and weight rest_after_shift). This allows
+    the solver to produce a schedule when strict rest would make the problem infeasible.
     
     Args:
         required_rest_after_shifts: List of dicts with keys:
@@ -345,88 +350,10 @@ def add_sequencing_constraints(
         working_shift_codes: List of working shift codes from database/config
         locks: Lock constraints (force/forbid specific assignments)
     """
-    if not required_rest_after_shifts:
-        # Default to hardcoded rules if not provided
-        required_rest_after_shifts = [
-            {"shift": "N", "rest_days": 2, "rest_code": "O"},
-            {"shift": "M4", "rest_days": 1, "rest_code": "O"},
-            {"shift": "A", "rest_days": 1, "rest_code": "O"}
-        ]
-    
-    # Working shifts from database/config (standard shifts that can be optimized)
-    if working_shift_codes:
-        working_shifts = set(working_shift_codes)
-    else:
-        # Fallback to standard shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
-    
-    # Determine leave codes (exclude working shifts)
-    if leave_codes:
-        leave_only_codes = leave_codes - working_shifts
-    else:
-        leave_only_codes = set()
-    
-    for emp in employees:
-        for i, day in enumerate(dates):
-            # Process each required rest rule
-            for rule in required_rest_after_shifts:
-                shift_code = rule["shift"]
-                rest_days = rule["rest_days"]
-                rest_code = rule["rest_code"]
-                
-                # Check if employee worked this shift today
-                if (emp, day, shift_code) not in x:
-                    continue
-                
-                # Check if this shift was requested (forced) by the employee
-                # Only apply exception if the shift itself was requested, not if solver-assigned
-                shift_is_requested = False
-                if locks:
-                    lock_key = (emp, day, shift_code)
-                    if locks.get(lock_key) is True:
-                        shift_is_requested = True
-                
-                # Check if employee already has a leave type assigned (skip rest requirement if so)
-                # A leave type is any code in time_off that is not a working shift
-                def has_leave_on_day(target_day):
-                    if time_off and (emp, target_day) in time_off:
-                        leave_code = time_off[(emp, target_day)]
-                        if leave_code not in working_shifts and leave_code != rest_code:
-                            return True
-                    return False
-                
-                # Check if employee has a lock forcing them to work a working shift on target day
-                def has_forced_work_on_day(target_day):
-                    if locks:
-                        # Check if any working shift is forced (locked to True) on this day
-                        for shift in working_shifts:
-                            lock_key = (emp, target_day, shift)
-                            if locks.get(lock_key) is True:
-                                return True
-                    return False
-                
-                # Add rest day constraints for each required rest day
-                for rest_day_offset in range(1, rest_days + 1):
-                    if i + rest_day_offset >= len(dates):
-                        break  # Not enough days remaining
-                    
-                    rest_day = dates[i + rest_day_offset]
-                    
-                    # Skip if employee has leave type on this rest day
-                    if has_leave_on_day(rest_day):
-                        continue
-                    
-                    # Skip if employee has a lock forcing them to work a working shift on this day
-                    # BUT only if the shift itself was requested (not solver-assigned)
-                    # This applies to N (2 rest days), M4 (1 rest day), and A (1 rest day)
-                    # (e.g., if they requested N/M4/A and then requested another shift, respect their wishes)
-                    # If solver assigned N/M4/A, it must still respect the O requirement
-                    if shift_is_requested and has_forced_work_on_day(rest_day):
-                        continue
-                    
-                    # Add constraint: shift_today <= rest_code_rest_day
-                    if (emp, day, shift_code) in x and (emp, rest_day, rest_code) in x:
-                        model.Add(x[(emp, day, shift_code)] <= x[(emp, rest_day, rest_code)])
+    # Rest-after-shift is now soft (high-priority penalty in scoring.py), so no hard constraints added here.
+    # Kept required_rest_after_shifts / working_shifts / leave_codes / locks for possible future use
+    # (e.g. sanity checks or documentation). Parameter signature unchanged for callers.
+    pass
 
 
 def add_all_constraints(

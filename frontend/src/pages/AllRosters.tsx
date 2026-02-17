@@ -43,8 +43,8 @@ export const AllRostersPage: React.FC = () => {
   // Period date ranges configuration (2026 only)
   const PERIOD_RANGES = {
     'pre-ramadan': { start: '2026-02-01', end: '2026-02-18' },
-    'ramadan': { start: '2026-02-19', end: '2026-03-19' },
-    'post-ramadan': { start: '2026-03-20', end: '2026-03-31' }
+    'ramadan': { start: '2026-02-19', end: '2026-03-18' },
+    'post-ramadan': { start: '2026-03-19', end: '2026-03-31' }
   } as const;
 
   // Helper to check if a date is in a period range
@@ -441,7 +441,7 @@ export const AllRostersPage: React.FC = () => {
         processedMonths.add(2);
       }
       
-      // Check for ramadan (Feb 19 - Mar 19)
+      // Check for ramadan (Feb 19 - Mar 18)
       const hasRamadan = yearSchedules.some(s => {
         const period = detectPeriod(s);
         return period === 'ramadan';
@@ -452,7 +452,7 @@ export const AllRostersPage: React.FC = () => {
         processedMonths.add(3); // Ramadan spans both months
       }
       
-      // Check for post-ramadan (Mar 20-31)
+      // Check for post-ramadan (Mar 19-31)
       const hasPostRamadan = yearSchedules.some(s => {
         const period = detectPeriod(s);
         return period === 'post-ramadan';
@@ -780,10 +780,23 @@ export const AllRostersPage: React.FC = () => {
     }
   };
 
-  // Filter schedule data for selected month
+  // Schedule entries for the current view. For single-month schedules filter by selected year/month.
+  // For period schedules that span two months (e.g. Ramadan Feb 19–Mar 18), use the full schedule
+  // so fairness analysis and metrics count all entries correctly (same as Roster Generator).
   const getMonthSchedule = () => {
     if (!currentSchedule || !selectedYear || !selectedMonth) return [];
-    return currentSchedule.schedule.filter((entry: any) => {
+    const schedule = currentSchedule.schedule || [];
+    if (schedule.length === 0) return [];
+    const monthsInSchedule = new Set(
+      schedule.map((e: any) => {
+        const d = new Date(e.date);
+        return d.getFullYear() * 12 + d.getMonth();
+      })
+    );
+    if (monthsInSchedule.size > 1) {
+      return schedule;
+    }
+    return schedule.filter((entry: any) => {
       const date = new Date(entry.date);
       return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
     });

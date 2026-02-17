@@ -209,13 +209,13 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
         if (selectedYear === 2026 && selectedPeriod) {
           // For periods that span multiple months, load all relevant months
           if (selectedPeriod === 'ramadan') {
-            // Ramadan spans Feb 19 - March 19, so load both months
+            // Ramadan spans Feb 19 - March 18, so load both months
             monthsToLoad.push(2, 3);
           } else if (selectedPeriod === 'pre-ramadan') {
             // Pre-Ramadan is Feb 1-18, only February
             monthsToLoad.push(2);
           } else if (selectedPeriod === 'post-ramadan') {
-            // Post-Ramadan is March 20-31, only March
+            // Post-Ramadan is March 19-31, only March
             monthsToLoad.push(3);
           } else {
             monthsToLoad.push(selectedMonth);
@@ -333,7 +333,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
     
     // If period spans multiple months, split demands by month and save to each month's endpoint
     if (selectedYear === 2026 && selectedPeriod === 'ramadan') {
-      // Ramadan spans Feb 19 - March 19, so split by month
+      // Ramadan spans Feb 19 - March 18, so split by month
       const febDemands = demands.filter((d: any) => {
         const date = new Date(d.date);
         return date.getMonth() + 1 === 2; // February is month 2

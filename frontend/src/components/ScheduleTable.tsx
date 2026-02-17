@@ -337,9 +337,9 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
       if (selectedPeriod === 'pre-ramadan') {
         return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
       } else if (selectedPeriod === 'ramadan') {
-        return { start: new Date('2026-02-19'), end: new Date('2026-03-19') };
+        return { start: new Date('2026-02-19'), end: new Date('2026-03-18') };
       } else if (selectedPeriod === 'post-ramadan') {
-        return { start: new Date('2026-03-20'), end: new Date('2026-03-31') };
+        return { start: new Date('2026-03-19'), end: new Date('2026-03-31') };
       }
     }
     return null;

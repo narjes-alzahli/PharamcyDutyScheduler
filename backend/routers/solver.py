@@ -368,8 +368,9 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             # Create config
             config_data = {
                 "weights": {
-                    "unfilled_coverage": request.unfilled_penalty,
+                    "unfilled_coverage": getattr(request, "unfilled_penalty", None) or 10000.0,
                     "fairness": request.fairness_weight,
+                    "rest_after_shift": 800.0,
                     "do_after_n": 1.0
                 },
                 "rest_codes": rest_codes,

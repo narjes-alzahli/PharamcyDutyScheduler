@@ -231,12 +231,12 @@ export const RosterGenerator: React.FC = () => {
           startDate = '2026-02-01';
           endDate = '2026-02-18';
         } else if (selectedPeriod === 'ramadan') {
-          // Ramadan: Feb 19 - March 19, 2026
+          // Ramadan: Feb 19 - March 18, 2026
           startDate = '2026-02-19';
-          endDate = '2026-03-19';
+          endDate = '2026-03-18';
         } else if (selectedPeriod === 'post-ramadan') {
-          // March (Post-Ramadan): March 20-31, 2026
-          startDate = '2026-03-20';
+          // March (Post-Ramadan): March 19-31, 2026
+          startDate = '2026-03-19';
           endDate = '2026-03-31';
         }
       }
@@ -245,7 +245,7 @@ export const RosterGenerator: React.FC = () => {
         year: selectedYear,
         month: selectedMonth,
         time_limit: 120,
-        unfilled_penalty: 1000.0,
+        unfilled_penalty: 10000.0,  // strongly favor coverage over rest rules
         fairness_weight: 5.0,
         ...(startDate && endDate ? { start_date: startDate, end_date: endDate } : {}),
       };
@@ -1252,8 +1252,8 @@ export const RosterGenerator: React.FC = () => {
             <p className="font-semibold">Selected Period:</p>
             <p className="text-sm">
               {selectedPeriod === 'pre-ramadan' && 'February (Pre-Ramadan) - Feb 1-18, 2026'}
-              {selectedPeriod === 'ramadan' && 'Ramadan - Feb 19 to Mar 19, 2026'}
-              {selectedPeriod === 'post-ramadan' && 'March (Post-Ramadan) - Mar 20-31, 2026'}
+              {selectedPeriod === 'ramadan' && 'Ramadan - Feb 19 to Mar 18, 2026'}
+              {selectedPeriod === 'post-ramadan' && 'March (Post-Ramadan) - Mar 19-31, 2026'}
             </p>
           </div>
         )}

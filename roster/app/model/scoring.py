@@ -1,7 +1,7 @@
 """Scoring functions for staff rostering optimization."""
 
 from datetime import date
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional, Set
 from ortools.sat.python import cp_model
 
 # Default standard working shifts (fallback when demands don't include all shifts)
@@ -24,7 +24,11 @@ class RosterScoring:
         dates: List[date],
         demands: Dict[date, Dict[str, int]],
         skills: Dict[str, Dict[str, bool]],
-        history_counts: Dict[str, Dict[str, int]] = None  # [HISTORY_AWARE_FAIRNESS] Added parameter
+        history_counts: Dict[str, Dict[str, int]] = None,  # [HISTORY_AWARE_FAIRNESS] Added parameter
+        required_rest_after_shifts: Optional[List[Dict[str, Any]]] = None,
+        leave_codes: Optional[Set[str]] = None,
+        locks: Optional[Dict[Tuple[str, date, str], bool]] = None,
+        working_shift_codes: Optional[List[str]] = None
     ) -> None:
         """Add objective function to minimize penalties.
         
@@ -32,6 +36,10 @@ class RosterScoring:
             history_counts: Dict mapping category name to dict mapping employee name to history count.
                           Categories: "nights", "afternoons", "m4", "thursdays", "weekends"
                           [HISTORY_AWARE_FAIRNESS] This parameter enables history-aware fairness
+            required_rest_after_shifts: Rules for rest after N/M4/A (soft constraint penalty).
+            leave_codes: Leave codes that count as rest when checking rest-after-shift.
+            locks: Force/forbid assignments; used to skip penalty when employee requested both shift and work on rest day.
+            working_shift_codes: Working shift codes from config.
         """
         objectives = []
         
@@ -49,7 +57,15 @@ class RosterScoring:
         if overstaffing_vars:
             objectives.append(sum(overstaffing_vars) * self.weights.get("overstaffing", 10.0))
         
-        # 2. Fairness penalty (with history awareness)
+        # 3. Rest-after-shift soft penalty (2 O after N, 1 O after M4, 1 O after A) - high priority
+        rest_after_vars = self._add_rest_after_shift_variables(
+            model, x, employees, dates,
+            required_rest_after_shifts, leave_codes, locks, working_shift_codes
+        )
+        if rest_after_vars:
+            objectives.append(sum(rest_after_vars) * self.weights.get("rest_after_shift", 800.0))
+        
+        # 4. Fairness penalty (with history awareness)
         # [HISTORY_AWARE_FAIRNESS] Pass history_counts to fairness calculation
         fairness_vars = self._add_fairness_variables(
             model, x, employees, dates, skills, history_counts
@@ -57,7 +73,7 @@ class RosterScoring:
         if fairness_vars:
             objectives.append(sum(fairness_vars) * self.weights.get("fairness", 5.0))
         
-        # 3. DO after N preference removed - DO is now only assigned when requested in time off
+        # DO after N preference removed - DO is now only assigned when requested in time off
         # (No longer preferring DO after N shifts)
         
         if objectives:
@@ -133,6 +149,77 @@ class RosterScoring:
         
         return overstaffing_vars
     
+    def _add_rest_after_shift_variables(
+        self,
+        model: cp_model.CpModel,
+        x: Dict[Tuple[str, date, str], cp_model.IntVar],
+        employees: List[str],
+        dates: List[date],
+        required_rest_after_shifts: Optional[List[Dict[str, Any]]] = None,
+        leave_codes: Optional[Set[str]] = None,
+        locks: Optional[Dict[Tuple[str, date, str], bool]] = None,
+        working_shift_codes: Optional[List[str]] = None
+    ) -> List[cp_model.IntVar]:
+        """Add variables to penalize missing rest after N/M4/A (soft constraint, high weight)."""
+        violation_vars = []
+        if not required_rest_after_shifts:
+            required_rest_after_shifts = [
+                {"shift": "N", "rest_days": 2, "rest_code": "O"},
+                {"shift": "M4", "rest_days": 1, "rest_code": "O"},
+                {"shift": "A", "rest_days": 1, "rest_code": "O"}
+            ]
+        working_shifts = set(working_shift_codes) if working_shift_codes else set(_DEFAULT_STANDARD_SHIFTS_LIST)
+        rest_or_leave_codes = (leave_codes or set()) | {"O"}
+
+        for emp in employees:
+            for i, day in enumerate(dates):
+                for rule in required_rest_after_shifts:
+                    shift_code = rule["shift"]
+                    rest_days = rule["rest_days"]
+                    rest_code = rule["rest_code"]
+
+                    if (emp, day, shift_code) not in x:
+                        continue
+
+                    shift_is_requested = bool(locks and locks.get((emp, day, shift_code)) is True)
+
+                    def has_forced_work_on_day(target_day: date) -> bool:
+                        if not locks:
+                            return False
+                        for shift in working_shifts:
+                            if locks.get((emp, target_day, shift)) is True:
+                                return True
+                        return False
+
+                    for rest_day_offset in range(1, rest_days + 1):
+                        if i + rest_day_offset >= len(dates):
+                            break
+                        rest_day = dates[i + rest_day_offset]
+
+                        if shift_is_requested and has_forced_work_on_day(rest_day):
+                            continue
+
+                        if (emp, rest_day, rest_code) not in x:
+                            continue
+
+                        # rest_or_leave = 1 if employee has O or any leave on rest_day
+                        rest_or_leave = model.NewBoolVar(
+                            f"rest_or_leave_{emp}_{day!s}_{rest_day!s}_{shift_code}_{rest_day_offset}"
+                        )
+                        model.Add(rest_or_leave >= x[(emp, rest_day, rest_code)])
+                        for code in rest_or_leave_codes:
+                            if code != rest_code and (emp, rest_day, code) in x:
+                                model.Add(rest_or_leave >= x[(emp, rest_day, code)])
+
+                        # violation = 1 when they worked shift but did not have rest/leave on rest_day
+                        violation = model.NewBoolVar(
+                            f"rest_viol_{emp}_{day!s}_{shift_code}_{rest_day!s}_{rest_day_offset}"
+                        )
+                        model.Add(violation >= x[(emp, day, shift_code)] - rest_or_leave)
+                        violation_vars.append(violation)
+
+        return violation_vars
+
     # [HISTORY_AWARE_FAIRNESS] Modified to use history_counts in fairness calculations
     def _add_fairness_variables(
         self,
