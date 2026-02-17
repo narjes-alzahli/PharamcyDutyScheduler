@@ -125,6 +125,10 @@ def add_skill_constraints(
                     model.Add(x[(employee, day, shift_type)] == 0)
 
 
+# Shifts with soft coverage only (can be under-staffed; penalized in scoring). All others are hard.
+_SOFT_COVERAGE_SHIFTS = {"M", "IP"}
+
+
 def add_coverage_constraints(
     model: cp_model.CpModel,
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
@@ -133,23 +137,31 @@ def add_coverage_constraints(
     demands: Dict[date, Dict[str, int]],
     working_shift_codes: Optional[List[str]] = None
 ) -> None:
-    """Add coverage constraints: meet EXACT daily demand for each shift type."""
-    # Get working shifts from config or default to standard shifts
+    """Add coverage constraints: hard for all shifts except M and IP; M and IP are soft (see scoring)."""
     if working_shift_codes:
-        working_shifts = working_shift_codes
+        working_shifts = set(working_shift_codes)
     else:
-        working_shifts = _DEFAULT_STANDARD_SHIFTS_LIST
-    
+        working_shifts = set(_DEFAULT_STANDARD_SHIFTS_LIST)
+
     for day in dates:
         if day not in demands:
             continue
-            
         day_demand = demands[day]
-        
-        # Individual shift coverage - prefer meeting requirements but allow under-staffing if necessary
-        # Coverage is now handled via soft constraint (unfilled_coverage penalty) to allow flexibility
-        # when not enough staff are available, while still preferring to meet full requirements
-        # (Hard constraint removed - see scoring.py for unfilled_coverage penalty with weight 1000.0)
+
+        for shift_type in working_shifts:
+            if shift_type not in day_demand:
+                continue
+            if shift_type in _SOFT_COVERAGE_SHIFTS:
+                continue
+            demand = day_demand[shift_type]
+            assigned_vars = [
+                x[(emp, day, shift_type)] for emp in employees
+                if (emp, day, shift_type) in x
+            ]
+            if not assigned_vars:
+                continue
+            assigned_count = sum(assigned_vars)
+            model.Add(assigned_count == demand)
 
 
 def add_time_off_constraints(

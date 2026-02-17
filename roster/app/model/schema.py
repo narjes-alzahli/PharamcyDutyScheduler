@@ -308,10 +308,10 @@ class RosterConfig:
     
     def __init__(self, config_file: Optional[Path] = None):
         self.weights = {
-            "unfilled_coverage": 10000.0,  # strongly favored over rest rules: fill slots first
+            "unfilled_coverage": 1000.0,
             "overstaffing": 10.0,
             "fairness": 5.0,
-            "rest_after_shift": 800.0,  # soft rest rules (2 O after N, 1 O after M4/A) - high but below coverage
+            "rest_after_shift": 2000.0,  # soft rest rules (2 O after N, 1 O after M4/A) - satisfy as much as possible
             "do_after_n": 1.0,
             "a_to_n_penalty": 5.0
         }

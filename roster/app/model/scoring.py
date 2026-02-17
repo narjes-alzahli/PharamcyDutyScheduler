@@ -63,7 +63,7 @@ class RosterScoring:
             required_rest_after_shifts, leave_codes, locks, working_shift_codes
         )
         if rest_after_vars:
-            objectives.append(sum(rest_after_vars) * self.weights.get("rest_after_shift", 800.0))
+            objectives.append(sum(rest_after_vars) * self.weights.get("rest_after_shift", 2000.0))
         
         # 4. Fairness penalty (with history awareness)
         # [HISTORY_AWARE_FAIRNESS] Pass history_counts to fairness calculation
@@ -87,31 +87,29 @@ class RosterScoring:
         dates: List[date],
         demands: Dict[date, Dict[str, int]]
     ) -> List[cp_model.IntVar]:
-        """Add variables to penalize unfilled coverage."""
+        """Add variables to penalize unfilled coverage. Only for soft-coverage shifts (M, IP)."""
         unfilled_vars = []
-        
+        soft_coverage_shifts = {"M", "IP"}
+
         for day in dates:
             if day not in demands:
                 continue
-                
             day_demand = demands[day]
-            
+
             for shift_type in _DEFAULT_STANDARD_SHIFTS_LIST:
-                if shift_type in day_demand:
-                    # Count assigned employees
-                    assigned_vars = [x[(emp, day, shift_type)] for emp in employees]
-                    assigned_count = model.NewIntVar(0, len(employees), f"assigned_{day}_{shift_type}")
-                    model.Add(assigned_count == sum(assigned_vars))
-                    
-                    if day_demand[shift_type] > 0:
-                        # Calculate shortfall for positive demand
-                        shortfall = model.NewIntVar(0, day_demand[shift_type], f"shortfall_{day}_{shift_type}")
-                        model.Add(shortfall >= day_demand[shift_type] - assigned_count)
-                        unfilled_vars.append(shortfall)
-                    else:
-                        # Penalize any assignment when demand is 0
-                        unfilled_vars.append(assigned_count)
-        
+                if shift_type not in day_demand or shift_type not in soft_coverage_shifts:
+                    continue
+                assigned_vars = [x[(emp, day, shift_type)] for emp in employees]
+                assigned_count = model.NewIntVar(0, len(employees), f"assigned_{day}_{shift_type}")
+                model.Add(assigned_count == sum(assigned_vars))
+
+                if day_demand[shift_type] > 0:
+                    shortfall = model.NewIntVar(0, day_demand[shift_type], f"shortfall_{day}_{shift_type}")
+                    model.Add(shortfall >= day_demand[shift_type] - assigned_count)
+                    unfilled_vars.append(shortfall)
+                else:
+                    unfilled_vars.append(assigned_count)
+
         return unfilled_vars
     
     def _add_overstaffing_variables(

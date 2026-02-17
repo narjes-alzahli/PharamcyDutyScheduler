@@ -245,7 +245,7 @@ export const RosterGenerator: React.FC = () => {
         year: selectedYear,
         month: selectedMonth,
         time_limit: 120,
-        unfilled_penalty: 10000.0,  // strongly favor coverage over rest rules
+        unfilled_penalty: 1000.0,
         fairness_weight: 5.0,
         ...(startDate && endDate ? { start_date: startDate, end_date: endDate } : {}),
       };
