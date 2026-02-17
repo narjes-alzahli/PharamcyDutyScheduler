@@ -12,7 +12,8 @@ Staff can only be assigned to shifts they are qualified for:
 - Staff must have the corresponding skill flag enabled to work a shift (e.g., skill_IP=True for IP shifts, skill_H=True for H shifts)
 
 ### 3. Coverage Requirements
-The schedule strives to meet the minimum staffing requirements for each shift type every day. However, if not enough qualified staff are available (due to time off, skill constraints, or other rules), the system will assign as many as possible rather than failing to generate a schedule. The system will always prefer to meet full requirements when possible.
+- **Hard coverage** (must be met exactly): All shift types **except M and IP** (e.g. A, N, M3, M4, H, CL, E, etc.). Demand must be satisfied every day or the solver will not find a solution.
+- **Soft coverage** (M and IP only): The schedule strives to meet M and IP staffing requirements. If not enough qualified staff are available, the system will assign as many as possible and penalize shortfalls rather than failing.
 
 ### 4. Time Off Requests
 When staff request approved time off, they are automatically assigned that leave type (e.g., Annual Leave, Day Off, etc.).
@@ -41,16 +42,15 @@ Staff cannot work these shift combinations on consecutive days:
 
 *Note: These rules can be overridden by approved employee shift requests (force=True). If an employee requests both shifts in a forbidden pair, the constraint will be skipped to honor their request.*
 
-### 10. Required Rest After Shifts
-After working certain shifts, staff must have rest days:
-- **After Night shift**: Must have 2 rest days (Off Duty) on the next two days
-- **After M4 shift**: Must have 1 rest day (Off Duty) the next day
-- **After Afternoon shift**: Must have 1 rest day (Off Duty) the next day
+### 10. Required Rest After Shifts (high-priority soft rule)
+The solver tries to satisfy rest after these shifts as much as possible (strong penalty if violated):
+- **After Night shift**: Prefer 2 rest days (Off Duty) on the next two days
+- **After M4 shift**: Prefer 1 rest day (Off Duty) the next day
+- **After Afternoon shift**: Prefer 1 rest day (Off Duty) the next day
 
-*Exceptions:*
-- If staff have approved leave (e.g., DO, AL, etc.) on the rest day, the rest requirement is skipped (leave counts as rest)
-- If staff **requested** the shift (e.g., requested N, M4, or A) AND **requested** another shift on the rest day(s), the rest requirement is skipped to respect their wishes
-- **Important**: If the solver assigns a shift (not requested), it must still respect the rest requirement and choose days where rest is possible
+If the solver cannot satisfy rest (e.g. coverage or other constraints), it may assign work and incur a penalty rather than failing. Exceptions (no penalty when rest is skipped):
+- If staff have approved leave (e.g., DO, AL, etc.) on the rest day, leave counts as rest
+- If staff **requested** the shift AND **requested** another shift on the rest day(s), their request is respected
 
 ### 11. Single-Skill Staff
 Staff who are only qualified for one type of shift:
@@ -67,7 +67,7 @@ At most 1 Clinic staff member can be on leave at any given time (ensures clinic 
 
 The system tries to make the schedule as fair as possible by:
 
-1. **Meeting Coverage**: Prioritizes meeting all staffing requirements (highest priority). If full coverage isn't possible due to constraints, assigns as many staff as available rather than failing.
+1. **Meeting Coverage**: For M and IP, prioritizes meeting staffing requirements (soft; shortfalls are penalized). For all other shifts, coverage is hard (must be met exactly).
 
 2. **Fair Distribution**: Distributes shifts fairly among staff:
    - Equal distribution of Night shifts (among those with skill_N)
@@ -99,7 +99,8 @@ The following leave types count as rest days for weekly and monthly rest require
 ## Notes
 
 - All hard rules must be satisfied for a schedule to be valid
-- **Coverage is flexible**: If not enough staff are available to meet full requirements, the system will assign as many as possible rather than failing. For example, if 6 staff are needed but only 4 are available, it will assign 4 (with a penalty) rather than failing to generate a schedule.
-- If the system cannot find a solution, it means the rules are too restrictive (e.g., too many time off requests, insufficient qualified staff, conflicting shift requests)
+- **Coverage**: Only M and IP allow under-staffing (with a penalty). All other shifts must meet demand exactly.
+- **Rest after N/M4/A** is a high-priority soft rule: the solver satisfies it as much as possible but can violate it if necessary.
+- If the system cannot find a solution, hard rules cannot be satisfied (e.g. coverage for non-M/IP shifts, time off, qualifications).
 - Optimization goals are preferences - the system will try to achieve them but will prioritize satisfying all hard rules first
 
