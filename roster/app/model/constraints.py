@@ -229,22 +229,8 @@ def add_cap_constraints(
     dates: List[date],
     caps: Dict[str, Dict[str, int]]
 ) -> None:
-    """Add cap constraints: limit maximum shifts per employee."""
-    for employee in employees:
-        if employee not in caps:
-            continue
-            
-        employee_caps = caps[employee]
-        
-        # Night shift cap
-        if "maxN" in employee_caps:
-            night_vars = [x[(employee, day, "N")] for day in dates]
-            model.Add(sum(night_vars) <= employee_caps["maxN"])
-        
-        # Afternoon shift cap
-        if "maxA" in employee_caps:
-            afternoon_vars = [x[(employee, day, "A")] for day in dates]
-            model.Add(sum(afternoon_vars) <= employee_caps["maxA"])
+    """Add cap constraints: limit maximum shifts per employee. (maxN/maxA removed; kept for API compatibility.)"""
+    pass
 
 
 def add_minimum_days_off_constraints(

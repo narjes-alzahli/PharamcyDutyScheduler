@@ -80,14 +80,10 @@ class RosterSolver:
             if data.get_special_requirement_force(emp, day, shift) is not None
         }
         
-        # Prepare caps and min days off
+        # Prepare min days off (max N/A caps removed)
         caps = {}
         min_days_off = {}
         for emp_data in data.employees:
-            caps[emp_data.employee] = {
-                "maxN": emp_data.maxN,
-                "maxA": emp_data.maxA
-            }
             min_days_off[emp_data.employee] = emp_data.min_days_off
         
         # Add all constraints

@@ -75,8 +75,6 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
             'skill_IP_P': emp.skill_IP_P,
             'skill_P': emp.skill_P,
             'skill_M_P': emp.skill_M_P,
-            'maxN': emp.maxN,
-            'maxA': emp.maxA,
             'min_days_off': emp.min_days_off,
             'weight': emp.weight,
             'pending_off': emp.pending_off
@@ -88,7 +86,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
             'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 
             'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E', 
             'skill_IP_P', 'skill_P', 'skill_M_P',
-            'maxN', 'maxA', 'min_days_off', 'weight', 'pending_off'
+            'min_days_off', 'weight', 'pending_off'
         ])
     
     # Load time_off from database (approved leave requests)
@@ -656,8 +654,11 @@ def load_assignment_history(
             "nights": {emp: 0 for emp in employees},
             "afternoons": {emp: 0 for emp in employees},
             "m4": {emp: 0 for emp in employees},
+            "e": {emp: 0 for emp in employees},
             "thursdays": {emp: 0 for emp in employees},
-            "weekends": {emp: 0 for emp in employees}
+            "weekends": {emp: 0 for emp in employees},
+            "M+P": {emp: 0 for emp in employees},
+            "P": {emp: 0 for emp in employees},
         }
         
         # Count assignments per category
@@ -681,6 +682,16 @@ def load_assignment_history(
             # M4 shifts - only for employees with skill_M4
             if shift == "M4" and emp_skills.get("M4", False):
                 history["m4"][emp] += 1
+            
+            # E shifts - for fairness when E is assigned
+            if shift == "E" and emp_skills.get("E", False):
+                history["e"][emp] += 1
+            
+            # M+P and P - for rotation (prefer who hasn't done recently)
+            if shift == "M+P" and emp_skills.get("M+P", False):
+                history["M+P"][emp] += 1
+            if shift == "P" and emp_skills.get("P", False):
+                history["P"][emp] += 1
             
             # Thursday shifts (excluding M and M3) - only for multi-skill employees
             if schedule_date.weekday() == 3:  # Thursday
@@ -719,8 +730,11 @@ def load_assignment_history(
                         "nights": {e: 0 for e in employees},
                         "afternoons": {e: 0 for e in employees},
                         "m4": {e: 0 for e in employees},
+                        "e": {e: 0 for e in employees},
                         "thursdays": {e: 0 for e in employees},
-                        "weekends": {e: 0 for e in employees}
+                        "weekends": {e: 0 for e in employees},
+                        "M+P": {e: 0 for e in employees},
+                        "P": {e: 0 for e in employees},
                     }
                 
                 emp_skills = skills.get(emp, {})
@@ -733,6 +747,12 @@ def load_assignment_history(
                     monthly_counts[month_key]["afternoons"][emp] += 1
                 if shift == "M4" and emp_skills.get("M4", False):
                     monthly_counts[month_key]["m4"][emp] += 1
+                if shift == "E" and emp_skills.get("E", False):
+                    monthly_counts[month_key]["e"][emp] += 1
+                if shift == "M+P" and emp_skills.get("M+P", False):
+                    monthly_counts[month_key]["M+P"][emp] += 1
+                if shift == "P" and emp_skills.get("P", False):
+                    monthly_counts[month_key]["P"][emp] += 1
                 # Thursday shifts (excluding M and M3) - only for multi-skill employees
                 if schedule_date.weekday() == 3:  # Thursday
                     qualified_shifts = [
@@ -761,19 +781,23 @@ def load_assignment_history(
                 "nights": {emp: 0.0 for emp in employees},
                 "afternoons": {emp: 0.0 for emp in employees},
                 "m4": {emp: 0.0 for emp in employees},
+                "e": {emp: 0.0 for emp in employees},
                 "thursdays": {emp: 0.0 for emp in employees},
-                "weekends": {emp: 0.0 for emp in employees}
+                "weekends": {emp: 0.0 for emp in employees},
+                "M+P": {emp: 0.0 for emp in employees},
+                "P": {emp: 0.0 for emp in employees},
             }
             
             # Apply decay recursively from oldest to newest month
+            categories = ["nights", "afternoons", "m4", "e", "thursdays", "weekends", "M+P", "P"]
             for month_key in sorted_months:
-                for category in ["nights", "afternoons", "m4", "thursdays", "weekends"]:
+                for category in categories:
                     for emp in employees:
                         last_month_count = monthly_counts[month_key][category][emp]
                         decayed_history[category][emp] = alpha * decayed_history[category][emp] + last_month_count
             
             # Round final values
-            for category in ["nights", "afternoons", "m4", "thursdays", "weekends"]:
+            for category in categories:
                 for emp in employees:
                     history[category][emp] = round(decayed_history[category][emp])
         

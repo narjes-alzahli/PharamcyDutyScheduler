@@ -35,6 +35,12 @@ from backend.roster_data_loader import (
 router = APIRouter()
 security = HTTPBearer()
 
+# Forbidden adjacency pairs: (prev_shift, next_shift) - used for previous-period boundary
+FORBIDDEN_ADJACENCY_PAIRS = [
+    ("N", "M"), ("N", "IP"), ("N", "M3"), ("N", "APP"),
+    ("E", "M"), ("E", "IP"), ("E", "M3"),
+]
+
 # Store solver jobs (in production, use Redis or database)
 solver_jobs: Dict[str, Dict] = {}
 
@@ -226,27 +232,23 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 
                 # Apply adjacency rules based on previous period's shifts
                 for (emp, prev_date), shift in prev_period_shifts.items():
-                    if shift == "N":  # Night shift
+                    if shift == "N":
                         if second_last_date and prev_date == second_last_date:
-                            # N on day -2: day -1 should already be O (in previous period)
-                            # Day 1 must be O (rest requirement from N on day -2)
-                            # No forbidden adjacency needed since day -1 is O (not consecutive)
                             rest_required[(emp, first_day)] = True
                         elif prev_date == last_date:
-                            # N on day -1: day 1 and day 2 must be O (2 rest days required)
-                            # Day 1 cannot be M or N (forbidden N→M and N→N, since day 1 is consecutive to day -1)
                             rest_required[(emp, first_day)] = True
                             rest_required[(emp, second_day)] = True
-                            forbidden_shifts[(emp, first_day, "M")] = True
-                            forbidden_shifts[(emp, first_day, "N")] = True
-                    elif shift == "M4" and prev_date == last_date:
-                        # M4 on day -1: day 1 must be O (1 rest day required)
+                            for s1, s2 in FORBIDDEN_ADJACENCY_PAIRS:
+                                if s1 == "N":
+                                    forbidden_shifts[(emp, first_day, s2)] = True
+                    elif prev_date == last_date:
+                        for s1, s2 in FORBIDDEN_ADJACENCY_PAIRS:
+                            if s1 == shift:
+                                forbidden_shifts[(emp, first_day, s2)] = True
+                    if shift == "M4" and prev_date == last_date:
                         rest_required[(emp, first_day)] = True
                     elif shift == "A" and prev_date == last_date:
-                        # A on day -1: day 1 must be O (1 rest day required)
-                        # Day 1 cannot be N (forbidden A→N)
                         rest_required[(emp, first_day)] = True
-                        forbidden_shifts[(emp, first_day, "N")] = True
                 
                 # Add locks to force O (Off Duty) for required rest days
                 rest_locks = []
@@ -374,7 +376,11 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 "leave_codes": leave_codes,  # All active leave codes for the solver
                 "working_shift_codes": working_shift_codes,  # All active working shift codes
                 "all_shift_codes": all_shift_codes,  # All shifts (working + rest like O, plus leave types like DO from database)
-                "forbidden_adjacencies": [["N", "M"], ["A", "N"], ["N", "N"]],
+                "forbidden_adjacencies": [
+                    ["N", "M"], ["N", "IP"], ["N", "M3"],
+                    ["E", "M"], ["E", "IP"], ["E", "M3"],
+                    ["N", "APP"],
+                ],
                 "weekly_rest_minimum": 1,
                 "required_rest_after_shifts": [
                     {"shift": "N", "rest_days": 2, "rest_code": "O"},

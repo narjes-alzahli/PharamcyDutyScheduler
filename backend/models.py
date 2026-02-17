@@ -136,8 +136,6 @@ class EmployeeSkills(Base):
     skill_IP_P = Column(Boolean, default=True)
     skill_P = Column(Boolean, default=True)
     skill_M_P = Column(Boolean, default=True)
-    maxN = Column(Integer, default=3)  # Maximum night shifts
-    maxA = Column(Integer, default=3)  # Maximum afternoon shifts
     min_days_off = Column(Integer, default=4)  # Minimum days off per period
     weight = Column(Float, default=1.0)  # Fairness weight
     pending_off = Column(Float, default=0.0)  # Pending off balance

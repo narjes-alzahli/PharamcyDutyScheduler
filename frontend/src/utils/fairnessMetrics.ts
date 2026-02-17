@@ -15,6 +15,7 @@ export interface FairnessData {
   nightData: DistributionEntry[];
   afternoonData: DistributionEntry[];
   m4Data: DistributionEntry[];
+  eData: DistributionEntry[];
   weekendData: DistributionEntry[];
   thursdayData: DistributionEntry[];
   workingData: DistributionEntry[];
@@ -24,6 +25,7 @@ const WORKING_SHIFTS = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
 const NIGHT_SHIFTS = ['N'];
 const AFTERNOON_SHIFTS = ['A'];
 const M4_SHIFTS = ['M4'];
+const E_SHIFTS = ['E'];
 
 const isWeekend = (dateStr: string) => {
   const date = new Date(dateStr);
@@ -62,6 +64,7 @@ export const calculateFairnessData = (
   const nightCounts: Record<string, number> = {};
   const afternoonCounts: Record<string, number> = {};
   const m4Counts: Record<string, number> = {};
+  const eCounts: Record<string, number> = {};
   const weekendCounts: Record<string, number> = {};
   const thursdayCounts: Record<string, number> = {};
   const workingCounts: Record<string, number> = {};
@@ -81,6 +84,10 @@ export const calculateFairnessData = (
 
     if (M4_SHIFTS.includes(shift)) {
       m4Counts[employee] = (m4Counts[employee] || 0) + 1;
+    }
+
+    if (E_SHIFTS.includes(shift)) {
+      eCounts[employee] = (eCounts[employee] || 0) + 1;
     }
 
     if (WORKING_SHIFTS.includes(shift)) {
@@ -129,6 +136,7 @@ export const calculateFairnessData = (
     nightData: toDistribution(nightCounts, false, employeeOrder),
     afternoonData: toDistribution(afternoonCounts, false, employeeOrder),
     m4Data: toDistribution(m4Counts, false, employeeOrder),
+    eData: toDistribution(eCounts, false, employeeOrder),
     weekendData: toDistribution(weekendCounts, false, employeeOrder),
     thursdayData: toDistribution(thursdayCounts, false, employeeOrder),
     workingData: toDistribution(workingCounts, true, employeeOrder),

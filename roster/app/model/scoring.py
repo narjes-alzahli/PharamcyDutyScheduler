@@ -159,8 +159,11 @@ class RosterScoring:
                 "nights": {},
                 "afternoons": {},
                 "m4": {},
+                "e": {},
                 "thursdays": {},
-                "weekends": {}
+                "weekends": {},
+                "M+P": {},
+                "P": {}
             }
         
         # Filter out clinicians (clinic-only employees: only have CL skill, no other skills)
@@ -184,8 +187,11 @@ class RosterScoring:
         night_total_loads = []
         afternoon_total_loads = []
         m4_total_loads = []
+        e_total_loads = []
         thursday_total_loads = []
         weekend_total_loads = []
+        m_plus_p_total_loads = []
+        p_total_loads = []
         total_working_counts = []
         
         for emp in non_clinicians:
@@ -238,6 +244,34 @@ class RosterScoring:
                 total_m4_load = model.NewIntVar(history_m4, history_m4 + len(dates), f"total_m4_load_{emp}")
                 model.Add(total_m4_load == history_m4 + new_m4_count)
                 m4_total_loads.append(total_m4_load)
+            
+            # E shifts - only for employees with skill_E (fairness when E is assigned)
+            if emp_skills.get("E", False):
+                e_vars = [x[(emp, day, "E")] for day in dates]
+                new_e_count = model.NewIntVar(0, len(dates), f"new_e_count_{emp}")
+                model.Add(new_e_count == sum(e_vars))
+                history_e = history_counts.get("e", {}).get(emp, 0)
+                total_e_load = model.NewIntVar(history_e, history_e + len(dates), f"total_e_load_{emp}")
+                model.Add(total_e_load == history_e + new_e_count)
+                e_total_loads.append(total_e_load)
+            
+            # M+P and P rotation: prefer employees who haven't done these in recent months
+            if emp_skills.get("M+P", False):
+                m_plus_p_vars = [x[(emp, day, "M+P")] for day in dates]
+                new_m_plus_p_count = model.NewIntVar(0, len(dates), f"new_m_plus_p_count_{emp}")
+                model.Add(new_m_plus_p_count == sum(m_plus_p_vars))
+                history_m_plus_p = history_counts.get("M+P", {}).get(emp, 0)
+                total_m_plus_p_load = model.NewIntVar(history_m_plus_p, history_m_plus_p + len(dates), f"total_m_plus_p_load_{emp}")
+                model.Add(total_m_plus_p_load == history_m_plus_p + new_m_plus_p_count)
+                m_plus_p_total_loads.append(total_m_plus_p_load)
+            if emp_skills.get("P", False):
+                p_vars = [x[(emp, day, "P")] for day in dates]
+                new_p_count = model.NewIntVar(0, len(dates), f"new_p_count_{emp}")
+                model.Add(new_p_count == sum(p_vars))
+                history_p = history_counts.get("P", {}).get(emp, 0)
+                total_p_load = model.NewIntVar(history_p, history_p + len(dates), f"total_p_load_{emp}")
+                model.Add(total_p_load == history_p + new_p_count)
+                p_total_loads.append(total_p_load)
             
             # Thursday shifts (excluding M and M3) - only for multi-skill employees
             # Note: is_single_skill check above ensures we only process multi-skill employees here
@@ -314,6 +348,36 @@ class RosterScoring:
             m4_fairness = model.NewIntVar(0, len(dates) * 10, "m4_fairness")
             model.Add(m4_fairness == max_m4 - min_m4)
             fairness_vars.append(m4_fairness)
+        
+        if e_total_loads:
+            max_e = model.NewIntVar(0, len(dates) * 10, "max_e")
+            min_e = model.NewIntVar(0, len(dates) * 10, "min_e")
+            for load in e_total_loads:
+                model.Add(max_e >= load)
+                model.Add(min_e <= load)
+            e_fairness = model.NewIntVar(0, len(dates) * 10, "e_fairness")
+            model.Add(e_fairness == max_e - min_e)
+            fairness_vars.append(e_fairness)
+        
+        if m_plus_p_total_loads:
+            max_m_plus_p = model.NewIntVar(0, len(dates) * 10, "max_m_plus_p")
+            min_m_plus_p = model.NewIntVar(0, len(dates) * 10, "min_m_plus_p")
+            for load in m_plus_p_total_loads:
+                model.Add(max_m_plus_p >= load)
+                model.Add(min_m_plus_p <= load)
+            m_plus_p_fairness = model.NewIntVar(0, len(dates) * 10, "m_plus_p_fairness")
+            model.Add(m_plus_p_fairness == max_m_plus_p - min_m_plus_p)
+            fairness_vars.append(m_plus_p_fairness)
+        
+        if p_total_loads:
+            max_p = model.NewIntVar(0, len(dates) * 10, "max_p")
+            min_p = model.NewIntVar(0, len(dates) * 10, "min_p")
+            for load in p_total_loads:
+                model.Add(max_p >= load)
+                model.Add(min_p <= load)
+            p_fairness = model.NewIntVar(0, len(dates) * 10, "p_fairness")
+            model.Add(p_fairness == max_p - min_p)
+            fairness_vars.append(p_fairness)
             
         if thursday_total_loads:
             max_thursday = model.NewIntVar(0, len(dates) * 10, "max_thursday")

@@ -23,8 +23,6 @@ class Employee(BaseModel):
     skill_IP_P: bool = Field(alias="skill_IP_P")
     skill_P: bool = Field(alias="skill_P")
     skill_M_P: bool = Field(alias="skill_M_P")
-    maxN: int = Field(ge=0, alias="maxN")
-    maxA: int = Field(ge=0, alias="maxA")
     min_days_off: int = Field(ge=1, alias="min_days_off")
     weight: float = Field(ge=0.0, alias="weight")
     pending_off: float = Field(default=0.0, alias="pending_off")
@@ -320,7 +318,11 @@ class RosterConfig:
         self.leave_codes = []  # Will be populated from config file (includes DO from leave_types table)
         self.working_shift_codes = []  # Will be populated from config file (working shifts from database)
         self.all_shift_codes = []  # All shifts (working + rest like O, plus leave types like DO from database)
-        self.forbidden_adjacencies = [("N", "M"), ("A", "N")]
+        self.forbidden_adjacencies = [
+            ("N", "M"), ("N", "IP"), ("N", "M3"),
+            ("E", "M"), ("E", "IP"), ("E", "M3"),
+            ("N", "APP"),
+        ]
         self.weekly_rest_minimum = 1
         self.required_rest_after_shifts = [
             {"shift": "N", "rest_days": 2, "rest_code": "O"},

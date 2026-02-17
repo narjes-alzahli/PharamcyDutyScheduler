@@ -37,8 +37,6 @@ security = HTTPBearer()
 class EmployeeData(BaseModel):
     employee: str
     skills: str
-    maxN: int
-    maxA: int
     min_days_off: int
 
 
@@ -144,8 +142,6 @@ async def update_employees(
             emp.skill_IP_P = bool(emp_data.get('skill_IP_P', True))
             emp.skill_P = bool(emp_data.get('skill_P', True))
             emp.skill_M_P = bool(emp_data.get('skill_M_P', True))
-            emp.maxN = int(emp_data.get('maxN', 3))
-            emp.maxA = int(emp_data.get('maxA', 3))
             emp.min_days_off = int(emp_data.get('min_days_off', 4))
             emp.weight = float(emp_data.get('weight', 1.0))
             emp.pending_off = float(emp_data.get('pending_off', 0.0))
@@ -165,8 +161,6 @@ async def update_employees(
                 skill_IP_P=bool(emp_data.get('skill_IP_P', True)),
                 skill_P=bool(emp_data.get('skill_P', True)),
                 skill_M_P=bool(emp_data.get('skill_M_P', True)),
-                maxN=int(emp_data.get('maxN', 3)),
-                maxA=int(emp_data.get('maxA', 3)),
                 min_days_off=int(emp_data.get('min_days_off', 4)),
                 weight=float(emp_data.get('weight', 1.0)),
                 pending_off=float(emp_data.get('pending_off', 0.0))

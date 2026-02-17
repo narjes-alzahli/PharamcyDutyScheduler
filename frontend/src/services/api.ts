@@ -195,8 +195,6 @@ export const authAPI = {
 export interface Employee {
   employee: string;
   skills: string;
-  maxN: number;
-  maxA: number;
   min_days_off: number;
 }
 

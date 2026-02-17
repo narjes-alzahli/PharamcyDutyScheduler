@@ -9,13 +9,14 @@ interface FairnessLineGraphProps {
   className?: string;
 }
 
-type MetricType = 'night' | 'afternoon' | 'm4' | 'weekend' | 'thursday' | 'working';
+type MetricType = 'night' | 'afternoon' | 'm4' | 'e' | 'weekend' | 'thursday' | 'working';
 
 // Color palette for better visibility
 const METRIC_COLORS: Record<MetricType, string> = {
   night: '#1f77b4',        // Blue
   afternoon: '#ff7f0e',   // Orange
   m4: '#2ca02c',          // Green
+  e: '#17becf',           // Cyan (E shift)
   weekend: '#d62728',     // Red
   thursday: '#9467bd',     // Purple
   working: '#8c564b',     // Brown
@@ -25,6 +26,7 @@ const METRIC_CONFIG: Record<MetricType, { label: string; dataKey: keyof Fairness
   night: { label: 'Night Shifts', dataKey: 'nightData' },
   afternoon: { label: 'Afternoon Shifts', dataKey: 'afternoonData' },
   m4: { label: 'M4 Shifts', dataKey: 'm4Data' },
+  e: { label: 'E Shifts', dataKey: 'eData' },
   weekend: { label: 'Weekend Shifts', dataKey: 'weekendData' },
   thursday: { label: 'Thursday Shifts', dataKey: 'thursdayData' },
   working: { label: 'Total Working Days', dataKey: 'workingData' },
@@ -104,8 +106,10 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
     
     Object.entries(METRIC_CONFIG).forEach(([metricType, config]) => {
       const data = fairnessData[config.dataKey] as DistributionEntry[] | undefined;
-      if (data && data.length > 0) {
-        const empMap = new Map(data.map(d => [d.emp, d.count]));
+      const hasData = data && data.length > 0;
+      const hasAssignments = metricType === 'e' ? hasData && data!.some((d) => d.count > 0) : hasData;
+      if (hasAssignments) {
+        const empMap = new Map(data!.map(d => [d.emp, d.count]));
         map.set(metricType as MetricType, empMap);
       }
     });
@@ -212,7 +216,16 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
             </button>
           </div>
           <div className="flex flex-wrap gap-3">
-            {Object.entries(METRIC_CONFIG).map(([metricType, config]) => {
+            {Object.entries(METRIC_CONFIG)
+              .filter(([metricType]) => {
+                // E shift: only show in fairness analysis when there are E shifts assigned this month
+                if (metricType === 'e') {
+                  const eData = fairnessData.eData as DistributionEntry[] | undefined;
+                  return eData != null && eData.some((d) => d.count > 0);
+                }
+                return true;
+              })
+              .map(([metricType, config]) => {
               const isVisible = visibleMetrics.has(metricType as MetricType);
               const metricData = fairnessData[config.dataKey] as DistributionEntry[] | undefined;
               const hasData = metricData && metricData.length > 0;
