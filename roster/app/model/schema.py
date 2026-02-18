@@ -311,7 +311,7 @@ class RosterConfig:
             "unfilled_coverage": 1000.0,
             "overstaffing": 10.0,
             "fairness": 5.0,
-            "rest_after_shift": 2000.0,  # soft rest rules (2 O after N, 1 O after M4/A) - satisfy as much as possible
+            "rest_after_shift": 4000.0,  # soft rest rules - satisfy as much as possible
             "do_after_n": 1.0,
             "a_to_n_penalty": 5.0
         }

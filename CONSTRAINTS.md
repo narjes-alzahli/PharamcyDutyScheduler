@@ -100,7 +100,7 @@ The following leave types count as rest days for weekly and monthly rest require
 
 - All hard rules must be satisfied for a schedule to be valid
 - **Coverage**: Only M and IP allow under-staffing (with a penalty). All other shifts must meet demand exactly.
-- **Rest after N/M4/A** is a high-priority soft rule: the solver satisfies it as much as possible but can violate it if necessary.
+- **Rest after N/M4/A** is a high-priority soft rule (penalty weight 4000): the solver satisfies it as much as possible but can violate it if necessary; only a few exceptions when needed.
 - If the system cannot find a solution, hard rules cannot be satisfied (e.g. coverage for non-M/IP shifts, time off, qualifications).
 - Optimization goals are preferences - the system will try to achieve them but will prioritize satisfying all hard rules first
 

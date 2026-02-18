@@ -474,7 +474,7 @@ export const RulesManagement: React.FC = () => {
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>Each person works one shift per day (or has a day off)</li>
                 <li>People only work shifts they're trained for</li>
-                <li>Every day must have enough staff to cover all shifts</li>
+                <li>Coverage: all shifts except M and IP must be fully covered every day; M and IP are filled as much as possible (soft)</li>
                 <li>Staff with only the Clinic (CL) skill only work clinic shifts</li>
               </ul>
             </section>
@@ -511,7 +511,7 @@ export const RulesManagement: React.FC = () => {
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
               <h4 className="text-lg font-semibold text-gray-900 mb-3">Shift Patterns</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>After working a night shift, you must have a day off the next day</li>
+                <li>Rest after shifts (high priority, few exceptions): 2 days off after Night, 1 day off after M4 or Afternoon</li>
                 <li>You cannot work night shifts on back-to-back days</li>
                 <li>Some shift combinations are not allowed (e.g., morning after night)</li>
               </ul>
@@ -530,9 +530,9 @@ export const RulesManagement: React.FC = () => {
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
               <h4 className="text-lg font-semibold text-gray-900 mb-3">Schedule Quality</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>Ensures all shifts are covered (most important)</li>
+                <li>Coverage: M and IP filled as much as possible; all other shifts must be fully covered</li>
+                <li>Rest after N/M4/A is strongly preferred (high-priority soft rule)</li>
                 <li>Distributes shifts fairly among staff</li>
-                <li>Prefers giving days off after night shifts</li>
               </ul>
             </section>
           </div>

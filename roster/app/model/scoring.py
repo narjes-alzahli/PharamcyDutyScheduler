@@ -63,7 +63,7 @@ class RosterScoring:
             required_rest_after_shifts, leave_codes, locks, working_shift_codes
         )
         if rest_after_vars:
-            objectives.append(sum(rest_after_vars) * self.weights.get("rest_after_shift", 2000.0))
+            objectives.append(sum(rest_after_vars) * self.weights.get("rest_after_shift", 4000.0))
         
         # 4. Fairness penalty (with history awareness)
         # [HISTORY_AWARE_FAIRNESS] Pass history_counts to fairness calculation
@@ -200,14 +200,17 @@ class RosterScoring:
                         if (emp, rest_day, rest_code) not in x:
                             continue
 
-                        # rest_or_leave = 1 if employee has O or any leave on rest_day
+                        # rest_or_leave = 1 iff employee has O or any leave on rest_day (must be 0 when working)
                         rest_or_leave = model.NewBoolVar(
                             f"rest_or_leave_{emp}_{day!s}_{rest_day!s}_{shift_code}_{rest_day_offset}"
                         )
-                        model.Add(rest_or_leave >= x[(emp, rest_day, rest_code)])
+                        rest_leave_vars = []
                         for code in rest_or_leave_codes:
-                            if code != rest_code and (emp, rest_day, code) in x:
+                            if (emp, rest_day, code) in x:
+                                rest_leave_vars.append(x[(emp, rest_day, code)])
                                 model.Add(rest_or_leave >= x[(emp, rest_day, code)])
+                        if rest_leave_vars:
+                            model.Add(rest_or_leave <= sum(rest_leave_vars))
 
                         # violation = 1 when they worked shift but did not have rest/leave on rest_day
                         violation = model.NewBoolVar(
