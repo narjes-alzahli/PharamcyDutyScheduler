@@ -45,16 +45,18 @@ class RosterSolver:
         if not employees or not dates:
             return False, {}, {}
         
-        # Run sanity check before solving
-        is_feasible, issues = check_roster_feasibility(data)
-        if not is_feasible:
-            error_details = "\n".join(issues)
+        # Run sanity check before solving (❌ = blocking; ⚠️ = warning only)
+        is_feasible, sanity_messages = check_roster_feasibility(data)
+        sanity_errors = [m for m in sanity_messages if m.startswith("❌")]
+        sanity_warnings = [m for m in sanity_messages if m.startswith("⚠️")]
+        if sanity_errors:
+            error_details = "\n".join(sanity_errors)
             return False, {}, {
                 "status": "INFEASIBLE",
                 "solve_time": 0,
                 "sanity_check_failed": True,
-                "issues": issues,
-                "error_message": f"Sanity check failed. Found {len(issues)} issue(s):\n{error_details}"
+                "issues": sanity_errors + sanity_warnings,
+                "error_message": f"Sanity check failed. Found {len(sanity_errors)} issue(s):\n{error_details}"
             }
             
         # Prepare constraint data first
@@ -133,6 +135,8 @@ class RosterSolver:
             metrics = calculate_roster_metrics(assignments, employees, dates, demands)
             metrics["solve_time"] = solve_time
             metrics["status"] = "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE"
+            if sanity_warnings:
+                metrics["sanity_warnings"] = sanity_warnings
             
             return True, assignments, metrics
         else:
