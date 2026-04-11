@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root))
 from backend.routers.auth import get_current_user
 from backend.database import get_db
 from backend.models import User, EmployeeType, EmployeeSkills, CommittedSchedule, ScheduleMetrics
-from backend.utils import hash_password
+from backend.utils import hash_password, normalize_staff_no
 
 router = APIRouter()
 security = HTTPBearer()
@@ -26,6 +26,7 @@ class UserCreate(BaseModel):
     employee_name: str
     password: str
     employee_type: str
+    staff_no: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
@@ -35,6 +36,7 @@ class UserUpdate(BaseModel):
     employee_type: str
     old_username: Optional[str] = None  # Used to find the user if username/employee_name changed
     pending_off: Optional[float] = None
+    staff_no: Optional[str] = None
 
 
 @router.get("/")
@@ -53,6 +55,7 @@ async def get_all_users(
             'username': user.username,
             'employee_name': user.employee_name,
             'employee_type': user.employee_type.value,
+            'staff_no': user.staff_no,
             'password_hidden': '*' * len(user.password) if user.password else ''
         })
     return users
@@ -79,12 +82,18 @@ async def create_user(
     # Create user
     employee_type = EmployeeType.MANAGER if user_data.employee_type == 'Manager' else EmployeeType.STAFF
     hashed_password = hash_password(user_data.password)
-    
+    sn = normalize_staff_no(user_data.staff_no)
+    if sn:
+        taken = db.query(User).filter(User.staff_no == sn).first()
+        if taken:
+            raise HTTPException(status_code=400, detail="Staff number already in use")
+
     new_user = User(
         username=username,
         password=hashed_password,
         employee_name=user_data.employee_name,
-        employee_type=employee_type
+        employee_type=employee_type,
+        staff_no=sn,
     )
     db.add(new_user)
     db.flush()  # Get the user ID
@@ -184,6 +193,15 @@ async def update_user(
     if update.password:
         # Hash the password before storing
         user.password = hash_password(update.password)
+
+    update_payload = update.model_dump(exclude_unset=True)
+    if "staff_no" in update_payload:
+        sn = normalize_staff_no(update_payload["staff_no"])
+        if sn:
+            conflict = db.query(User).filter(User.staff_no == sn, User.id != user.id).first()
+            if conflict:
+                raise HTTPException(status_code=400, detail="Staff number already in use")
+        user.staff_no = sn
     
     # Auto-create/update employee_skills for staff users
     if user.employee_type == EmployeeType.STAFF:

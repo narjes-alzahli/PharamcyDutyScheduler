@@ -16,7 +16,9 @@ interface User {
   username: string;
   employee_name: string;
   employee_type: string;
+  staff_no?: string | null;
   password_hidden: string;
+  pending_off?: number | null;
 }
 
 interface CalendarEntry {
@@ -785,7 +787,9 @@ export const UserManagement: React.FC = () => {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserStaffNo, setNewUserStaffNo] = useState('');
   const [newUserType, setNewUserType] = useState('Staff');
+  const [editingStaffNo, setEditingStaffNo] = useState('');
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
@@ -800,7 +804,7 @@ export const UserManagement: React.FC = () => {
   const { columnWidths: shiftWidths, handleMouseDown: shiftHandleMouseDown, tableRef: shiftTableRef, isResizing: shiftResizing } = useResizableColumns(shiftTableColumns, 150);
   
   // Resizable columns for users table
-  const usersTableColumns = ['username', 'employee_name', 'employee_type', 'pending_off', 'password', 'actions'];
+  const usersTableColumns = ['username', 'employee_name', 'staff_no', 'employee_type', 'pending_off', 'password', 'actions'];
   const { columnWidths: usersWidths, handleMouseDown: usersHandleMouseDown, tableRef: usersTableRef, isResizing: usersResizing } = useResizableColumns(usersTableColumns, 200);
   
   
@@ -816,7 +820,7 @@ export const UserManagement: React.FC = () => {
   }, [users, employees]);
 
   // Search and sort for users
-  const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(usersWithPendingOff, ['username', 'employee_name', 'employee_type']);
+  const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(usersWithPendingOff, ['username', 'employee_name', 'staff_no', 'employee_type']);
   const { sortedData: sortedUsers, sortConfig: usersSortConfig, handleSort: handleUsersSort } = useTableSort(searchedUsers);
   
   // Calendar and table filter dates (must be declared before useMemo hooks)
@@ -1227,12 +1231,14 @@ export const UserManagement: React.FC = () => {
         employee_name: newUserName.trim(),
         password: newUserPassword,
         employee_type: newUserType,
+        staff_no: newUserStaffNo.trim() || undefined,
       });
       
       setNotification({ message: '✅ User created successfully! Employee skills will be created automatically for Staff users.', type: 'success' });
       setTimeout(() => setNotification(null), 3000);
       setNewUserName('');
       setNewUserPassword('');
+      setNewUserStaffNo('');
       setNewUserType('Staff');
       setShowCreateUser(false);
       await loadData();
@@ -1285,6 +1291,7 @@ export const UserManagement: React.FC = () => {
         password: newPassword || undefined,
         employee_type: employeeType,
         pending_off: employeeType === 'Staff' ? editingPendingOff : undefined,
+        staff_no: editingStaffNo.trim(),
       });
       
       setNotification({ message: '✅ User account updated successfully!', type: 'success' });
@@ -2573,6 +2580,7 @@ export const UserManagement: React.FC = () => {
               setNewPassword('');
               setEmployeeType('Staff');
               setSelectedEmployee('');
+              setNewUserStaffNo('');
               setShowCreateUser(true);
             }}
             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
@@ -2585,7 +2593,7 @@ export const UserManagement: React.FC = () => {
           <SearchBar
             searchTerm={usersSearchTerm}
             onSearchChange={setUsersSearchTerm}
-            placeholder="Search users by username, employee name, or type..."
+            placeholder="Search users by username, employee name, staff no, or type..."
           />
           <div className="overflow-x-auto">
             <table ref={usersTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
@@ -2608,6 +2616,15 @@ export const UserManagement: React.FC = () => {
                       </button>
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_name')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                  </th>
+                  <th key="staff_no" style={{ width: `${usersWidths.staff_no || 120}px`, maxWidth: `${usersWidths.staff_no || 120}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="flex items-center space-x-1 truncate">
+                      <span className="truncate">Staff No</span>
+                      <button onClick={() => handleUsersSort('staff_no')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by staff number">
+                        {usersSortConfig?.key === 'staff_no' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                      </button>
+                    </div>
+                    <div onMouseDown={(e) => usersHandleMouseDown(e, 'staff_no')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
                   <th key="employee_type" style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="flex items-center space-x-1 truncate">
@@ -2649,14 +2666,19 @@ export const UserManagement: React.FC = () => {
                         {user.employee_name}
                       </div>
                     </td>
+                    <td style={{ width: `${usersWidths.staff_no || 120}px`, maxWidth: `${usersWidths.staff_no || 120}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                      <div className="truncate" title={user.staff_no || ''}>
+                        {user.staff_no || '—'}
+                      </div>
+                    </td>
                     <td style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
                       <div className="truncate" title={user.employee_type}>
                         {user.employee_type}
                       </div>
                     </td>
                     <td style={{ width: `${usersWidths.pending_off || 150}px`, maxWidth: `${usersWidths.pending_off || 150}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
-                      <div className="truncate" title={user.employee_type === 'Manager' ? 'N/A' : '0'}>
-                        {user.employee_type === 'Manager' ? 'N/A' : '0'}
+                      <div className="truncate" title={user.employee_type === 'Manager' ? 'N/A' : String(user.pending_off ?? 0)}>
+                        {user.employee_type === 'Manager' ? 'N/A' : String(user.pending_off ?? 0)}
                       </div>
                     </td>
                     <td style={{ width: `${usersWidths.password || 200}px`, maxWidth: `${usersWidths.password || 200}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
@@ -2672,6 +2694,7 @@ export const UserManagement: React.FC = () => {
                             setEditingEmployeeName(user.employee_name);
                             setEditingUsername(user.username);
                             setEmployeeType(user.employee_type);
+                            setEditingStaffNo(user.staff_no ?? '');
                             setEditingPendingOff(user.pending_off !== null && user.pending_off !== undefined ? Number(user.pending_off) : 0);
                             setNewPassword('');
                             setShowCreateUser(false);
@@ -2740,6 +2763,20 @@ export const UserManagement: React.FC = () => {
                   }}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   required
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Staff No
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={editingStaffNo}
+                  onChange={(e) => setEditingStaffNo(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="e.g. 58812 (leave empty to clear)"
                 />
               </div>
 
@@ -2819,6 +2856,7 @@ export const UserManagement: React.FC = () => {
                     setSelectedEmployee('');
                     setEditingEmployeeName('');
                     setEditingUsername('');
+                    setEditingStaffNo('');
                     setEditingPendingOff(0);
                     setNewPassword('');
                     setEmployeeType('Staff');
@@ -2884,6 +2922,19 @@ export const UserManagement: React.FC = () => {
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Staff No <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={newUserStaffNo}
+                  onChange={(e) => setNewUserStaffNo(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Official staff number"
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Employee Type
                 </label>
                 <select
@@ -2908,6 +2959,7 @@ export const UserManagement: React.FC = () => {
                     setShowCreateUser(false);
                     setNewUserName('');
                     setNewUserPassword('');
+                    setNewUserStaffNo('');
                     setNewUserType('Staff');
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"

@@ -491,9 +491,22 @@ export const AllRostersPage: React.FC = () => {
     
     // Sort regular options by month
     regularOptions.sort((a, b) => a.month - b.month);
-    
-    // Return periods first, then regular months
-    return [...periodOptions, ...regularOptions];
+
+    // Chronological order in the dropdown: January before February periods, etc.
+    // (Previously period blocks were prepended, so February appeared above January.)
+    const chronologicalKey = (opt: {
+      month: number;
+      period: string | null;
+    }): number => {
+      if (opt.period === 'pre-ramadan') return 2.0;
+      if (opt.period === 'ramadan') return 2.15;
+      if (opt.period === 'post-ramadan') return 3.0;
+      return opt.month;
+    };
+
+    const combined = [...periodOptions, ...regularOptions];
+    combined.sort((a, b) => chronologicalKey(a) - chronologicalKey(b));
+    return combined;
   }, [schedules, selectedYear]);
   
   // Use selectedPeriod if available, otherwise detect from current schedule

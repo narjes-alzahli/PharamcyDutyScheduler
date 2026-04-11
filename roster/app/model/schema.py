@@ -4,13 +4,14 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
 import pandas as pd
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict, validator
 import yaml
 
 
 class Employee(BaseModel):
     """Employee data model."""
     employee: str
+    staff_no: Optional[str] = Field(default=None, alias="staff_no")
     skill_M: bool = Field(alias="skill_M")
     skill_IP: bool = Field(alias="skill_IP")
     skill_A: bool = Field(alias="skill_A")
@@ -27,8 +28,15 @@ class Employee(BaseModel):
     weight: float = Field(ge=0.0, alias="weight")
     pending_off: float = Field(default=0.0, alias="pending_off")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator("staff_no", mode="before")
+    @classmethod
+    def empty_staff_no(cls, v: Any) -> Optional[str]:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return None
+        s = str(v).strip()
+        return s if s else None
 
 
 class DailyRequirement(BaseModel):

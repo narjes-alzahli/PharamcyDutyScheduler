@@ -59,10 +59,16 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
                       If False, keep ranges as-is (for frontend UI).
     """
     # Load employees from database, ordered by ID to maintain consistent order
-    employees = db.query(EmployeeSkills).order_by(EmployeeSkills.id).all()
+    employees = (
+        db.query(EmployeeSkills)
+        .options(joinedload(EmployeeSkills.user))
+        .order_by(EmployeeSkills.id)
+        .all()
+    )
     if employees:
         employees_data = [{
             'employee': emp.name,
+            'staff_no': (emp.user.staff_no if getattr(emp, "user", None) is not None else None) or '',
             'skill_M': emp.skill_M,
             'skill_IP': emp.skill_IP,
             'skill_A': emp.skill_A,
@@ -83,7 +89,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
     else:
         # Create empty DataFrame with required columns
         employees_df = pd.DataFrame(columns=[
-            'employee', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 
+            'employee', 'staff_no', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 
             'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E', 
             'skill_IP_P', 'skill_P', 'skill_M_P',
             'min_days_off', 'weight', 'pending_off'

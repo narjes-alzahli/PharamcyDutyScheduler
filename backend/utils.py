@@ -116,3 +116,11 @@ def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None  # Any other error
 
+
+def normalize_staff_no(value: Any) -> Optional[str]:
+    """Trim staff number; empty string maps to None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s if s else None
+

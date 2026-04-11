@@ -50,6 +50,37 @@ const getFixedShiftSortKey = (shift: string) => {
   return idx === -1 ? FIXED_SHIFT_ORDER.length : idx;
 };
 
+/** One source of truth: Shift Requirements at the bottom, Reset, first-time Generate, and switching months with no saved prefs */
+type ShiftRequirementRow = { Shift: string; Count: number };
+type FixedShiftConfigRow = { shift: string; day: number; count: number };
+
+const DEFAULT_WEEKDAY_SHIFT_REQUIREMENTS: ShiftRequirementRow[] = [
+  { Shift: 'M', Count: 6 },
+  { Shift: 'IP', Count: 3 },
+  { Shift: 'A', Count: 1 },
+  { Shift: 'N', Count: 1 },
+  { Shift: 'M3', Count: 1 },
+  { Shift: 'M4', Count: 1 },
+  { Shift: 'CL', Count: 2 },
+];
+const DEFAULT_WEEKEND_SHIFT_REQUIREMENTS: ShiftRequirementRow[] = [
+  { Shift: 'A', Count: 1 },
+  { Shift: 'N', Count: 1 },
+  { Shift: 'M3', Count: 1 },
+];
+/** day: 0–6 = Mon–Sun; -1 = P on 1st/2nd/3rd non-weekend (see backend) */
+const DEFAULT_FIXED_SHIFTS: FixedShiftConfigRow[] = [
+  { shift: 'P', day: -1, count: 2 },
+  { shift: 'H', day: 0, count: 1 },
+  { shift: 'H', day: 2, count: 1 },
+  { shift: 'IP+P', day: 0, count: 1 },
+  { shift: 'M+P', day: 1, count: 1 },
+];
+
+const cloneWeekdayRequirements = () => DEFAULT_WEEKDAY_SHIFT_REQUIREMENTS.map((r) => ({ ...r }));
+const cloneWeekendRequirements = () => DEFAULT_WEEKEND_SHIFT_REQUIREMENTS.map((r) => ({ ...r }));
+const cloneFixedShifts = () => DEFAULT_FIXED_SHIFTS.map((r) => ({ ...r }));
+
 export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMonth, monthNames, selectedPeriod }) => {
   const [monthDemands, setMonthDemands] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,30 +89,9 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   const [holidayInput, setHolidayInput] = useState<string>('');
   const deletingHolidayRef = useRef<boolean>(false);
   const [addingShift, setAddingShift] = useState<string | null>(null); // date for which we're adding a shift
-  const [weekdayConfig, setWeekdayConfig] = useState([
-    { Shift: 'M', Count: 6 },
-    { Shift: 'IP', Count: 3 },
-    { Shift: 'A', Count: 1 },
-    { Shift: 'N', Count: 1 },
-    { Shift: 'M3', Count: 1 },
-    { Shift: 'M4', Count: 1 },
-    { Shift: 'CL', Count: 2 },
-  ]);
-  const [weekendConfig, setWeekendConfig] = useState([
-    { Shift: 'A', Count: 1 },
-    { Shift: 'N', Count: 1 },
-    { Shift: 'M3', Count: 1 },
-  ]);
-// Fixed shifts: configurable shifts on specific days
-// day: 0 = Monday, 1 = Tuesday, 2 = Wednesday, 3 = Thursday, 4 = Friday, 5 = Saturday, 6 = Sunday
-// day: -1 = Special case for P shift (1st/2nd/3rd of month, first non-weekend)
-const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
-  { shift: 'P', day: -1, count: 2 }, // 1st/2nd/3rd - automatic requirement (editable count)
-  { shift: 'H', day: 0, count: 1 }, // Monday
-  { shift: 'H', day: 2, count: 1 }, // Wednesday
-  { shift: 'IP+P', day: 0, count: 1 }, // Monday - automatic requirement
-  { shift: 'M+P', day: 1, count: 1 }, // Tuesday - automatic requirement (editable day and count)
-]);
+  const [weekdayConfig, setWeekdayConfig] = useState(cloneWeekdayRequirements);
+  const [weekendConfig, setWeekendConfig] = useState(cloneWeekendRequirements);
+  const [fixedShiftsConfig, setFixedShiftsConfig] = useState(cloneFixedShifts);
   const [regenerating, setRegenerating] = useState(false);
   const [totalEmployees, setTotalEmployees] = useState(20); // Default to 20, will be updated
   const [editingFixedShiftDay, setEditingFixedShiftDay] = useState<number | null>(null);
@@ -148,24 +158,25 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
     return shiftCode;
   };
 
-  const generateDefaults = useCallback(async (year: number, month: number) => {
-    // Build base_demand and weekend_demand from Shift Requirements config
+  /** Same weekday/weekend counts as the Shift Requirements tables; H only from fixed shifts unless you add H here. */
+  const buildBaseAndWeekendDemands = useCallback(() => {
     const base_demand: any = {
       'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
     };
     const weekend_demand: any = {
       'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
     };
-    
-    // Extract values from configs
     weekdayConfig.forEach(item => {
       base_demand[item.Shift] = item.Count;
     });
-    
     weekendConfig.forEach(item => {
       weekend_demand[item.Shift] = item.Count;
     });
-    
+    return { base_demand, weekend_demand };
+  }, [weekdayConfig, weekendConfig]);
+
+  const generateDefaults = useCallback(async (year: number, month: number) => {
+    const { base_demand, weekend_demand } = buildBaseAndWeekendDemands();
     try {
       const response = await api.post('/api/data/demands/generate', {
         year,
@@ -178,7 +189,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
     } catch (error) {
       console.error('Failed to generate defaults:', error);
     }
-  }, [fixedShiftsConfig, weekdayConfig, weekendConfig]);
+  }, [buildBaseAndWeekendDemands, fixedShiftsConfig]);
 
   // Cleanup timeout on unmount (no longer needed since we save immediately, but keep for safety)
   useEffect(() => {
@@ -302,24 +313,9 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
   const handleResetDefaults = async () => {
     if (!selectedYear || !selectedMonth) return;
     setLoading(true);
-    // Reset weekday config table to defaults
-    setWeekdayConfig([
-      { Shift: 'M', Count: 6 },
-      { Shift: 'IP', Count: 3 },
-      { Shift: 'A', Count: 1 },
-      { Shift: 'N', Count: 1 },
-      { Shift: 'M3', Count: 1 },
-      { Shift: 'M4', Count: 1 },
-      { Shift: 'CL', Count: 2 },
-    ]);
-    // Reset fixed shifts to defaults (keep automatic entries) in display order
-    setFixedShiftsConfig([
-      { shift: 'P', day: -1, count: 2 }, // 1st/2nd/3rd - automatic requirement (editable count)
-      { shift: 'H', day: 0, count: 1 }, // Monday
-      { shift: 'H', day: 2, count: 1 }, // Wednesday
-      { shift: 'IP+P', day: 0, count: 1 }, // Monday - automatic requirement
-      { shift: 'M+P', day: 1, count: 1 }, // Tuesday - automatic requirement (editable day and count)
-    ]);
+    setWeekdayConfig(cloneWeekdayRequirements());
+    setWeekendConfig(cloneWeekendRequirements());
+    setFixedShiftsConfig(cloneFixedShifts());
     await generateDefaults(selectedYear, selectedMonth);
     setLoading(false);
   };
@@ -610,7 +606,15 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
         }
       } catch (error) {
         console.error('Failed to load shift requirements config:', error);
+        setWeekdayConfig(cloneWeekdayRequirements());
+        setWeekendConfig(cloneWeekendRequirements());
+        setFixedShiftsConfig(cloneFixedShifts());
       }
+    } else {
+      // No saved prefs for this month: use the same defaults as the Shift Requirements section
+      setWeekdayConfig(cloneWeekdayRequirements());
+      setWeekendConfig(cloneWeekendRequirements());
+      setFixedShiftsConfig(cloneFixedShifts());
     }
   }, [selectedYear, selectedMonth]);
 
@@ -742,22 +746,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
     
     setRegenerating(true);
     try {
-      const base_demand: any = {
-        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
-      };
-      const weekend_demand: any = {
-        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
-      };
-      
-      // Extract values from configs
-      weekdayConfig.forEach(item => {
-        base_demand[item.Shift] = item.Count;
-      });
-      
-      weekendConfig.forEach(item => {
-        weekend_demand[item.Shift] = item.Count;
-      });
-      
+      const { base_demand, weekend_demand } = buildBaseAndWeekendDemands();
       const response = await api.post('/api/data/demands/generate', {
         year: selectedYear,
         month: selectedMonth,
@@ -1454,12 +1443,7 @@ const [fixedShiftsConfig, setFixedShiftsConfig] = useState([
                 if (!selectedYear || !selectedMonth) return;
                 try {
                   setLoading(true);
-                  const base_demand = {
-                    'M': 6, 'IP': 3, 'A': 1, 'N': 1, 'M3': 1, 'M4': 1, 'H': 3, 'CL': 2, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
-                  };
-                  const weekend_demand = {
-                    'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
-                  };
+                  const { base_demand, weekend_demand } = buildBaseAndWeekendDemands();
                   const response = await api.post('/api/data/demands/generate', {
                     year: selectedYear,
                     month: selectedMonth,

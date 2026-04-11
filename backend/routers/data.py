@@ -15,7 +15,7 @@ sys.path.insert(0, str(project_root))
 
 from backend.routers.auth import get_current_user
 from backend.database import get_db
-from backend.utils import hash_password
+from backend.utils import hash_password, normalize_staff_no
 from backend.roster_data_loader import (
     load_roster_data_from_db, 
     load_month_demands, 
@@ -145,6 +145,18 @@ async def update_employees(
             emp.min_days_off = int(emp_data.get('min_days_off', 4))
             emp.weight = float(emp_data.get('weight', 1.0))
             emp.pending_off = float(emp_data.get('pending_off', 0.0))
+            if 'staff_no' in emp_data:
+                user_u = db.query(User).filter(User.employee_name == employee_name).first()
+                if user_u is not None:
+                    sn = normalize_staff_no(emp_data.get('staff_no'))
+                    if sn:
+                        conflict = db.query(User).filter(User.staff_no == sn, User.id != user_u.id).first()
+                        if conflict:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Staff number {sn} is already assigned to another user.",
+                            )
+                    user_u.staff_no = sn
         else:
             # Create new
             new_emp = EmployeeSkills(
@@ -184,11 +196,24 @@ async def update_employees(
                 # Create default password: first letter lowercase + rest + "123"
                 employee_password = f"{employee_name[0].lower()}{employee_name[1:]}123"
                 hashed_password = hash_password(employee_password)
+                emp_row = next(
+                    (e for e in employees if str(e.get('employee', '')).strip() == employee_name),
+                    None,
+                )
+                sn_new = normalize_staff_no(emp_row.get('staff_no')) if emp_row else None
+                if sn_new:
+                    taken = db.query(User).filter(User.staff_no == sn_new).first()
+                    if taken:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Staff number {sn_new} is already assigned to another user.",
+                        )
                 new_user = User(
                     username=username,
                     password=hashed_password,
                     employee_type=EmployeeType.STAFF,
-                    employee_name=employee_name
+                    employee_name=employee_name,
+                    staff_no=sn_new,
                 )
                 db.add(new_user)
     
