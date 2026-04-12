@@ -10,6 +10,86 @@ import { CalendarDatePicker } from '../components/CalendarDatePicker';
 import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
 import { calculatePendingOff } from '../utils/pendingOffCalculation';
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+/** Local calendar date YYYY-MM-DD (for comparing to fixed Ramadan 2026 boundaries). */
+function formatLocalYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+type RosterMonthOption = {
+  month: string;
+  number: number;
+  isPeriod?: boolean;
+  periodId?: string;
+};
+
+/** Month/period choices for Roster Generator: from today onward only (current month included). */
+function getAvailableMonthOptions(
+  year: number | null,
+  now: Date,
+  names: readonly string[] = MONTH_NAMES
+): RosterMonthOption[] {
+  if (!year) return [];
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const todayStr = formatLocalYMD(now);
+
+  if (year === 2026) {
+    const months: RosterMonthOption[] = [];
+    if (todayStr <= '2026-02-18') {
+      months.push({ month: 'February (Pre-Ramadan)', number: 2, isPeriod: true, periodId: 'pre-ramadan' });
+    }
+    if (todayStr <= '2026-03-18') {
+      months.push({ month: 'Ramadan', number: 2, isPeriod: true, periodId: 'ramadan' });
+    }
+    if (todayStr <= '2026-03-31') {
+      months.push({ month: 'March (Post-Ramadan)', number: 3, isPeriod: true, periodId: 'post-ramadan' });
+    }
+    names.forEach((month, index) => {
+      const monthNum = index + 1;
+      if (monthNum < 4) return;
+      if (year === currentYear && monthNum < currentMonth) return;
+      months.push({ month, number: monthNum, isPeriod: false, periodId: undefined });
+    });
+    return months;
+  }
+
+  if (year === currentYear) {
+    return names
+      .map((month, index) => ({ month, number: index + 1, isPeriod: false as boolean, periodId: undefined }))
+      .filter(({ number }) => number >= currentMonth);
+  }
+
+  if (year > currentYear) {
+    return names.map((month, index) => ({ month, number: index + 1, isPeriod: false, periodId: undefined }));
+  }
+
+  return [];
+}
+
+function isSelectionValidForYear(
+  year: number,
+  month: number | null,
+  period: string | null,
+  now: Date
+): boolean {
+  if (month == null) return false;
+  const opts = getAvailableMonthOptions(year, now, MONTH_NAMES);
+  return opts.some((opt) => {
+    if (opt.isPeriod && opt.periodId) {
+      return period === opt.periodId && opt.number === month;
+    }
+    return !period && opt.number === month;
+  });
+}
+
 export const RosterGenerator: React.FC = () => {
   const [activeTab, setActiveTab] = useState('employees');
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -32,11 +112,7 @@ export const RosterGenerator: React.FC = () => {
   const contentRef = useRef<HTMLDivElement>(null);
   const jobNotFoundCountRef = useRef<number>(0);
   const hasShownFailureAlertRef = useRef<boolean>(false);
-
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
+  const defaultSelectionAppliedRef = useRef(false);
 
   // Wait for auth to be ready before loading data
   const { loading: authLoading } = useAuth();
@@ -52,6 +128,28 @@ export const RosterGenerator: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading]);
+
+  // Default year/month to first option from today (current month or next available period)
+  useEffect(() => {
+    if (loading || authLoading || defaultSelectionAppliedRef.current) return;
+    if (selectedYear !== null || selectedMonth !== null) return;
+
+    const now = new Date();
+    const firstYear = Math.max(2026, now.getFullYear());
+    const months = getAvailableMonthOptions(firstYear, now, MONTH_NAMES);
+    if (months.length === 0) return;
+
+    defaultSelectionAppliedRef.current = true;
+    setSelectedYear(firstYear);
+    const first = months[0];
+    if (first.isPeriod && first.periodId) {
+      setSelectedPeriod(first.periodId);
+      setSelectedMonth(first.number);
+    } else {
+      setSelectedPeriod(null);
+      setSelectedMonth(first.number);
+    }
+  }, [loading, authLoading, selectedYear, selectedMonth]);
 
   const loadLeaveTypes = async () => {
     try {
@@ -981,67 +1079,21 @@ export const RosterGenerator: React.FC = () => {
     setShowAddLock(false);
   };
 
-  // Get available years (only future years, starting from 2026)
+  // Years from max(2026, current year) through +10 (roster planning horizon)
   const availableYears = useMemo(() => {
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
+    const currentYear = new Date().getFullYear();
     const years: number[] = [];
-    
-    // Start from 2026 (after December 2025)
-    const startYear = 2026;
-    // Show next 10 years
+    const startYear = Math.max(2026, currentYear);
     for (let year = startYear; year <= currentYear + 10; year++) {
       years.push(year);
     }
-    
     return years;
   }, []);
 
-  // Get available months based on selected year
-  const availableMonths = useMemo(() => {
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth() + 1; // 1-12
-    
-    if (!selectedYear) return [];
-    
-    // Special handling for 2026: show periods first, then remaining months starting from April
-    if (selectedYear === 2026) {
-      const months: Array<{ month: string; number: number; isPeriod?: boolean; periodId?: string }> = [];
-      
-      // Add the three Ramadan periods FIRST
-      months.push({ month: 'February (Pre-Ramadan)', number: 2, isPeriod: true, periodId: 'pre-ramadan' });
-      months.push({ month: 'Ramadan', number: 2, isPeriod: true, periodId: 'ramadan' });
-      months.push({ month: 'March (Post-Ramadan)', number: 3, isPeriod: true, periodId: 'post-ramadan' });
-      
-      // Then add remaining months starting from April (skip January since it's passed)
-      // Also skip February and March since we have periods for them
-      monthNames.forEach((month, index) => {
-        const monthNum = index + 1;
-        // Skip January (1), February (2), and March (3)
-        // Start from April (4) onwards
-        if (monthNum >= 4) {
-          months.push({ month, number: monthNum, isPeriod: false, periodId: undefined });
-        }
-      });
-      
-      return months;
-    }
-    
-    // If selected year is current year, only show future months
-    if (selectedYear === currentYear) {
-      return monthNames
-        .map((month, index) => ({ month, number: index + 1, isPeriod: false as boolean, periodId: undefined }))
-        .filter(({ number }) => number > currentMonth);
-    }
-    
-    // If selected year is in the future, show all months
-    if (selectedYear > currentYear) {
-      return monthNames.map((month, index) => ({ month, number: index + 1, isPeriod: false as boolean, periodId: undefined }));
-    }
-    
-    return [];
-  }, [selectedYear, monthNames]);
+  const availableMonths = useMemo(
+    () => getAvailableMonthOptions(selectedYear, new Date(), MONTH_NAMES),
+    [selectedYear]
+  );
 
   if (loading) {
     return (
@@ -1163,26 +1215,18 @@ export const RosterGenerator: React.FC = () => {
             onChange={(e) => {
               const newYear = e.target.value ? parseInt(e.target.value) : null;
               setSelectedYear(newYear);
-              // Don't reset month - keep it if it's still valid for the new year
-              if (newYear && selectedMonth) {
-                const currentDate = new Date();
-                const currentYear = currentDate.getFullYear();
-                const currentMonth = currentDate.getMonth() + 1;
-                
-                // Check if current month is valid for new year
-                let isMonthStillValid = false;
-                if (newYear > currentYear) {
-                  // Future year - all months are valid
-                  isMonthStillValid = true;
-                } else if (newYear === currentYear) {
-                  // Current year - only future months are valid
-                  isMonthStillValid = selectedMonth > currentMonth;
-                }
-                
-                if (!isMonthStillValid) {
-                  // If current month is not valid for new year, clear it
-                  setSelectedMonth(null);
-                }
+              if (!newYear) {
+                setSelectedMonth(null);
+                setSelectedPeriod(null);
+                return;
+              }
+              const now = new Date();
+              if (
+                selectedMonth != null &&
+                !isSelectionValidForYear(newYear, selectedMonth, selectedPeriod, now)
+              ) {
+                setSelectedMonth(null);
+                setSelectedPeriod(null);
               }
             }}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
@@ -1418,7 +1462,7 @@ export const RosterGenerator: React.FC = () => {
             <DemandsTab
               selectedYear={selectedYear}
               selectedMonth={selectedMonth}
-              monthNames={monthNames}
+              monthNames={[...MONTH_NAMES]}
               selectedPeriod={selectedPeriod}
             />
           )}
