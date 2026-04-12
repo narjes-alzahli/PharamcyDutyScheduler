@@ -11,6 +11,16 @@ import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
 import { calculatePendingOff, PendingOffData } from '../utils/pendingOffCalculation';
 import { FairnessLineGraph } from '../components/FairnessLineGraph';
 
+/** Committed month employee report: top-level `employees` or `metrics.employees` (list endpoint omits top-level). */
+function getEmployeeRowsFromSchedule(schedule: Schedule | null | undefined): any[] {
+  if (!schedule) return [];
+  const top = schedule.employees;
+  if (Array.isArray(top) && top.length > 0) return top;
+  const fromMetrics = schedule.metrics?.employees;
+  if (Array.isArray(fromMetrics) && fromMetrics.length > 0) return fromMetrics;
+  return [];
+}
+
 export const AllRostersPage: React.FC = () => {
   const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth } = useDate();
   // FIX: Use auth guard to prevent API calls until auth is confirmed
@@ -774,7 +784,7 @@ export const AllRostersPage: React.FC = () => {
         selectedYear,
         selectedMonth,
         normalizedSchedule,
-        currentSchedule.employees
+        getEmployeeRowsFromSchedule(currentSchedule)
       );
       
       // Reload the schedule to get the updated version
@@ -840,8 +850,9 @@ export const AllRostersPage: React.FC = () => {
       return employeesFromAPI.map((emp: any) => emp.employee);
     }
     // Fallback to schedule employees if API employees not loaded yet
-    if (currentSchedule?.employees) {
-      return currentSchedule.employees.map((emp: any) => emp.employee);
+    const rows = getEmployeeRowsFromSchedule(currentSchedule);
+    if (rows.length > 0) {
+      return rows.map((emp: any) => emp.employee);
     }
     return undefined;
   }, [employeesFromAPI, currentSchedule]);
@@ -853,7 +864,8 @@ export const AllRostersPage: React.FC = () => {
   
   // Calculate dynamic pending_off values from current schedule state
   const dynamicEmployees: PendingOffData[] | null = useMemo(() => {
-    if (!monthSchedule.length || !originalSchedule || !originalSchedule.employees) return null;
+    const origRows = getEmployeeRowsFromSchedule(originalSchedule);
+    if (!monthSchedule.length || !originalSchedule || origRows.length === 0) return null;
     if (!selectedYear || !selectedMonth) return null;
     
     // Get original schedule entries for this month
@@ -864,7 +876,7 @@ export const AllRostersPage: React.FC = () => {
     
     // Calculate what was added in the original month from the original schedule
     const originalCalculated = calculatePendingOff(originalScheduleEntries, {}, {}, selectedYear, selectedMonth);
-    const originalEmployeesMap = new Map(originalSchedule.employees.map((e: any) => [e.employee, e]));
+    const originalEmployeesMap = new Map(origRows.map((e: any) => [e.employee, e]));
     
     // Reverse-calculate initial pending_off for each employee:
     // final_pending_off = initial_pending_off + (weekend_shifts + night_shifts - DOs_given)
@@ -887,7 +899,7 @@ export const AllRostersPage: React.FC = () => {
     
     // For any employees in the original employees list but not in the calculated list,
     // use their pending_off as the initial (they may not have had shifts in original schedule)
-    originalSchedule.employees.forEach((emp: any) => {
+    origRows.forEach((emp: any) => {
       if (!(emp.employee in initialPendingOff)) {
         initialPendingOff[emp.employee] = emp.pending_off || 0;
       }
@@ -896,6 +908,52 @@ export const AllRostersPage: React.FC = () => {
     // Now calculate from current (potentially edited) schedule using the calculated initial values
     return calculatePendingOff(monthSchedule, initialPendingOff, {}, selectedYear, selectedMonth);
   }, [monthSchedule, originalSchedule, selectedYear, selectedMonth]);
+
+  /**
+   * P/O column: only values from this viewed month’s committed snapshot (`employees` or `metrics.employees`).
+   * Never spread GET /employees rows — that leaks global pending_off when the snapshot lives under metrics only.
+   */
+  const scheduleEmployeesForTable = useMemo(() => {
+    if (hasUnsavedChanges && dynamicEmployees && dynamicEmployees.length > 0) {
+      return dynamicEmployees.map((e: PendingOffData) => ({
+        employee: e.employee,
+        pending_off: e.pending_off,
+      }));
+    }
+    const committedRows = getEmployeeRowsFromSchedule(currentSchedule);
+    const poByName = new Map<string, number | null | undefined>(
+      committedRows.map((e: any) => [e.employee, e.pending_off]),
+    );
+    const hasSnapshot = committedRows.length > 0;
+    const apiNames = new Set(employeesFromAPI.map((e: any) => e.employee));
+
+    if (employeesFromAPI.length > 0) {
+      if (hasSnapshot) {
+        const rows: { employee: string; pending_off?: number | null }[] = employeesFromAPI.map(
+          (emp: any) => ({
+            employee: emp.employee,
+            pending_off: poByName.has(emp.employee) ? poByName.get(emp.employee) : undefined,
+          }),
+        );
+        committedRows.forEach((row: any) => {
+          if (!apiNames.has(row.employee)) {
+            rows.push({ employee: row.employee, pending_off: row.pending_off });
+          }
+        });
+        return rows;
+      }
+      return employeesFromAPI.map((emp: any) => ({ employee: emp.employee }));
+    }
+    if (hasSnapshot) {
+      return committedRows;
+    }
+    return [];
+  }, [
+    hasUnsavedChanges,
+    dynamicEmployees,
+    employeesFromAPI,
+    currentSchedule,
+  ]);
   
   const metrics = calculateMetrics();
 
@@ -913,11 +971,10 @@ export const AllRostersPage: React.FC = () => {
     // Filter out tabs based on data availability
     return allTabs.filter(tab => {
       if (tab.id === 'pending-off') {
-        // Show if employees with pending_off data exist
-        const hasPendingOffData = currentSchedule.employees && 
-          currentSchedule.employees.length > 0 &&
-          currentSchedule.employees.some((emp: any) => emp.pending_off !== undefined && emp.pending_off !== null);
-        return hasPendingOffData;
+        const rows = getEmployeeRowsFromSchedule(currentSchedule);
+        return rows.some(
+          (emp: any) => emp.pending_off !== undefined && emp.pending_off !== null,
+        );
       }
       if (tab.id === 'solver') {
         // Show if metrics exist
@@ -1153,10 +1210,7 @@ export const AllRostersPage: React.FC = () => {
                     schedule={currentSchedule.schedule}
                     year={selectedYear}
                     month={selectedMonth}
-                    employees={employeesFromAPI.length > 0 ? employeesFromAPI : (dynamicEmployees && hasUnsavedChanges ? dynamicEmployees.map(e => ({
-                      employee: e.employee,
-                      pending_off: e.pending_off
-                    })) : currentSchedule.employees)}
+                    employees={scheduleEmployeesForTable}
                     editable={isManager}
                     canChangeColors={isManager}
                     onScheduleChange={handleScheduleChange}
@@ -1258,7 +1312,7 @@ export const AllRostersPage: React.FC = () => {
                           // Use dynamic employees if we have unsaved changes, otherwise use committed employees
                           const displayEmployees = (dynamicEmployees && hasUnsavedChanges) 
                             ? dynamicEmployees.map(e => ({ employee: e.employee, pending_off: e.pending_off }))
-                            : currentSchedule.employees;
+                            : getEmployeeRowsFromSchedule(currentSchedule);
                           
                           if (!displayEmployees || displayEmployees.length === 0) {
                             return (

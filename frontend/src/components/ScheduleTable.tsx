@@ -10,7 +10,8 @@ interface ScheduleEntry {
 
 interface Employee {
   employee: string;
-  pending_off?: number;
+  /** From committed month metrics; omit or null when not set for that snapshot */
+  pending_off?: number | null;
 }
 
 interface ScheduleTableProps {
@@ -460,13 +461,19 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     employees = employeesInSchedule.sort();
   }
 
-  // Create employee pending_off lookup
-  const pendingOffMap: Record<string, number> = {};
+  // Create employee pending_off lookup (do not coerce undefined/null to 0 — must match saved month snapshot)
+  const pendingOffMap: Record<string, number | null | undefined> = {};
   if (employeeData) {
     employeeData.forEach(emp => {
-      pendingOffMap[emp.employee] = emp.pending_off || 0;
+      pendingOffMap[emp.employee] = emp.pending_off;
     });
   }
+
+  const formatPendingOffCell = (employee: string) => {
+    const po = pendingOffMap[employee];
+    if (po === null || po === undefined) return '';
+    return String(po);
+  };
 
   // Create pivot data structure
   const pivotData: Record<string, Record<string, string>> = {};
@@ -555,7 +562,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                   {employee}
                 </td>
                 <td className="border border-black px-1 py-1 text-center font-bold text-xs">
-                  {pendingOffMap[employee] || 0}
+                  {formatPendingOffCell(employee)}
                 </td>
                 {dates.map(dateStr => {
                   const shift = pivotData[employee][dateStr] || '';

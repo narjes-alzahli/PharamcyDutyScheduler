@@ -34,11 +34,11 @@ router = APIRouter()
 security = HTTPBearer()
 
 
-def get_pending_off_from_latest_committed_metrics(db: Session) -> Dict[str, float]:
+def get_pending_off_from_most_recent_committed_month(db: Session) -> Dict[str, Optional[float]]:
     """
-    Map employee name -> pending_off from ScheduleMetrics for the latest committed month
-    that has stored metrics (employee report). Walks backward if the chronologically latest
-    month has commits but no metrics row yet.
+    For user accounts / global employee list: pending_off from the chronologically latest
+    (year, month) that has committed rows AND schedule_metrics with an employees report.
+    Walks backward from newest month if the newest has no metrics yet.
     """
     pairs = db.query(CommittedSchedule.year, CommittedSchedule.month).distinct().all()
     if not pairs:
@@ -49,20 +49,23 @@ def get_pending_off_from_latest_committed_metrics(db: Session) -> Dict[str, floa
         if not rec or not rec.metrics:
             continue
         emps = rec.metrics.get("employees")
-        if not emps or not isinstance(emps, list):
+        if not isinstance(emps, list) or len(emps) == 0:
             continue
-        out: Dict[str, float] = {}
+        out: Dict[str, Optional[float]] = {}
         for emp in emps:
             if not isinstance(emp, dict):
                 continue
             name = emp.get("employee")
+            if not name:
+                continue
             po = emp.get("pending_off")
-            if not name or po is None:
-                continue
-            try:
-                out[str(name)] = float(po)
-            except (TypeError, ValueError):
-                continue
+            if po is None or po == "null":
+                out[str(name)] = None
+            else:
+                try:
+                    out[str(name)] = float(po)
+                except (TypeError, ValueError):
+                    out[str(name)] = None
         if out:
             return out
     return {}
@@ -112,11 +115,11 @@ async def get_employees(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all employees. pending_off reflects the latest committed schedule (All Rosters) when available."""
+    """Get all employees; pending_off is overlaid from the most recent committed month when available."""
     roster_data = load_roster_data_from_db(db)
     employees_df = roster_data['employees']
     records = employees_df.to_dict("records")
-    latest_po = get_pending_off_from_latest_committed_metrics(db)
+    latest_po = get_pending_off_from_most_recent_committed_month(db)
     for row in records:
         name = row.get("employee")
         if name and name in latest_po:
