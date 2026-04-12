@@ -19,6 +19,7 @@ sys.path.insert(0, str(project_root))
 
 from backend.routers.auth import get_current_user
 from backend.database import get_db
+from backend.utils import sanitize_json_floats
 from backend.models import CommittedSchedule, ScheduleMetrics, EmployeeSkills
 from backend.roster_data_loader import load_month_holidays
 from roster.app.model.solver import RosterSolver
@@ -170,6 +171,8 @@ def load_committed_schedules(db: Session) -> List[dict]:
         } for entry in schedule_entries]
         schedule_df = pd.DataFrame(schedule_data)
         schedule_df['date'] = pd.to_datetime(schedule_df['date'])
+        # ISO strings for JSON (Timestamp is not json-serializable in stdlib json)
+        schedule_df['date'] = schedule_df['date'].dt.strftime('%Y-%m-%d')
         
         # Load metrics if available
         metrics_record = db.query(ScheduleMetrics).filter(
@@ -205,12 +208,12 @@ async def get_committed_schedules(
     schedules = load_committed_schedules(db)
     
     return [
-        {
+        sanitize_json_floats({
             "year": s['year'],
             "month": s['month'],
             "schedule": s['schedule_df'].to_dict('records'),
             "metrics": s['metrics']
-        }
+        })
         for s in schedules
     ]
 
@@ -233,13 +236,13 @@ async def get_schedule(
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
     
-    return {
+    return sanitize_json_floats({
         "year": schedule['year'],
         "month": schedule['month'],
         "schedule": schedule['schedule_df'].to_dict('records'),
         "employees": schedule['employee_df'].to_dict('records') if schedule['employee_df'] is not None else None,
         "metrics": schedule['metrics']
-    }
+    })
 
 
 @router.post("/commit")

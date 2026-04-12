@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pathlib import Path
 import pandas as pd
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import sys
 
 # Add project root to path
@@ -15,7 +15,7 @@ sys.path.insert(0, str(project_root))
 
 from backend.routers.auth import get_current_user
 from backend.database import get_db
-from backend.utils import hash_password, normalize_staff_no
+from backend.utils import hash_password, normalize_staff_no, sanitize_json_floats
 from backend.roster_data_loader import (
     load_roster_data_from_db, 
     load_month_demands, 
@@ -32,6 +32,40 @@ from datetime import date
 
 router = APIRouter()
 security = HTTPBearer()
+
+
+def get_pending_off_from_latest_committed_metrics(db: Session) -> Dict[str, float]:
+    """
+    Map employee name -> pending_off from ScheduleMetrics for the latest committed month
+    that has stored metrics (employee report). Walks backward if the chronologically latest
+    month has commits but no metrics row yet.
+    """
+    pairs = db.query(CommittedSchedule.year, CommittedSchedule.month).distinct().all()
+    if not pairs:
+        return {}
+    ordered = sorted(pairs, key=lambda p: (p[0], p[1]), reverse=True)
+    for y, m in ordered:
+        rec = db.query(ScheduleMetrics).filter(ScheduleMetrics.year == y, ScheduleMetrics.month == m).first()
+        if not rec or not rec.metrics:
+            continue
+        emps = rec.metrics.get("employees")
+        if not emps or not isinstance(emps, list):
+            continue
+        out: Dict[str, float] = {}
+        for emp in emps:
+            if not isinstance(emp, dict):
+                continue
+            name = emp.get("employee")
+            po = emp.get("pending_off")
+            if not name or po is None:
+                continue
+            try:
+                out[str(name)] = float(po)
+            except (TypeError, ValueError):
+                continue
+        if out:
+            return out
+    return {}
 
 
 class EmployeeData(BaseModel):
@@ -78,10 +112,16 @@ async def get_employees(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all employees."""
+    """Get all employees. pending_off reflects the latest committed schedule (All Rosters) when available."""
     roster_data = load_roster_data_from_db(db)
     employees_df = roster_data['employees']
-    return employees_df.to_dict('records')
+    records = employees_df.to_dict("records")
+    latest_po = get_pending_off_from_latest_committed_metrics(db)
+    for row in records:
+        name = row.get("employee")
+        if name and name in latest_po:
+            row["pending_off"] = latest_po[name]
+    return sanitize_json_floats(records)
 
 
 # POST /employees removed - employees are now created automatically when creating Staff users in User Management

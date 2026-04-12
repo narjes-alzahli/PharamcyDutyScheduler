@@ -4,6 +4,7 @@ import bcrypt
 import jwt
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
+import math
 import os
 from dotenv import load_dotenv
 
@@ -123,4 +124,15 @@ def normalize_staff_no(value: Any) -> Optional[str]:
         return None
     s = str(value).strip()
     return s if s else None
+
+
+def sanitize_json_floats(obj: Any) -> Any:
+    """Replace NaN/Inf with None so json.dumps / FastAPI never raises (e.g. pandas NaN from null metrics)."""
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: sanitize_json_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_json_floats(v) for v in obj]
+    return obj
 
