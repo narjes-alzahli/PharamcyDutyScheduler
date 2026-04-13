@@ -44,6 +44,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     requestId: string;
     employee: string;
     type: 'leave' | 'shift';
+    action: 'reject' | 'delete';
     cell: { employee: string; date: string };
   } | null>(null);
   const [allLeaveRequests, setAllLeaveRequests] = useState<any[]>([]);
@@ -161,7 +162,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
 
   // Create pivot data structure for requests
   const pivotData = useMemo(() => {
-    const data: Record<string, Record<string, { code: string; requestId?: string; force?: boolean; type: 'leave' | 'shift' }>> = {};
+    const data: Record<string, Record<string, { code: string; requestId?: string; force?: boolean; reason?: string; type: 'leave' | 'shift' }>> = {};
     
     employees.forEach(emp => {
       data[emp] = {};
@@ -192,6 +193,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
             data[item.employee][dateStr] = {
               code: item.code,
               requestId: item.request_id,
+              reason: item.reason,
               type: 'leave',
             };
           }
@@ -217,6 +219,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
             code: lock.shift,
             requestId: lock.request_id,
             force: lock.force,
+              reason: lock.reason,
             type: 'shift',
           };
         }
@@ -286,7 +289,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     // Determine destination type to check if we're switching between leave and shift
     const options = getDropdownOptions();
     const selectedOption = options.find(opt => opt.code === newCode);
-    
+
     // Collect all approved requests to delete (across all cells) before processing
     const allApprovedRequestsToDelete: Array<{ request_id: string; type: 'LR' | 'SR' }> = [];
 
@@ -319,15 +322,8 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
                currentDateStr <= itemToStr;
       });
 
-      // Check if we're switching between types (leave <-> shift)
-      const isSwitchingToLeave = selectedOption && (selectedOption.type === 'leave' || selectedOption.type === 'non-standard');
-      const isSwitchingToShift = selectedOption && selectedOption.type === 'standard';
-      
-      // Collect approved requests to delete (if selecting Empty or switching types)
-      if (newCode === '' || (selectedOption && (
-        (isSwitchingToLeave && entriesToRemoveFromLocks.some((item: any) => item.request_id?.startsWith('SR_'))) ||
-        (isSwitchingToShift && entriesToRemoveFromTimeOff.some((item: any) => item.request_id?.startsWith('LR_')))
-      ))) {
+      // Only collect approved requests to delete when clearing (Empty).
+      if (newCode === '') {
         const approvedRequests = [
           ...entriesToRemoveFromTimeOff.filter((item: any) => item.request_id?.startsWith('LR_')),
           ...entriesToRemoveFromLocks.filter((item: any) => item.request_id?.startsWith('SR_'))
@@ -433,87 +429,77 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
       return;
     }
 
-    const leaveTypeCodes = new Set(leaveTypes.map(lt => lt.code));
-
-    // Process each cell to add new assignments
-    for (const cell of cellsToUpdate) {
-      const dateStr = parseDateToISO(cell.date) || cell.date;
-      const currentDateStr = dateStr.split('T')[0];
-
-      // Find what was removed for this cell to preserve request_id/force
-      // We need to check the original arrays before removal
-      const entriesRemovedFromTimeOff = timeOff.filter((item: any) => {
-        const itemFromStr = normalizeDate(item.from_date);
-        const itemToStr = normalizeDate(item.to_date);
-        if (!itemFromStr || !itemToStr) return false;
-        return item.employee === cell.employee && 
-               currentDateStr >= itemFromStr && 
-               currentDateStr <= itemToStr;
-      });
-      
-      const entriesRemovedFromLocks = locks.filter((item: any) => {
-        const itemFromStr = normalizeDate(item.from_date);
-        const itemToStr = normalizeDate(item.to_date);
-        if (!itemFromStr || !itemToStr) return false;
-        return item.employee === cell.employee && 
-               currentDateStr >= itemFromStr && 
-               currentDateStr <= itemToStr;
+    const buildContiguousRanges = (
+      cells: Array<{ employee: string; date: string }>
+    ): Array<{ employee: string; from_date: string; to_date: string }> => {
+      const byEmployee = new Map<string, string[]>();
+      cells.forEach((cell) => {
+        const isoDate = parseDateToISO(cell.date) || cell.date;
+        if (!byEmployee.has(cell.employee)) {
+          byEmployee.set(cell.employee, []);
+        }
+        byEmployee.get(cell.employee)!.push(isoDate);
       });
 
-      // Find existing item based on the destination type
-      // Only preserve request_id when switching within the same type (leave->leave or shift->shift)
-      let existingItem: any = null;
-      
-      if (selectedOption.type === 'leave' || selectedOption.type === 'non-standard') {
-        // Going to time_off - only preserve request_id if coming from time_off (leave/non-standard)
-        existingItem = entriesRemovedFromTimeOff.find((item: any) => 
-          item.code && (leaveTypeCodes.has(item.code) || !STANDARD_SHIFT_CODES.has(item.code))
-        ) || null;
-      } else if (selectedOption.type === 'standard') {
-        // Going to locks - only preserve request_id if coming from locks (standard shift)
-        existingItem = entriesRemovedFromLocks.find((item: any) =>
-          (item.shift && STANDARD_SHIFT_CODES.has(item.shift)) ||
-          (item.code && STANDARD_SHIFT_CODES.has(item.code))
-        ) || null;
-      }
+      const ranges: Array<{ employee: string; from_date: string; to_date: string }> = [];
+      byEmployee.forEach((dates, employeeName) => {
+        const uniqueSortedDates = Array.from(new Set(dates)).sort();
+        if (uniqueSortedDates.length === 0) return;
 
+        let rangeStart = uniqueSortedDates[0];
+        let prevDate = uniqueSortedDates[0];
+
+        for (let i = 1; i < uniqueSortedDates.length; i++) {
+          const currentDate = uniqueSortedDates[i];
+          const prev = new Date(prevDate);
+          const curr = new Date(currentDate);
+          const dayDiff = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
+
+          if (dayDiff === 1) {
+            prevDate = currentDate;
+            continue;
+          }
+
+          ranges.push({ employee: employeeName, from_date: rangeStart, to_date: prevDate });
+          rangeStart = currentDate;
+          prevDate = currentDate;
+        }
+
+        ranges.push({ employee: employeeName, from_date: rangeStart, to_date: prevDate });
+      });
+
+      return ranges;
+    };
+
+    const rangesToUpdate = buildContiguousRanges(cellsToUpdate);
+
+    // Create one request per contiguous range so delete/reject acts on the whole span.
+    for (const range of rangesToUpdate) {
       if (selectedOption.type === 'leave' || selectedOption.type === 'non-standard') {
-        // Go to time_off
         const newEntry: any = {
-          employee: cell.employee,
-          from_date: dateStr,
-          to_date: dateStr,
+          employee: range.employee,
+          from_date: range.from_date,
+          to_date: range.to_date,
           code: newCode,
           reason: 'Added via Roster Generator',
         };
 
-        // Only preserve request_id if switching within leave types (not from shift to leave)
-        if (existingItem?.request_id && existingItem.request_id.startsWith('LR_')) {
-          newEntry.request_id = existingItem.request_id;
-        }
-
         newTimeOff.push(newEntry);
         hasChanges = true;
       } else if (selectedOption.type === 'standard') {
-        // Go to locks
         // Handle "Cannot" option - codes ending with "_FORBID" mean force: false
         const isForbid = newCode.endsWith('_FORBID');
         const baseShiftCode = isForbid ? newCode.replace('_FORBID', '') : newCode;
-        
+
         const newEntry: any = {
-          employee: cell.employee,
-          from_date: dateStr,
-          to_date: dateStr,
+          employee: range.employee,
+          from_date: range.from_date,
+          to_date: range.to_date,
           shift: baseShiftCode,
-          // If explicitly selecting "Cannot", set force to false; otherwise preserve existing or default to true
-          force: isForbid ? false : (existingItem?.force ?? true),
+          // New assignment after explicit clear.
+          force: isForbid ? false : true,
           reason: 'Added via Roster Generator',
         };
-
-        // Only preserve request_id if switching within shift types (not from leave to shift)
-        if (existingItem?.request_id && existingItem.request_id.startsWith('SR_')) {
-          newEntry.request_id = existingItem.request_id;
-        }
 
         newLocks.push(newEntry);
         hasChanges = true;
@@ -620,7 +606,6 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     );
     
     // If cell has an approved request, check if it's actually approved.
-    // Manager-added roster-generator requests should remain directly editable.
     let approvedRequestInfo: { requestId: string; employee: string; type: 'leave' | 'shift' } | null = null;
     if (hasApprovedRequest && cellRequestId) {
       if (cellRequestId.startsWith('LR_')) {
@@ -643,6 +628,18 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         }
       }
     }
+
+    // Roster-generator-created entries should be deleted first before replacement.
+    const rosterGeneratorRequestInfo =
+      cellRequestId &&
+      cell?.reason === 'Added via Roster Generator' &&
+      (cellRequestId.startsWith('LR_') || cellRequestId.startsWith('SR_'))
+        ? {
+            requestId: cellRequestId,
+            employee,
+            type: (cell.type === 'leave' ? 'leave' : 'shift') as 'leave' | 'shift',
+          }
+        : null;
     
     if (e.ctrlKey || e.metaKey) {
       // Ctrl/Cmd + Click: Toggle selection
@@ -674,11 +671,20 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         setSelectedCells(newCells);
       }
     } else {
-      // Regular click: Check for approved request first
+      // Regular click: Check for protected requests first
       if (approvedRequestInfo) {
         // Show confirmation dialog
         setPendingRejection({
           ...approvedRequestInfo,
+          action: 'reject',
+          cell: { employee, date },
+        });
+        return;
+      }
+      if (rosterGeneratorRequestInfo) {
+        setPendingRejection({
+          ...rosterGeneratorRequestInfo,
+          action: 'delete',
           cell: { employee, date },
         });
         return;
@@ -732,11 +738,20 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
 
     if (shouldReject) {
       try {
-        // Reject the request
-        if (pendingRejection.type === 'leave') {
-          await requestsAPI.rejectLeaveRequest(pendingRejection.requestId);
+        if (pendingRejection.action === 'reject') {
+          // Reject approved employee request
+          if (pendingRejection.type === 'leave') {
+            await requestsAPI.rejectLeaveRequest(pendingRejection.requestId);
+          } else {
+            await requestsAPI.rejectShiftRequest(pendingRejection.requestId);
+          }
         } else {
-          await requestsAPI.rejectShiftRequest(pendingRejection.requestId);
+          // Delete roster-generator request; request_id maps to whole range
+          if (pendingRejection.type === 'leave') {
+            await requestsAPI.deleteLeaveRequest(pendingRejection.requestId);
+          } else {
+            await requestsAPI.deleteShiftRequest(pendingRejection.requestId);
+          }
         }
         
         // Reload requests list to get updated status
@@ -747,15 +762,17 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         setAllLeaveRequests(leaveReqs);
         setAllShiftRequests(shiftReqs);
         
-        // Reload data to reflect the rejection
+        // Reload data to reflect the action
         onReload();
         onSaveNotification({ 
-          message: '✅ Request rejected and removed from schedule', 
+          message: pendingRejection.action === 'reject'
+            ? '✅ Request rejected and removed from schedule'
+            : '✅ Request deleted. You can now add a new value.',
           type: 'success' 
         });
       } catch (error: any) {
         onSaveNotification({ 
-          message: `❌ Failed to reject request: ${error.response?.data?.detail || 'Unknown error'}`,
+          message: `❌ Failed to ${pendingRejection.action === 'reject' ? 'reject' : 'delete'} request: ${error.response?.data?.detail || 'Unknown error'}`,
           type: 'error'
         });
       }
@@ -767,17 +784,26 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Rejection Confirmation Dialog */}
+      {/* Protected Request Action Dialog */}
       {pendingRejection && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Reject Approved Request?
+              {pendingRejection.action === 'reject' ? 'Reject Approved Request?' : 'Delete Existing Request?'}
             </h3>
             <p className="text-sm text-gray-600 mb-6">
-              This cell contains an approved {pendingRejection.type === 'leave' ? 'leave' : 'shift'} request 
-              made by <strong>{pendingRejection.employee}</strong>. If you want to change this assignment, 
-              you need to reject the request first. The entire request will be rejected and removed from the schedule.
+              {pendingRejection.action === 'reject' ? (
+                <>
+                  This cell contains an approved {pendingRejection.type === 'leave' ? 'leave' : 'shift'} request 
+                  made by <strong>{pendingRejection.employee}</strong>. If you want to change this assignment, 
+                  you need to reject the request first. The entire request will be rejected and removed from the schedule.
+                </>
+              ) : (
+                <>
+                  This entry was added via Roster Generator for <strong>{pendingRejection.employee}</strong>.
+                  To replace it, delete it first. This will remove the whole request range, then you can add a new value.
+                </>
+              )}
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -790,7 +816,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
                 onClick={() => handleRejectRequest(true)}
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
               >
-                Reject Request
+                {pendingRejection.action === 'reject' ? 'Reject Request' : 'Delete Request'}
               </button>
             </div>
           </div>
