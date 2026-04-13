@@ -2948,7 +2948,7 @@ export const UserManagement: React.FC = () => {
                 </select>
                 {newUserType === 'Staff' && (
                   <p className="mt-2 text-xs text-gray-500">
-                    Staff accounts automatically get a roster skills profile (shift eligibility, etc.).
+                    Staff accounts automatically get a skills profile (shift eligibility).
                   </p>
                 )}
               </div>

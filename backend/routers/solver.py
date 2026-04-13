@@ -84,11 +84,10 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             
-            # Save employees (strip internal keys not expected by roster CSV schema)
+            # Employees for RosterData (strip internal keys not in roster schema)
             emp_df = roster_data["employees"].copy()
             if "user_id" in emp_df.columns:
                 emp_df = emp_df.drop(columns=["user_id"])
-            emp_df.to_csv(temp_path / "employees.csv", index=False)
             
             # Determine date range for filtering
             if request.start_date and request.end_date:
@@ -136,45 +135,22 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 except:
                     continue
             
-            # Remove holiday column from demands CSV if it exists (shouldn't be there anymore)
-            demands_for_csv = month_demands.copy()
-            if 'holiday' in demands_for_csv.columns:
-                demands_for_csv = demands_for_csv.drop(columns=['holiday'])
+            # Demands for RosterData (holiday lives in holidays_dict, not in demands frame)
+            demands_for_solver = month_demands.copy()
+            if 'holiday' in demands_for_solver.columns:
+                demands_for_solver = demands_for_solver.drop(columns=['holiday'])
             
-            # Convert date to string format for CSV
-            if 'date' in demands_for_csv.columns:
-                demands_for_csv['date'] = pd.to_datetime(demands_for_csv['date'], errors='coerce').dt.strftime('%Y-%m-%d')
-            demands_for_csv.to_csv(temp_path / "demands.csv", index=False)
-            
-            # Save holidays to a separate file for pending_off calculation
-            if holidays_for_csv:
-                holidays_df = pd.DataFrame([
-                    {'date': date_val.isoformat(), 'holiday': holiday_name}
-                    for date_val, holiday_name in holidays_for_csv.items()
-                ])
-                holidays_df.to_csv(temp_path / "holidays.csv", index=False)
-            
-            # Save time_off and locks - ensure dates are formatted as YYYY-MM-DD strings
             # Filter time_off to date range if custom range is provided
-            time_off_for_csv = roster_data['time_off'].copy()
-            if not time_off_for_csv.empty:
-                if request.start_date and request.end_date:
-                    # Filter time_off to only include ranges that overlap with the date range
-                    def overlaps_range(row):
-                        from_date = pd.to_datetime(row.get('from_date', ''), errors='coerce')
-                        to_date = pd.to_datetime(row.get('to_date', ''), errors='coerce')
-                        if pd.isna(from_date) or pd.isna(to_date):
-                            return False
-                        # Check if the range overlaps with [start_date, end_date]
-                        return not (to_date.date() < start_date or from_date.date() > end_date)
-                    
-                    time_off_for_csv = time_off_for_csv[time_off_for_csv.apply(overlaps_range, axis=1)]
-                
-                if 'from_date' in time_off_for_csv.columns:
-                    time_off_for_csv['from_date'] = pd.to_datetime(time_off_for_csv['from_date'], errors='coerce').dt.strftime('%Y-%m-%d')
-                if 'to_date' in time_off_for_csv.columns:
-                    time_off_for_csv['to_date'] = pd.to_datetime(time_off_for_csv['to_date'], errors='coerce').dt.strftime('%Y-%m-%d')
-            time_off_for_csv.to_csv(temp_path / "time_off.csv", index=False)
+            time_off_for_solver = roster_data['time_off'].copy()
+            if not time_off_for_solver.empty and request.start_date and request.end_date:
+                def overlaps_range(row):
+                    from_date = pd.to_datetime(row.get('from_date', ''), errors='coerce')
+                    to_date = pd.to_datetime(row.get('to_date', ''), errors='coerce')
+                    if pd.isna(from_date) or pd.isna(to_date):
+                        return False
+                    return not (to_date.date() < start_date or from_date.date() > end_date)
+
+                time_off_for_solver = time_off_for_solver[time_off_for_solver.apply(overlaps_range, axis=1)]
             
             # Filter locks to only include STANDARD shifts (exclude non-standard like MS, C)
             # Non-standard shifts are handled via time_off as direct assignments, not constraints
@@ -311,19 +287,11 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                             filtered_locks_df = pd.DataFrame(filtered_locks)
                             locks_df = pd.concat([locks_df, filtered_locks_df], ignore_index=True)
             
-            # Ensure dates are formatted as YYYY-MM-DD strings
-            if not locks_df.empty:
-                if 'from_date' in locks_df.columns:
-                    locks_df['from_date'] = pd.to_datetime(locks_df['from_date'], errors='coerce').dt.strftime('%Y-%m-%d')
-                if 'to_date' in locks_df.columns:
-                    locks_df['to_date'] = pd.to_datetime(locks_df['to_date'], errors='coerce').dt.strftime('%Y-%m-%d')
-            locks_df.to_csv(temp_path / "locks.csv", index=False)
-            
             # Load leave types, shift types, and rest codes from database
             from backend.models import ShiftType
-            db = SessionLocal()
+            db_cfg = SessionLocal()
             try:
-                all_leave_types = db.query(LeaveType).filter(
+                all_leave_types = db_cfg.query(LeaveType).filter(
                     LeaveType.is_active == True
                 ).all()
                 leave_codes = [lt.code for lt in all_leave_types]
@@ -332,14 +300,14 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 rest_codes = [lt.code for lt in rest_leave_types]
                 
                 # Load all active shift types
-                all_shift_types = db.query(ShiftType).filter(
+                all_shift_types = db_cfg.query(ShiftType).filter(
                     ShiftType.is_active == True
                 ).all()
                 
                 # Standard working shifts that the solver can optimize and assign
                 # Non-standard shifts (like MS, C) should only be assigned when explicitly requested
                 from backend.roster_data_loader import get_standard_working_shifts
-                STANDARD_WORKING_SHIFTS = get_standard_working_shifts(db)
+                STANDARD_WORKING_SHIFTS = get_standard_working_shifts(db_cfg)
                 working_shift_codes = [st.code for st in all_shift_types 
                                       if st.is_working_shift == True and st.code in STANDARD_WORKING_SHIFTS]
                 # Only include standard shifts + O in all_shift_codes
@@ -369,7 +337,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                         "No active leave types in the database. Add leave types before solving."
                     )
             finally:
-                db.close()
+                db_cfg.close()
             
             # Create config
             config_data = {
@@ -403,9 +371,16 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             # Load config first to get leave codes
             config = RosterConfig(config_path)
             
-            # Load data with config reference
-            data = RosterData(temp_path, config)
-            data.load_data()
+            # Build RosterData in memory (same parsing as CSV load_data; avoids DB→CSV→read hop)
+            data = RosterData.from_dataframes(
+                config,
+                employees=emp_df,
+                demands=demands_for_solver,
+                time_off=time_off_for_solver if not time_off_for_solver.empty else None,
+                locks=locks_df if not locks_df.empty else None,
+                holidays_dict=holidays_for_csv if holidays_for_csv else None,
+                data_dir=temp_path,
+            )
             
             # [HISTORY_AWARE_FAIRNESS] Extract assignment history for fairness calculations
             # Build skills dict from employees data

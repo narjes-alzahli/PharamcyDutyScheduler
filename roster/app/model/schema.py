@@ -93,6 +93,72 @@ class SpecialRequirement(BaseModel):
         populate_by_name = True
 
 
+def parse_employees_dataframe(df: pd.DataFrame) -> List[Employee]:
+    """Parse employees.csv-equivalent data (same rules as RosterData._load_employees)."""
+    if df is None or df.empty:
+        return []
+    return [Employee(**row) for row in df.to_dict("records")]
+
+
+def parse_demands_dataframe(df: pd.DataFrame) -> List[DailyRequirement]:
+    """Parse demands.csv-equivalent data (same rules as RosterData._load_daily_requirements)."""
+    if df is None or df.empty:
+        return []
+    df = df.copy()
+    df = df.dropna(subset=["date"])
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df = df.dropna(subset=["date"])
+    if "holiday" in df.columns:
+        df = df.drop(columns=["holiday"])
+    records = df.to_dict("records")
+    for record in records:
+        record["holiday"] = None
+    return [DailyRequirement(**row) for row in records]
+
+
+def parse_leave_dataframe(df: Optional[pd.DataFrame]) -> List[Leave]:
+    """Parse time_off.csv-equivalent data (same rules as RosterData._load_leave)."""
+    if df is None or df.empty:
+        return []
+    df = df.copy()
+    df = df.dropna(subset=["from_date", "to_date"])
+    df["from_date"] = pd.to_datetime(df["from_date"], errors="coerce").dt.date
+    df["to_date"] = pd.to_datetime(df["to_date"], errors="coerce").dt.date
+    df = df.dropna(subset=["from_date", "to_date"])
+    return [Leave(**row) for row in df.to_dict("records")]
+
+
+def parse_locks_dataframe(df: Optional[pd.DataFrame]) -> List[SpecialRequirement]:
+    """Parse locks.csv-equivalent data (same rules as RosterData._load_special_requirements)."""
+    if df is None or df.empty:
+        return []
+    df = df.copy()
+    df = df.dropna(subset=["from_date", "to_date"])
+    df["from_date"] = pd.to_datetime(df["from_date"], errors="coerce").dt.date
+    df["to_date"] = pd.to_datetime(df["to_date"], errors="coerce").dt.date
+    df = df.dropna(subset=["from_date", "to_date"])
+    cols = [c for c in ("employee", "from_date", "to_date", "shift", "force") if c in df.columns]
+    df = df[cols]
+    return [SpecialRequirement(**row) for row in df.to_dict("records")]
+
+
+def parse_holidays_dataframe(df: Optional[pd.DataFrame]) -> Dict[date, str]:
+    """Parse holidays.csv into the holidays_dict shape (same rules as RosterData._load_holidays)."""
+    if df is None or df.empty:
+        return {}
+    df = df.copy()
+    df = df.dropna(subset=["date"])
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df = df.dropna(subset=["date", "holiday"])
+    out: Dict[date, str] = {}
+    for _, row in df.iterrows():
+        date_val = row["date"]
+        holiday_name = str(row["holiday"]).strip()
+        if date_val and holiday_name:
+            out[date_val] = holiday_name
+    return out
+
+
 class RosterData:
     """Main data container for roster inputs."""
     
@@ -110,6 +176,28 @@ class RosterData:
         self.holidays_dict: Dict[date, str] = {}  # Separate holidays dict for pending_off calculation
         # [HISTORY_AWARE_FAIRNESS] Assignment history for fairness calculations
         self.history_counts: Dict[str, Dict[str, int]] = None
+
+    @classmethod
+    def from_dataframes(
+        cls,
+        config: "RosterConfig",
+        *,
+        employees: pd.DataFrame,
+        demands: pd.DataFrame,
+        time_off: Optional[pd.DataFrame] = None,
+        locks: Optional[pd.DataFrame] = None,
+        holidays_dict: Optional[Dict[date, str]] = None,
+        data_dir: Optional[Path] = None,
+    ) -> "RosterData":
+        """Build RosterData from in-memory frames (same parsing as CSV load_data)."""
+        inst = cls(data_dir or Path("."), config)
+        inst.employees = parse_employees_dataframe(employees)
+        inst.daily_requirements = parse_demands_dataframe(demands)
+        inst.leave = parse_leave_dataframe(time_off)
+        inst.special_requirements = parse_locks_dataframe(locks)
+        inst.holidays_dict = dict(holidays_dict) if holidays_dict else {}
+        inst._build_dictionaries()
+        return inst
         
     def load_data(self) -> None:
         """Load all data from CSV files."""
@@ -123,56 +211,26 @@ class RosterData:
     def _load_employees(self) -> None:
         """Load employees from CSV."""
         df = pd.read_csv(self.data_dir / "employees.csv")
-        self.employees = [Employee(**row) for row in df.to_dict("records")]
+        self.employees = parse_employees_dataframe(df)
         
     def _load_daily_requirements(self) -> None:
         """Load daily requirements from CSV (holiday column is NOT in demands.csv anymore)."""
         df = pd.read_csv(self.data_dir / "demands.csv", keep_default_na=False, na_values=[])
-        # Clean data - remove rows with empty dates
-        df = df.dropna(subset=['date'])
-        df["date"] = pd.to_datetime(df["date"], errors='coerce').dt.date
-        # Remove any rows that still have NaT dates
-        df = df.dropna(subset=['date'])
-        # Holiday column is no longer in demands.csv - it's in a separate holidays.csv file
-        # Remove holiday column if it exists (for backward compatibility)
-        if 'holiday' in df.columns:
-            df = df.drop(columns=['holiday'])
-        # Create DailyRequirement objects without holiday (holiday is handled separately)
-        # We need to add holiday=None to each record for the model validation
-        records = df.to_dict("records")
-        for record in records:
-            record['holiday'] = None  # Set to None since it's not in demands.csv
-        self.daily_requirements = [DailyRequirement(**row) for row in records]
+        self.daily_requirements = parse_demands_dataframe(df)
         
     def _load_leave(self) -> None:
         """Load leave from CSV (if file exists)."""
-        # Note: CSV files are created dynamically by the backend solver from database data
-        # This method reads them when they exist in the data directory
         if (self.data_dir / "time_off.csv").exists():
             df = pd.read_csv(self.data_dir / "time_off.csv")
-            # Clean data - remove rows with empty dates
-            df = df.dropna(subset=['from_date', 'to_date'])
-            df["from_date"] = pd.to_datetime(df["from_date"], errors='coerce').dt.date
-            df["to_date"] = pd.to_datetime(df["to_date"], errors='coerce').dt.date
-            # Remove any rows that still have NaT dates
-            df = df.dropna(subset=['from_date', 'to_date'])
-            self.leave = [Leave(**row) for row in df.to_dict("records")]
+            self.leave = parse_leave_dataframe(df)
         else:
             self.leave = []
             
     def _load_special_requirements(self) -> None:
         """Load special requirements from CSV (if file exists)."""
-        # Note: CSV files are created dynamically by the backend solver from database data
-        # This method reads them when they exist in the data directory
         if (self.data_dir / "locks.csv").exists():
             df = pd.read_csv(self.data_dir / "locks.csv")
-            # Clean data - remove rows with empty dates
-            df = df.dropna(subset=['from_date', 'to_date'])
-            df["from_date"] = pd.to_datetime(df["from_date"], errors='coerce').dt.date
-            df["to_date"] = pd.to_datetime(df["to_date"], errors='coerce').dt.date
-            # Remove any rows that still have NaT dates
-            df = df.dropna(subset=['from_date', 'to_date'])
-            self.special_requirements = [SpecialRequirement(**row) for row in df.to_dict("records")]
+            self.special_requirements = parse_locks_dataframe(df)
         else:
             self.special_requirements = []
     
@@ -181,17 +239,7 @@ class RosterData:
         holidays_file = self.data_dir / "holidays.csv"
         if holidays_file.exists():
             df = pd.read_csv(holidays_file, keep_default_na=False, na_values=[])
-            # Clean data - remove rows with empty dates
-            df = df.dropna(subset=['date'])
-            df["date"] = pd.to_datetime(df["date"], errors='coerce').dt.date
-            # Remove any rows that still have NaT dates
-            df = df.dropna(subset=['date', 'holiday'])
-            # Build holidays dictionary
-            for _, row in df.iterrows():
-                date_val = row['date']
-                holiday_name = str(row['holiday']).strip()
-                if date_val and holiday_name:
-                    self.holidays_dict[date_val] = holiday_name
+            self.holidays_dict = parse_holidays_dataframe(df)
             
     def _build_dictionaries(self) -> None:
         """Build lookup dictionaries for efficient access."""
