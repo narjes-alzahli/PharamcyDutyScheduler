@@ -39,6 +39,9 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartCell, setDragStartCell] = useState<{ employee: string; date: string } | null>(null);
   const [justFinishedDrag, setJustFinishedDrag] = useState(false);
+  const [selectionMode, setSelectionMode] = useState<'single' | 'range'>('single');
+  const [rangeStartCell, setRangeStartCell] = useState<{ employee: string; date: string } | null>(null);
+  const [isTouchOrSmallScreen, setIsTouchOrSmallScreen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [pendingRejection, setPendingRejection] = useState<{
     requestId: string;
@@ -70,6 +73,19 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     loadTypes();
   }, []);
 
+  // Show range mode toggle for touch/smaller viewports.
+  useEffect(() => {
+    const evaluateTouchOrSmall = () => {
+      const isSmall = window.innerWidth <= 1024;
+      const isTouch = navigator.maxTouchPoints > 0;
+      setIsTouchOrSmallScreen(isSmall || isTouch);
+    };
+
+    evaluateTouchOrSmall();
+    window.addEventListener('resize', evaluateTouchOrSmall);
+    return () => window.removeEventListener('resize', evaluateTouchOrSmall);
+  }, []);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -91,6 +107,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         setSelectedCells([]);
         setEditingCell(null);
         setSearchTerm('');
+        setRangeStartCell(null);
       }
     };
     document.addEventListener('keydown', handleEscape);
@@ -518,6 +535,10 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     setEditingCell(null);
     setSearchTerm('');
     setSelectedCells([]);
+    setRangeStartCell(null);
+    if (selectionMode === 'range') {
+      setSelectionMode('single');
+    }
   };
 
   // Helper function to get date range between two dates
@@ -538,6 +559,9 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   };
 
   const handleCellMouseDown = (employee: string, date: string, e: React.MouseEvent) => {
+    if (selectionMode === 'range') {
+      return;
+    }
     // Only start drag if no keyboard modifiers and not clicking on dropdown
     const isDropdown = (e.target as HTMLElement).closest('.shift-dropdown-container > div:last-child');
     if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !isDropdown && e.button === 0) {
@@ -592,6 +616,35 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   const handleCellClick = (employee: string, date: string, e: React.MouseEvent) => {
     // Don't handle click if we just finished dragging or are currently dragging
     if (isDragging || justFinishedDrag) {
+      return;
+    }
+
+    if (selectionMode === 'range') {
+      e.preventDefault();
+      e.stopPropagation();
+      setEditingCell(null);
+      setSearchTerm('');
+
+      if (!rangeStartCell) {
+        setRangeStartCell({ employee, date });
+        setSelectedCells([{ employee, date }]);
+        return;
+      }
+
+      if (rangeStartCell.employee !== employee) {
+        onSaveNotification({
+          message: '❌ Range selection must stay within one staff row',
+          type: 'error',
+        });
+        setRangeStartCell({ employee, date });
+        setSelectedCells([{ employee, date }]);
+        return;
+      }
+
+      const range = getDateRange(rangeStartCell.date, date, employee);
+      setSelectedCells(range);
+      setRangeStartCell(null);
+      setEditingCell({ employee, date });
       return;
     }
 
@@ -820,6 +873,44 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {isTouchOrSmallScreen && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-lg border border-gray-300 bg-white p-1">
+            <button
+              onClick={() => {
+                setSelectionMode('single');
+                setRangeStartCell(null);
+              }}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                selectionMode === 'single' ? 'bg-gray-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              Single
+            </button>
+            <button
+              onClick={() => {
+                setSelectionMode('range');
+                setEditingCell(null);
+                setSearchTerm('');
+                setSelectedCells([]);
+                setRangeStartCell(null);
+              }}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                selectionMode === 'range' ? 'bg-gray-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              Range
+            </button>
+          </div>
+          {selectionMode === 'range' && (
+            <p className="text-xs text-gray-600">
+              {rangeStartCell
+                ? `Start set on ${rangeStartCell.employee} (${formatDate(rangeStartCell.date)}). Tap an end date.`
+                : 'Tap start date, then tap end date to select a range.'}
+            </p>
+          )}
         </div>
       )}
       <div className="overflow-x-auto">
