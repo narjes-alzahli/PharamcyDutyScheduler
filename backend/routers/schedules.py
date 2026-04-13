@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import json
 from typing import List, Optional, Dict
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from datetime import date as date_type
 from calendar import monthrange
 import sys
@@ -21,12 +21,30 @@ from backend.routers.auth import get_current_user
 from backend.database import get_db
 from backend.utils import sanitize_json_floats
 from backend.models import CommittedSchedule, ScheduleMetrics, EmployeeSkills
+from backend.user_employee_sync import committed_schedule_display_name
 from backend.roster_data_loader import load_month_holidays
 from roster.app.model.solver import RosterSolver
 from roster.app.model.schema import RosterConfig
 
 router = APIRouter()
 security = HTTPBearer()
+
+
+def _resolve_schedule_user_id(db: Session, display_name: str) -> int:
+    """Map roster display name to users.id via EmployeeSkills (required for committed rows)."""
+    name = (display_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Schedule entry is missing a staff name")
+    es = db.query(EmployeeSkills).filter(EmployeeSkills.name == name).first()
+    if es is None or es.user_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Schedule references unknown staff {name!r}. "
+                "They must exist as a Staff user with roster skills before committing."
+            ),
+        )
+    return es.user_id
 
 
 def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dict[str, float]:
@@ -111,11 +129,15 @@ def recalculate_employee_report(
     # Create a temporary config (we only need it for create_employee_report)
     temp_path = Path(tempfile.mkdtemp())
     try:
+        leave_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
+        working_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+        all_shift_codes = sorted(set(leave_codes) | set(working_shift_codes))
         config_data = {
             "weights": {},
-            "rest_codes": ["O"],  # DO is a leave type (from leave_types table), not a rest code
-            "leave_codes": ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"],
-            "working_shift_codes": ["M", "IP", "A", "N", "M3", "M4", "H", "CL"],
+            "rest_codes": ["O"],
+            "leave_codes": leave_codes,
+            "working_shift_codes": working_shift_codes,
+            "all_shift_codes": all_shift_codes,
         }
         config_path = temp_path / "config.yaml"
         with open(config_path, 'w') as f:
@@ -155,17 +177,22 @@ def load_committed_schedules(db: Session) -> List[dict]:
     schedules = []
     for year, month in year_month_pairs:
         # Load schedule entries
-        schedule_entries = db.query(CommittedSchedule).filter(
-            CommittedSchedule.year == year,
-            CommittedSchedule.month == month
-        ).all()
+        schedule_entries = (
+            db.query(CommittedSchedule)
+            .options(joinedload(CommittedSchedule.user))
+            .filter(
+                CommittedSchedule.year == year,
+                CommittedSchedule.month == month,
+            )
+            .all()
+        )
         
         if not schedule_entries:
             continue
         
-        # Convert to DataFrame format
+        # Convert to DataFrame format (display name follows User when linked)
         schedule_data = [{
-            'employee': entry.employee_name,
+            'employee': committed_schedule_display_name(entry),
             'date': entry.date.isoformat(),
             'shift': entry.shift
         } for entry in schedule_entries]
@@ -299,10 +326,12 @@ async def commit_schedule(
             entry_year = date_val.year
             entry_month = date_val.month
             
+            uid = _resolve_schedule_user_id(db, entry.get("employee", ""))
             schedule_entry = CommittedSchedule(
                 year=entry_year,
                 month=entry_month,
                 employee_name=entry['employee'],
+                user_id=uid,
                 date=date_val,
                 shift=entry['shift']
             )
@@ -407,10 +436,12 @@ async def update_schedule(
             if pd.isna(date_val):
                 continue
             
+            uid = _resolve_schedule_user_id(db, entry.get("employee", ""))
             schedule_entry = CommittedSchedule(
                 year=year,
                 month=month,
                 employee_name=entry['employee'],
+                user_id=uid,
                 date=date_val,
                 shift=entry['shift']
             )

@@ -26,8 +26,15 @@ from backend.roster_data_loader import (
     get_holiday_demands
 )
 from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills, CommittedSchedule, ScheduleMetrics
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import not_
+
+from backend.user_employee_sync import (
+    ensure_staff_employee_skills,
+    slug_username,
+    parse_payload_user_id,
+    apply_display_name_change_cascade,
+)
 from datetime import date
 
 router = APIRouter()
@@ -115,7 +122,7 @@ async def get_employees(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all employees; pending_off is overlaid from the most recent committed month when available."""
+    """Get all staff (roster skills rows); pending_off is overlaid from the most recent committed month when available."""
     roster_data = load_roster_data_from_db(db)
     employees_df = roster_data['employees']
     records = employees_df.to_dict("records")
@@ -135,75 +142,144 @@ async def update_employees(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Update all employees (save changes permanently)."""
+    """Update all employees (save changes permanently).
+
+    Rows may include ``user_id`` (from GET /employees or roster data) so renames and
+    reordering stay tied to the same account; display names always sync to ``User.employee_name``.
+    """
     if current_user['employee_type'] != 'Manager':
-        raise HTTPException(status_code=403, detail="Only managers can update employees")
-    
-    import re
-    
-    # Get existing employees from database
-    existing_employees = {emp.name: emp for emp in db.query(EmployeeSkills).all()}
-    existing_employee_names = set(existing_employees.keys())
-    
-    # Validate: Check for duplicate employee names
+        raise HTTPException(status_code=403, detail="Only managers can update staff roster settings")
+
+    ensure_staff_employee_skills(db)
+
     employee_names = [str(emp.get('employee', '')).strip() for emp in employees]
-    duplicates = [name for name in employee_names if employee_names.count(name) > 1]
+    duplicates = [name for name in employee_names if name and employee_names.count(name) > 1]
     if duplicates:
         raise HTTPException(
-            status_code=400, 
-            detail=f"Duplicate employee names found: {', '.join(set(duplicates))}. Each employee must have a unique name."
+            status_code=400,
+            detail=f"Duplicate staff names found: {', '.join(set(duplicates))}. Each person must have a unique name.",
         )
-    
-    # Validate: Check for empty employee names
-    empty_names = [name for name in employee_names if not name]
-    if empty_names:
+    if any(not name for name in employee_names):
         raise HTTPException(
             status_code=400,
-            detail="Employee names cannot be empty. Please enter a name for all employees."
+            detail="Staff names cannot be empty.",
         )
-    
-    new_employee_names = set(employee_names)
-    
-    # Update or create employees
+
+    all_skills = (
+        db.query(EmployeeSkills)
+        .options(joinedload(EmployeeSkills.user))
+        .order_by(EmployeeSkills.id)
+        .all()
+    )
+    by_user_id = {e.user_id: e for e in all_skills}
+    by_name = {e.name: e for e in all_skills}
+
+    seen_payload_user_ids = set()
+    processed_skill_ids = set()
+
+    def _apply_skill_fields(emp: EmployeeSkills, emp_data: dict) -> None:
+        emp.skill_M = bool(emp_data.get('skill_M', True))
+        emp.skill_IP = bool(emp_data.get('skill_IP', True))
+        emp.skill_A = bool(emp_data.get('skill_A', True))
+        emp.skill_N = bool(emp_data.get('skill_N', True))
+        emp.skill_M3 = bool(emp_data.get('skill_M3', True))
+        emp.skill_M4 = bool(emp_data.get('skill_M4', True))
+        emp.skill_H = bool(emp_data.get('skill_H', False))
+        emp.skill_CL = bool(emp_data.get('skill_CL', True))
+        emp.skill_E = bool(emp_data.get('skill_E', True))
+        emp.skill_IP_P = bool(emp_data.get('skill_IP_P', True))
+        emp.skill_P = bool(emp_data.get('skill_P', True))
+        emp.skill_M_P = bool(emp_data.get('skill_M_P', True))
+        emp.min_days_off = int(emp_data.get('min_days_off', 4))
+        emp.weight = float(emp_data.get('weight', 1.0))
+        emp.pending_off = float(emp_data.get('pending_off', 0.0))
+
     for emp_data in employees:
-        employee_name = str(emp_data.get('employee', '')).strip()
-        if not employee_name:
+        name = str(emp_data.get('employee', '')).strip()
+        if not name:
             continue
-        
-        if employee_name in existing_employees:
-            # Update existing
-            emp = existing_employees[employee_name]
-            emp.skill_M = bool(emp_data.get('skill_M', True))
-            emp.skill_IP = bool(emp_data.get('skill_IP', True))
-            emp.skill_A = bool(emp_data.get('skill_A', True))
-            emp.skill_N = bool(emp_data.get('skill_N', True))
-            emp.skill_M3 = bool(emp_data.get('skill_M3', True))
-            emp.skill_M4 = bool(emp_data.get('skill_M4', True))
-            emp.skill_H = bool(emp_data.get('skill_H', False))
-            emp.skill_CL = bool(emp_data.get('skill_CL', True))
-            emp.skill_E = bool(emp_data.get('skill_E', True))
-            emp.skill_IP_P = bool(emp_data.get('skill_IP_P', True))
-            emp.skill_P = bool(emp_data.get('skill_P', True))
-            emp.skill_M_P = bool(emp_data.get('skill_M_P', True))
-            emp.min_days_off = int(emp_data.get('min_days_off', 4))
-            emp.weight = float(emp_data.get('weight', 1.0))
-            emp.pending_off = float(emp_data.get('pending_off', 0.0))
+
+        uid = parse_payload_user_id(emp_data.get('user_id'))
+        emp: Optional[EmployeeSkills] = None
+
+        if uid is not None:
+            if uid in seen_payload_user_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Duplicate user_id in the same save request.",
+                )
+            seen_payload_user_ids.add(uid)
+            emp = by_user_id.get(uid)
+            if emp is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No staff row found for user_id={uid}. Reload the page and try again.",
+                )
+
+        if emp is None:
+            emp = by_name.get(name)
+
+        if emp is not None:
+            if uid is not None and emp.user_id != uid:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Staff name does not match the given user_id.",
+                )
+            processed_skill_ids.add(emp.id)
+            user = emp.user
+            if user is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Staff row is not linked to a user account; run database migrations.",
+                )
+            old_display = user.employee_name
+            if old_display != name:
+                apply_display_name_change_cascade(db, old_display, name)
+                user.employee_name = name
+            emp.name = name
+            _apply_skill_fields(emp, emp_data)
             if 'staff_no' in emp_data:
-                user_u = db.query(User).filter(User.employee_name == employee_name).first()
-                if user_u is not None:
-                    sn = normalize_staff_no(emp_data.get('staff_no'))
-                    if sn:
-                        conflict = db.query(User).filter(User.staff_no == sn, User.id != user_u.id).first()
-                        if conflict:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Staff number {sn} is already assigned to another user.",
-                            )
-                    user_u.staff_no = sn
+                sn = normalize_staff_no(emp_data.get('staff_no'))
+                if sn:
+                    conflict = db.query(User).filter(User.staff_no == sn, User.id != user.id).first()
+                    if conflict:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Staff number {sn} is already assigned to another user.",
+                        )
+                user.staff_no = sn
         else:
-            # Create new
+            username_base = slug_username(name)
+            username = username_base
+            suffix = 0
+            while db.query(User).filter(User.username == username).first():
+                suffix += 1
+                username = f"{username_base}_{suffix}"
+            emp_row = next(
+                (e for e in employees if str(e.get('employee', '')).strip() == name),
+                None,
+            )
+            sn_new = normalize_staff_no(emp_row.get('staff_no')) if emp_row else None
+            if sn_new:
+                taken = db.query(User).filter(User.staff_no == sn_new).first()
+                if taken:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Staff number {sn_new} is already assigned to another user.",
+                    )
+            pwd = f"{name[0].lower()}{name[1:]}123" if len(name) > 1 else "changeme123"
+            new_user = User(
+                username=username,
+                password=hash_password(pwd),
+                employee_type=EmployeeType.STAFF,
+                employee_name=name,
+                staff_no=sn_new,
+            )
+            db.add(new_user)
+            db.flush()
             new_emp = EmployeeSkills(
-                name=employee_name,
+                name=name,
+                user_id=new_user.id,
                 skill_M=bool(emp_data.get('skill_M', True)),
                 skill_IP=bool(emp_data.get('skill_IP', True)),
                 skill_A=bool(emp_data.get('skill_A', True)),
@@ -218,81 +294,27 @@ async def update_employees(
                 skill_M_P=bool(emp_data.get('skill_M_P', True)),
                 min_days_off=int(emp_data.get('min_days_off', 4)),
                 weight=float(emp_data.get('weight', 1.0)),
-                pending_off=float(emp_data.get('pending_off', 0.0))
+                pending_off=float(emp_data.get('pending_off', 0.0)),
             )
             db.add(new_emp)
-    
-    # Delete employees that are no longer in the list
-    employees_to_delete = existing_employee_names - new_employee_names
-    for employee_name in employees_to_delete:
-        db.delete(existing_employees[employee_name])
-    
-    # Sync user accounts: auto-create accounts for new employees
-    for employee_name in new_employee_names:
-        if employee_name not in existing_employee_names:
-            # Generate username: lowercase, replace all spaces with underscore
-            username = re.sub(r'\s+', '_', employee_name.strip().lower())
-            
-            # Check if user already exists in database
-            existing_user = db.query(User).filter(User.username == username).first()
-            if not existing_user:
-                # Create default password: first letter lowercase + rest + "123"
-                employee_password = f"{employee_name[0].lower()}{employee_name[1:]}123"
-                hashed_password = hash_password(employee_password)
-                emp_row = next(
-                    (e for e in employees if str(e.get('employee', '')).strip() == employee_name),
-                    None,
-                )
-                sn_new = normalize_staff_no(emp_row.get('staff_no')) if emp_row else None
-                if sn_new:
-                    taken = db.query(User).filter(User.staff_no == sn_new).first()
-                    if taken:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Staff number {sn_new} is already assigned to another user.",
-                        )
-                new_user = User(
-                    username=username,
-                    password=hashed_password,
-                    employee_type=EmployeeType.STAFF,
-                    employee_name=employee_name,
-                    staff_no=sn_new,
-                )
-                db.add(new_user)
-    
-    # Update employee_name in user accounts if employee name changed
-    # Also track name changes to update committed schedules
-    name_changes = {}  # Map old_name -> new_name
-    for employee_name in new_employee_names:
-        username = re.sub(r'\s+', '_', employee_name.strip().lower())
-        user = db.query(User).filter(User.username == username).first()
-        if user and user.employee_name != employee_name:
-            old_name = user.employee_name
-            name_changes[old_name] = employee_name
-            user.employee_name = employee_name
-    
-    # Update committed schedules and metrics for any name changes
-    for old_name, new_name in name_changes.items():
-        # Update all CommittedSchedule entries with the old name
-        committed_schedules = db.query(CommittedSchedule).filter(
-            CommittedSchedule.employee_name == old_name
-        ).all()
-        for schedule in committed_schedules:
-            schedule.employee_name = new_name
-        
-        # Update all ScheduleMetrics JSON that contain the old name
-        all_metrics = db.query(ScheduleMetrics).all()
-        for metrics_record in all_metrics:
-            if metrics_record.metrics and isinstance(metrics_record.metrics, dict):
-                # Update employees array if it exists
-                if 'employees' in metrics_record.metrics and isinstance(metrics_record.metrics['employees'], list):
-                    for emp_data in metrics_record.metrics['employees']:
-                        if isinstance(emp_data, dict) and emp_data.get('employee') == old_name:
-                            emp_data['employee'] = new_name
-    
+            db.flush()
+            processed_skill_ids.add(new_emp.id)
+            by_user_id[new_user.id] = new_emp
+            by_name[name] = new_emp
+
+    for es in all_skills:
+        if es.id in processed_skill_ids:
+            continue
+        uid = es.user_id
+        db.delete(es)
+        if uid is not None:
+            u = db.query(User).filter(User.id == uid).first()
+            if u is not None and u.employee_type == EmployeeType.STAFF:
+                db.delete(u)
+
     db.commit()
-    
-    return {"message": "Employees updated successfully"}
+
+    return {"message": "Staff roster settings updated successfully"}
 
 
 @router.delete("/employees/{employee_name}")
@@ -303,21 +325,21 @@ async def delete_employee(
 ):
     """Delete an employee."""
     if current_user['employee_type'] != 'Manager':
-        raise HTTPException(status_code=403, detail="Only managers can delete employees")
+        raise HTTPException(status_code=403, detail="Only managers can remove staff from the roster")
     
-    # Check if employee exists
     employee = db.query(EmployeeSkills).filter(EmployeeSkills.name == employee_name).first()
     if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    # Delete employee
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    uid = employee.user_id
     db.delete(employee)
+    if uid is not None:
+        user = db.query(User).filter(User.id == uid).first()
+        if user is not None and user.employee_type == EmployeeType.STAFF:
+            db.delete(user)
     db.commit()
-    
-    # Note: User accounts are kept even if employee is deleted, in case they need to be restored
-    # Managers can manually delete user accounts from User Management page if needed
-    
-    return {"message": "Employee deleted successfully"}
+
+    return {"message": "Staff member removed successfully"}
 
 
 @router.get("/demands")

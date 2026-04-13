@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus, EmployeeSkills, ShiftType
 from backend.database import SessionLocal
+from backend.user_employee_sync import roster_display_name, committed_schedule_display_name
 
 
 def get_standard_working_shifts(db: Session = None) -> Set[str]:
@@ -67,7 +68,8 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
     )
     if employees:
         employees_data = [{
-            'employee': emp.name,
+            'employee': roster_display_name(emp),
+            'user_id': emp.user_id,
             'staff_no': (emp.user.staff_no if getattr(emp, "user", None) is not None else None) or '',
             'skill_M': emp.skill_M,
             'skill_IP': emp.skill_IP,
@@ -89,8 +91,8 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
     else:
         # Create empty DataFrame with required columns
         employees_df = pd.DataFrame(columns=[
-            'employee', 'staff_no', 'skill_M', 'skill_IP', 'skill_A', 'skill_N', 
-            'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E', 
+            'employee', 'user_id', 'staff_no', 'skill_M', 'skill_IP', 'skill_A', 'skill_N',
+            'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E',
             'skill_IP_P', 'skill_P', 'skill_M_P',
             'min_days_off', 'weight', 'pending_off'
         ])
@@ -650,10 +652,15 @@ def load_assignment_history(
                     start_date = date(start_date.year, start_date.month - 1, 1)
         
         # Load all committed schedules in the history window
-        schedules = db.query(CommittedSchedule).filter(
-            CommittedSchedule.date >= start_date,
-            CommittedSchedule.date < first_day_current_month
-        ).all()
+        schedules = (
+            db.query(CommittedSchedule)
+            .options(joinedload(CommittedSchedule.user))
+            .filter(
+                CommittedSchedule.date >= start_date,
+                CommittedSchedule.date < first_day_current_month,
+            )
+            .all()
+        )
         
         # Initialize history counts per category per employee
         history = {
@@ -669,7 +676,7 @@ def load_assignment_history(
         
         # Count assignments per category
         for schedule in schedules:
-            emp = schedule.employee_name
+            emp = committed_schedule_display_name(schedule)
             if emp not in employees:
                 continue
             
@@ -724,7 +731,7 @@ def load_assignment_history(
             # Group schedules by month and compute decayed values
             monthly_counts = {}
             for schedule in schedules:
-                emp = schedule.employee_name
+                emp = committed_schedule_display_name(schedule)
                 if emp not in employees:
                     continue
                 
@@ -872,14 +879,17 @@ def load_previous_period_last_days(start_date: date, db: Session = None) -> Dict
         last_2_dates = sorted(last_2_dates)
         
         # Load committed schedules for these dates
-        prev_schedules = db.query(CommittedSchedule).filter(
-            CommittedSchedule.date.in_(last_2_dates)
-        ).all()
+        prev_schedules = (
+            db.query(CommittedSchedule)
+            .options(joinedload(CommittedSchedule.user))
+            .filter(CommittedSchedule.date.in_(last_2_dates))
+            .all()
+        )
         
-        # Build dict: (employee_name, date) -> shift
+        # Build dict: (display name, date) -> shift
         result = {}
         for schedule in prev_schedules:
-            result[(schedule.employee_name, schedule.date)] = schedule.shift
+            result[(committed_schedule_display_name(schedule), schedule.date)] = schedule.shift
         
         return result
     finally:
@@ -928,16 +938,21 @@ def load_previous_month_last_days(year: int, month: int, db: Session = None) -> 
         second_last_day_prev_month = date(prev_year, prev_month, num_days_prev_month - 1)
         
         # Load committed schedules for these 2 days
-        prev_schedules = db.query(CommittedSchedule).filter(
-            CommittedSchedule.year == prev_year,
-            CommittedSchedule.month == prev_month,
-            CommittedSchedule.date.in_([second_last_day_prev_month, last_day_prev_month])
-        ).all()
+        prev_schedules = (
+            db.query(CommittedSchedule)
+            .options(joinedload(CommittedSchedule.user))
+            .filter(
+                CommittedSchedule.year == prev_year,
+                CommittedSchedule.month == prev_month,
+                CommittedSchedule.date.in_([second_last_day_prev_month, last_day_prev_month]),
+            )
+            .all()
+        )
         
-        # Build dict: (employee_name, date) -> shift
+        # Build dict: (display name, date) -> shift
         result = {}
         for schedule in prev_schedules:
-            result[(schedule.employee_name, schedule.date)] = schedule.shift
+            result[(committed_schedule_display_name(schedule), schedule.date)] = schedule.shift
         
         return result
     finally:

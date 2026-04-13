@@ -962,7 +962,7 @@ export const AllRostersPage: React.FC = () => {
     const allTabs = [
       { id: 'overview', emoji: '', label: 'Overview' },
       { id: 'fairness', emoji: '', label: 'Fairness Analysis' },
-      { id: 'pending-off', emoji: '', label: 'Employee Pending Off' },
+      { id: 'pending-off', emoji: '', label: 'Staff pending off' },
       { id: 'solver', emoji: '', label: 'Solver Metrics' },
     ] as const;
     
@@ -1271,7 +1271,7 @@ export const AllRostersPage: React.FC = () => {
                             <p className="text-2xl font-bold">{metrics.totalAssignments}</p>
                           </div>
                           <div className="rounded-lg bg-gray-50 p-4">
-                            <p className="text-sm text-gray-600">Employees</p>
+                            <p className="text-sm text-gray-600">Staff</p>
                             <p className="text-2xl font-bold">{metrics.employees}</p>
                           </div>
                           <div className="rounded-lg bg-gray-50 p-4">
@@ -1301,11 +1301,11 @@ export const AllRostersPage: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Employee Pending Off Tab */}
+                    {/* Staff pending off tab */}
                     {activeTab === 'pending-off' && (
                       <div className="space-y-6">
                         <div>
-                          <h3 className="text-xl font-bold text-gray-900">Employee Pending Off</h3>
+                          <h3 className="text-xl font-bold text-gray-900">Staff pending off</h3>
                         </div>
                         
                         {(() => {
@@ -1351,7 +1351,7 @@ export const AllRostersPage: React.FC = () => {
                                         orientation: 'v',
                                       }]}
                                       layout={{
-                                        xaxis: { title: 'Employee' },
+                                        xaxis: { title: 'Staff' },
                                         yaxis: { title: 'Pending Off Days' },
                                         height: 200,
                                         margin: { l: 50, r: 10, t: 10, b: 60 },

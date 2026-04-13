@@ -15,7 +15,8 @@ sys.path.insert(0, str(project_root))
 
 from backend.routers.auth import get_current_user
 from backend.database import get_db
-from backend.models import User, EmployeeType, EmployeeSkills, CommittedSchedule, ScheduleMetrics
+from backend.models import User, EmployeeType, EmployeeSkills
+from backend.user_employee_sync import apply_display_name_change_cascade
 from backend.utils import hash_password, normalize_staff_no
 
 router = APIRouter()
@@ -98,7 +99,7 @@ async def create_user(
     db.add(new_user)
     db.flush()  # Get the user ID
     
-    # Auto-create employee_skills for staff users
+    # Staff users get a linked EmployeeSkills row (roster/solver profile)
     if employee_type == EmployeeType.STAFF:
         employee_skills = EmployeeSkills(
             name=user_data.employee_name,
@@ -118,7 +119,7 @@ async def create_user(
         db.add(employee_skills)
     
     db.commit()
-    return {"message": "User created successfully"}
+    return {"message": "User created successfully. Staff accounts receive a roster skills profile automatically."}
 
 
 @router.put("/")
@@ -165,29 +166,7 @@ async def update_user(
     
     # If employee name changed, update all committed schedules and metrics
     if old_employee_name != new_employee_name:
-        # Update all CommittedSchedule entries with the old name
-        committed_schedules = db.query(CommittedSchedule).filter(
-            CommittedSchedule.employee_name == old_employee_name
-        ).all()
-        for schedule in committed_schedules:
-            schedule.employee_name = new_employee_name
-        
-        # Update all ScheduleMetrics JSON that contain the old name
-        all_metrics = db.query(ScheduleMetrics).all()
-        for metrics_record in all_metrics:
-            if metrics_record.metrics and isinstance(metrics_record.metrics, dict):
-                # Update employees array if it exists
-                if 'employees' in metrics_record.metrics and isinstance(metrics_record.metrics['employees'], list):
-                    updated = False
-                    for emp_data in metrics_record.metrics['employees']:
-                        if isinstance(emp_data, dict) and emp_data.get('employee') == old_employee_name:
-                            emp_data['employee'] = new_employee_name
-                            updated = True
-                    # If we updated anything, mark the metrics as changed
-                    if updated:
-                        # SQLAlchemy should detect the change, but we can explicitly mark it
-                        # The JSON column should auto-detect changes, but let's be explicit
-                        pass  # SQLAlchemy will detect the change automatically
+        apply_display_name_change_cascade(db, old_employee_name, new_employee_name)
     old_type = user.employee_type
     user.employee_type = EmployeeType.MANAGER if update.employee_type == 'Manager' else EmployeeType.STAFF
     if update.password:

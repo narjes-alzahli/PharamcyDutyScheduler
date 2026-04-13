@@ -285,30 +285,28 @@ class RosterData:
         
     def get_shifts(self) -> List[str]:
         """Get all possible shifts (working shifts + leave types + requested non-standard shifts)."""
-        # Get all shifts from config if available (loaded from database)
-        if hasattr(self, 'config') and hasattr(self.config, 'all_shift_codes') and self.config.all_shift_codes:
-            all_shifts = set(self.config.all_shift_codes)  # Start with standard shifts + O (DO is added via leave_codes)
-            
-            # Add leave codes from config (leave types from database)
-            if hasattr(self.config, 'leave_codes') and self.config.leave_codes:
-                # Only include leave codes that aren't already in shifts
-                leave_codes = [code for code in self.config.leave_codes if code not in all_shifts]
-                all_shifts.update(leave_codes)
-            
-            # Add any non-standard shifts that are requested in time_off (like MS, C)
-            # These need to be in the shifts list so they can be assigned when requested
-            if hasattr(self, 'leave_dict') and self.leave_dict:
-                for (emp, day), code in self.leave_dict.items():
-                    if code not in all_shifts:
-                        all_shifts.add(code)
-            
-            return sorted(list(all_shifts))
-        
-        # Fallback: if config not available, use hardcoded list
-        # This should never happen in normal operation since we always pass config
-        # But if it does, at least the solver won't crash
-        # Note: DO is included here as a leave type (normally comes from leave_codes via database)
-        return ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "DO", "O"]
+        cfg = getattr(self, "config", None)
+        if cfg is None or not getattr(cfg, "all_shift_codes", None):
+            raise RuntimeError(
+                "RosterData.config.all_shift_codes is missing or empty. "
+                "The solver must load shift types from the database (or a complete YAML config). "
+                "Silent defaults were removed to avoid wrong or incomplete shift domains."
+            )
+
+        all_shifts = set(cfg.all_shift_codes)
+
+        leave_codes = getattr(cfg, "leave_codes", None) or []
+        for code in leave_codes:
+            if code not in all_shifts:
+                all_shifts.add(code)
+
+        # Non-standard shifts requested in time_off (e.g. MS) must appear in the domain
+        if hasattr(self, "leave_dict") and self.leave_dict:
+            for (_emp, _day), code in self.leave_dict.items():
+                if code not in all_shifts:
+                    all_shifts.add(code)
+
+        return sorted(all_shifts)
 
 
 class RosterConfig:

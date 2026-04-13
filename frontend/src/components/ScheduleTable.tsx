@@ -530,7 +530,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
           <thead>
             <tr className="bg-gray-100">
               <th className="border border-black px-1 py-1 text-left font-bold sticky left-0 bg-gray-100 z-10 text-xs">
-                Employee
+                Staff
               </th>
               <th className="border border-black px-1 py-1 text-center font-bold text-xs">
                 P/O

@@ -79,7 +79,7 @@ export const Pagination: React.FC<PaginationProps> = ({
               <span className="font-medium">
                 {Math.min(currentPage * itemsPerPage, totalItems)}
               </span>{' '}
-              of <span className="font-medium">{totalItems}</span> Employees
+              of <span className="font-medium">{totalItems}</span> staff
             </p>
           )}
         </div>

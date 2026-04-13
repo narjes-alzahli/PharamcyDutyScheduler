@@ -91,7 +91,7 @@ function isSelectionValidForYear(
 }
 
 export const RosterGenerator: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('employees');
+  const [activeTab, setActiveTab] = useState('staff');
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null); // 'pre-ramadan', 'ramadan', 'post-ramadan', or null for full month
@@ -198,7 +198,7 @@ export const RosterGenerator: React.FC = () => {
   // Reset active step when year/month are not selected
   useEffect(() => {
     if (!selectedYear || !selectedMonth) {
-      setActiveTab('employees');
+      setActiveTab('staff');
     }
   }, [selectedYear, selectedMonth]);
 
@@ -374,25 +374,25 @@ export const RosterGenerator: React.FC = () => {
   }, [rosterData?.employees]);
 
   const handleEmployeesChange = async (newData: any[]) => {
-    // Check for duplicate employee names
+    // Check for duplicate staff names (API field remains `employee`)
     const employeeNames = newData.map(emp => emp.employee?.trim()).filter(name => name);
     const duplicates = employeeNames.filter((name, index) => employeeNames.indexOf(name) !== index);
     
     if (duplicates.length > 0) {
       const uniqueDuplicates = Array.from(new Set(duplicates));
       setSaveNotification({ 
-        message: `❌ Duplicate employee names found: ${uniqueDuplicates.join(', ')}. Each employee must have a unique name.`,
+        message: `❌ Duplicate staff names found: ${uniqueDuplicates.join(', ')}. Each person must have a unique name.`,
         type: 'error'
       });
       setTimeout(() => setSaveNotification(null), 5000);
       return;
     }
 
-    // Check for empty employee names
+    // Check for empty names
     const emptyNames = newData.filter(emp => !emp.employee || !emp.employee.trim());
     if (emptyNames.length > 0) {
       setSaveNotification({ 
-        message: '❌ Employee names cannot be empty. Please enter a name for all employees.',
+        message: '❌ Staff names cannot be empty. Reload roster data if this persists.',
         type: 'error'
       });
       setTimeout(() => setSaveNotification(null), 5000);
@@ -418,18 +418,17 @@ export const RosterGenerator: React.FC = () => {
     // Delay the save - only save after user stops typing for 2 seconds
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        // Save employees permanently to backend
         await dataAPI.updateEmployees(newData);
         setRosterData({ ...rosterData, employees: newData });
         // Update initial reference to current data
         initialEmployeesRef.current = JSON.parse(JSON.stringify(newData));
         // Show success notification (auto-dismisses)
-        setSaveNotification({ message: '✅ Employees saved successfully!', type: 'success' });
+        setSaveNotification({ message: '✅ Staff skills saved successfully!', type: 'success' });
         setTimeout(() => setSaveNotification(null), 2000);
       } catch (error: any) {
-        console.error('Failed to save employees:', error);
+        console.error('Failed to save staff skills:', error);
         setSaveNotification({ 
-          message: `❌ ${error.response?.data?.detail || 'Failed to save employees'}`,
+          message: `❌ ${error.response?.data?.detail || 'Failed to save staff skills'}`,
           type: 'error'
         });
         setTimeout(() => setSaveNotification(null), 4000);
@@ -1105,9 +1104,9 @@ export const RosterGenerator: React.FC = () => {
 
   const steps = [
     {
-      id: 'employees',
-      name: 'Employees',
-      description: 'Add, edit, or remove staff members and their skills.',
+      id: 'staff',
+      name: 'Staff',
+      description: 'Edit skills and roster settings for each staff member. Add or remove people in User Management.',
     },
     {
       id: 'demands',
@@ -1362,13 +1361,15 @@ export const RosterGenerator: React.FC = () => {
           </aside>
 
           <div className="flex-1 md:pl-8 space-y-8 min-w-0" ref={contentRef}>
-          {/* Employees Tab */}
-          {activeTab === 'employees' && (
+          {/* Staff tab */}
+          {activeTab === 'staff' && (
             <div className="min-w-0">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">Employee Skills Management</h3>
-                  <p className="text-gray-600">Edit staff skills. To add new staff, create a Staff user in User Management.</p>
+                  <h3 className="text-xl font-bold text-gray-900">Staff skills</h3>
+                  <p className="text-gray-600">
+                    Edit skills and roster fields for each staff member. Add or remove people in User Management — rows cannot be deleted here.
+                  </p>
                 </div>
               </div>
               
@@ -1390,7 +1391,7 @@ export const RosterGenerator: React.FC = () => {
                   {/* Info Cards */}
                   <div className="grid grid-cols-4 gap-4 mb-6">
                     <div className="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
-                      <p className="text-sm text-gray-600 mb-1">Total Employees</p>
+                      <p className="text-sm text-gray-600 mb-1">Total staff</p>
                       <p className="text-2xl font-bold text-gray-900">{rosterData.employees.length}</p>
                     </div>
                     <div className="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
@@ -1419,7 +1420,7 @@ export const RosterGenerator: React.FC = () => {
                   <EditableTable
                     data={rosterData.employees}
                     columns={[
-                        { key: 'employee', label: 'Employee', type: 'text', readOnly: true },
+                        { key: 'employee', label: 'Staff', type: 'text', readOnly: true },
                         { key: 'skill_M', label: 'M', type: 'checkbox' },
                         { key: 'skill_IP', label: 'IP', type: 'checkbox' },
                         { key: 'skill_A', label: 'A', type: 'checkbox' },
@@ -1436,23 +1437,11 @@ export const RosterGenerator: React.FC = () => {
                     ]}
                     onDataChange={handleEmployeesChange}
                     draggable={true}
-                    onDeleteRow={async (index) => {
-                      const employeeToDelete = rosterData.employees[index];
-                      const newData = rosterData.employees.filter((_: any, i: number) => i !== index);
-                      try {
-                        // Delete from backend
-                        await dataAPI.deleteEmployee(employeeToDelete.employee);
-                        // Update local state
-                        await handleEmployeesChange(newData);
-                      } catch (error: any) {
-                        alert(error.response?.data?.detail || 'Failed to delete employee');
-                      }
-                    }}
                   />
                   </div>
                 </>
               ) : (
-                <p className="text-gray-600">No employees data available.</p>
+                <p className="text-gray-600">No staff data available. Add Staff users in User Management.</p>
               )}
             </div>
           )}
@@ -1543,7 +1532,7 @@ export const RosterGenerator: React.FC = () => {
                   }));
                 })()}
                   columns={[
-                  { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
+                  { key: 'employee', label: 'Staff', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
                     { key: 'to_date', label: 'To Date', type: 'text' },
                   { key: 'code', label: 'Code', type: 'select', options: leaveTypes.map(lt => lt.code) },
@@ -1985,7 +1974,7 @@ export const RosterGenerator: React.FC = () => {
                   }));
                 })()}
                   columns={[
-                  { key: 'employee', label: 'Employee', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
+                  { key: 'employee', label: 'Staff', type: 'select', options: rosterData?.employees?.map((e: any) => e.employee) || [] },
                     { key: 'from_date', label: 'From Date', type: 'text' },
                     { key: 'to_date', label: 'To Date', type: 'text' },
                     { key: 'shift', label: 'Shift', type: 'select', options: shiftTypes.length > 0 ? shiftTypes.filter(st => st.code !== 'O' && st.code !== 'DO').map(st => st.code) : [] },
@@ -2500,11 +2489,14 @@ const AddTimeOffForm: React.FC<{
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-      <h4 className="font-semibold mb-4">Add Leave Request</h4>
-      <div className="grid grid-cols-4 gap-4">
-        <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="px-3 py-2 border rounded">
-          {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
-        </select>
+      <h4 className="font-semibold mb-4">Add leave request</h4>
+      <div className="grid grid-cols-4 gap-4 items-end">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Staff</label>
+          <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="w-full px-3 py-2 border rounded">
+            {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+          </select>
+        </div>
         <CalendarDatePicker
           value={fromDate} 
           onChange={setFromDate}
@@ -2567,11 +2559,14 @@ const AddLockForm: React.FC<{
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-      <h4 className="font-semibold mb-4">Add Shift Request</h4>
-      <div className="grid grid-cols-5 gap-4">
-        <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="px-3 py-2 border rounded">
-          {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
-        </select>
+      <h4 className="font-semibold mb-4">Add shift request</h4>
+      <div className="grid grid-cols-5 gap-4 items-end">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Staff</label>
+          <select value={employee} onChange={(e) => setEmployee(e.target.value)} className="w-full px-3 py-2 border rounded">
+            {employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+          </select>
+        </div>
         <CalendarDatePicker
           value={fromDate} 
           onChange={setFromDate}

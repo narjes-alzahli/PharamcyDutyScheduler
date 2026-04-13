@@ -363,7 +363,7 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
             <thead>
               <tr className="bg-gray-100">
                 <th className="border border-black px-1 py-1 text-left font-bold sticky left-0 bg-gray-100 z-10 text-[10px]">
-                  Employee
+                  Staff
                 </th>
                 {dates.map(dateStr => {
                   const weekend = isWeekend(dateStr);

@@ -1216,7 +1216,7 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
     
     if (!newUserName || !newUserName.trim()) {
-      alert('Please enter an employee name');
+      alert('Please enter a display name for the user');
       return;
     }
     
@@ -1234,7 +1234,7 @@ export const UserManagement: React.FC = () => {
         staff_no: newUserStaffNo.trim() || undefined,
       });
       
-      setNotification({ message: '✅ User created successfully! Employee skills will be created automatically for Staff users.', type: 'success' });
+      setNotification({ message: '✅ User created successfully! Staff users get a roster skills profile automatically.', type: 'success' });
       setTimeout(() => setNotification(null), 3000);
       setNewUserName('');
       setNewUserPassword('');
@@ -1254,12 +1254,12 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
     
     if (!selectedEmployee) {
-      alert('Please select an employee');
+      alert('Please select a staff member');
       return;
     }
 
     if (!editingEmployeeName || !editingEmployeeName.trim()) {
-      setUsernameError('Employee name cannot be empty');
+      setUsernameError('Display name cannot be empty');
       return;
     }
 
@@ -1825,7 +1825,7 @@ export const UserManagement: React.FC = () => {
                         <SearchBar
                           searchTerm={leaveSearchTerm}
                           onSearchChange={setLeaveSearchTerm}
-                          placeholder="Search leave requests by employee, type, reason, or status..."
+                          placeholder="Search leave requests by staff name, type, reason, or status..."
                         />
                         <div className="overflow-x-auto mt-4">
                           <table ref={leaveTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
@@ -1833,8 +1833,8 @@ export const UserManagement: React.FC = () => {
                               <tr>
                                 <th key="employee" style={{ width: `${leaveWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
                                   <div className="flex items-center space-x-1">
-                                    <span>Employee</span>
-                                    <button onClick={() => handleLeaveSort('employee')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee">
+                                    <span>Staff</span>
+                                    <button onClick={() => handleLeaveSort('employee')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by staff name">
                                       {leaveSortConfig?.key === 'employee' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                                     </button>
                                   </div>
@@ -1988,14 +1988,14 @@ export const UserManagement: React.FC = () => {
                         <SearchBar
                           searchTerm={shiftSearchTerm}
                           onSearchChange={setShiftSearchTerm}
-                          placeholder="Search shift requests by employee, shift, reason, or status..."
+                          placeholder="Search shift requests by staff name, shift, reason, or status..."
                         />
                         <div className="overflow-x-auto mt-4">
                           <table ref={shiftTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
                             <thead className="bg-gray-50 sticky top-0 z-10">
                               <tr>
                                 <th key="employee" style={{ width: `${shiftWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
-                                  Employee
+                                  Staff
                                   <div onMouseDown={(e) => shiftHandleMouseDown(e, 'employee')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                                 </th>
                                 <th key="from_date" style={{ width: `${shiftWidths.from_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
@@ -2162,7 +2162,7 @@ export const UserManagement: React.FC = () => {
             <SearchBar
               searchTerm={leaveSearchTerm}
               onSearchChange={setLeaveSearchTerm}
-              placeholder="Search leave requests by employee, type, reason, or status..."
+              placeholder="Search leave requests by staff name, type, reason, or status..."
             />
             <div className="overflow-x-auto">
               <table ref={leaveTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
@@ -2170,8 +2170,8 @@ export const UserManagement: React.FC = () => {
                   <tr>
                     <th key="employee" style={{ width: `${leaveWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
                       <div className="flex items-center space-x-1">
-                        <span>Employee</span>
-                        <button onClick={() => handleLeaveSort('employee')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by employee">
+                        <span>Staff</span>
+                        <button onClick={() => handleLeaveSort('employee')} className="p-1 hover:bg-gray-200 rounded text-xs" title="Sort by staff name">
                           {leaveSortConfig?.key === 'employee' ? (leaveSortConfig?.direction === 'asc' ? '↑' : '↓') : '↕'}
                         </button>
                       </div>
@@ -2410,7 +2410,7 @@ export const UserManagement: React.FC = () => {
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th key="employee" style={{ width: `${shiftWidths.employee || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
-                      Employee
+                      Staff
                       <div onMouseDown={(e) => shiftHandleMouseDown(e, 'employee')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${shiftResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                     </th>
                     <th key="from_date" style={{ width: `${shiftWidths.from_date || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300 bg-gray-50">
@@ -2574,7 +2574,7 @@ export const UserManagement: React.FC = () => {
       {/* Display Current Users */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-bold text-gray-900">Employee User Accounts</h3>
+          <h3 className="text-xl font-bold text-gray-900">User accounts</h3>
           <button
             onClick={() => {
               setNewPassword('');
@@ -2610,8 +2610,8 @@ export const UserManagement: React.FC = () => {
                   </th>
                   <th key="employee_name" style={{ width: `${usersWidths.employee_name || 200}px`, maxWidth: `${usersWidths.employee_name || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="flex items-center space-x-1 truncate">
-                      <span className="truncate">Employee Name</span>
-                      <button onClick={() => handleUsersSort('employee_name')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by employee name">
+                      <span className="truncate">Display name</span>
+                      <button onClick={() => handleUsersSort('employee_name')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by display name">
                         {usersSortConfig?.key === 'employee_name' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
                       </button>
                     </div>
@@ -2628,8 +2628,8 @@ export const UserManagement: React.FC = () => {
                   </th>
                   <th key="employee_type" style={{ width: `${usersWidths.employee_type || 200}px`, maxWidth: `${usersWidths.employee_type || 200}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="flex items-center space-x-1 truncate">
-                      <span className="truncate">Employee Type</span>
-                      <button onClick={() => handleUsersSort('employee_type')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by employee type">
+                      <span className="truncate">Role</span>
+                      <button onClick={() => handleUsersSort('employee_type')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by role">
                         {usersSortConfig?.key === 'employee_type' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
                       </button>
                     </div>
@@ -2752,7 +2752,7 @@ export const UserManagement: React.FC = () => {
             <form onSubmit={handleUpdateUser}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Employee Name
+                  Display name
                 </label>
                 <input
                   type="text"
@@ -2818,7 +2818,7 @@ export const UserManagement: React.FC = () => {
 
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Employee Type
+                  Role
                 </label>
                 <select
                   value={employeeType}
@@ -2844,7 +2844,7 @@ export const UserManagement: React.FC = () => {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     placeholder="0"
                   />
-                  <p className="mt-2 text-xs text-gray-500">Number of pending off days for this employee</p>
+                  <p className="mt-2 text-xs text-gray-500">Number of pending off days for this staff member</p>
                 </div>
               )}
 
@@ -2889,14 +2889,14 @@ export const UserManagement: React.FC = () => {
             <form onSubmit={handleCreateUser}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Employee Name
+                  Display name
                 </label>
                 <input
                   type="text"
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="Enter employee name"
+                  placeholder="Name shown on the roster"
                   autoFocus
                   required
                 />
@@ -2935,7 +2935,7 @@ export const UserManagement: React.FC = () => {
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Employee Type
+                  Role
                 </label>
                 <select
                   value={newUserType}
@@ -2948,7 +2948,7 @@ export const UserManagement: React.FC = () => {
                 </select>
                 {newUserType === 'Staff' && (
                   <p className="mt-2 text-xs text-gray-500">
-                    Staff users will automatically get employee skills with default values.
+                    Staff accounts automatically get a roster skills profile (shift eligibility, etc.).
                   </p>
                 )}
               </div>

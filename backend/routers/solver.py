@@ -84,8 +84,11 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             
-            # Save employees
-            roster_data['employees'].to_csv(temp_path / "employees.csv", index=False)
+            # Save employees (strip internal keys not expected by roster CSV schema)
+            emp_df = roster_data["employees"].copy()
+            if "user_id" in emp_df.columns:
+                emp_df = emp_df.drop(columns=["user_id"])
+            emp_df.to_csv(temp_path / "employees.csv", index=False)
             
             # Determine date range for filtering
             if request.start_date and request.end_date:
@@ -355,15 +358,16 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 leave_codes_set = set(leave_codes)
                 leave_codes_set.update(non_standard_shift_codes)
                 leave_codes = list(leave_codes_set)
-            except Exception as e:
-                # Fallback to default codes if database query fails
-                # DO is a leave code (from leave_types table), only assigned when requested in time off
-                leave_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
-                rest_codes = ["O"]  # DO is a leave type, not a rest code
-                working_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
-                # DO is in leave_codes, so it will be available when requested, but not in all_shift_codes for automatic assignment
-                all_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "O"]
-                print(f"Warning: Failed to load shift/leave types from database: {e}. Using defaults.")
+
+                if not all_shift_codes:
+                    raise RuntimeError(
+                        "No active shift types matched the standard working set and 'O'. "
+                        "Check shift_types in the database."
+                    )
+                if not leave_codes:
+                    raise RuntimeError(
+                        "No active leave types in the database. Add leave types before solving."
+                    )
             finally:
                 db.close()
             

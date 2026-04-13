@@ -519,7 +519,7 @@ export const RulesManagement: React.FC = () => {
 
             {/* Single Skill Employees */}
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-gray-900 mb-3">Employees with One Skill</h4>
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Staff with one skill</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>Work Sunday through Thursday, rest on Friday and Saturday</li>
                 <li>This can be changed if needed (e.g., for time off or special assignments)</li>

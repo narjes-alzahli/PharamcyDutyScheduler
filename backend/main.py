@@ -133,6 +133,23 @@ app.include_router(leave_types.router, prefix="/api/leave-types", tags=["leave-t
 app.include_router(shift_types.router, prefix="/api/shift-types", tags=["shift-types"])
 
 
+@app.on_event("startup")
+async def _sync_staff_employee_skills_on_startup():
+    """Ensure every STAFF user has a linked EmployeeSkills row (and names match)."""
+    from backend.database import SessionLocal
+    from backend.user_employee_sync import ensure_staff_employee_skills
+
+    db = SessionLocal()
+    try:
+        ensure_staff_employee_skills(db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 @app.get("/")
 @limiter.limit("1000/minute")
 async def root(request: Request):

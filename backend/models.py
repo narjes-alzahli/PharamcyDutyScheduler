@@ -36,6 +36,7 @@ class User(Base):
     # Relationships
     leave_requests = relationship("LeaveRequest", back_populates="user", cascade="all, delete-orphan")
     shift_requests = relationship("ShiftRequest", back_populates="user", cascade="all, delete-orphan")
+    committed_schedules = relationship("CommittedSchedule", back_populates="user")
 
 
 class LeaveType(Base):
@@ -124,7 +125,7 @@ class EmployeeSkills(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, unique=True, index=True)  # Link to user account
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     skill_M = Column(Boolean, default=True)
     skill_IP = Column(Boolean, default=True)
     skill_A = Column(Boolean, default=True)
@@ -175,20 +176,29 @@ class Demand(Base):
 
 
 class CommittedSchedule(Base):
-    """Committed schedule model - final schedules that have been committed."""
+    """Committed schedule model - final schedules that have been committed.
+
+    ``user_id`` links each row to the staff account (stable across display-name changes).
+    ``employee_name`` is denormalized for exports and legacy queries; prefer resolving display
+    names via ``user`` when present.
+    """
     __tablename__ = "committed_schedules"
 
     id = Column(Integer, primary_key=True, index=True)
     year = Column(Integer, nullable=False, index=True)
     month = Column(Integer, nullable=False, index=True)
     employee_name = Column(String, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     date = Column(Date, nullable=False, index=True)
     shift = Column(String, nullable=False)  # Shift code (M, IP, A, N, etc.)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # Unique constraint: one schedule entry per employee-date combination
-    __table_args__ = (UniqueConstraint('year', 'month', 'employee_name', 'date', name='uq_schedule_entry'),)
+    user = relationship("User", back_populates="committed_schedules")
+
+    # Uniqueness is enforced in the database via partial unique indexes (see Alembic migration):
+    #   (year, month, user_id, date) WHERE user_id IS NOT NULL
+    #   (year, month, employee_name, date) WHERE user_id IS NULL
 
 
 class ScheduleMetrics(Base):

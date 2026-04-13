@@ -100,7 +100,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                 <p className="text-2xl font-bold">{totalAssignments}</p>
               </div>
               <div className="bg-gray-50 p-4 rounded">
-                <p className="text-sm text-gray-600">Employees</p>
+                <p className="text-sm text-gray-600">Staff</p>
                 <p className="text-2xl font-bold">{uniqueEmployees}</p>
               </div>
               <div className="bg-gray-50 p-4 rounded">
@@ -162,7 +162,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                     },
                   ]}
                   layout={{
-                    xaxis: { title: 'Employee' },
+                    xaxis: { title: 'Staff' },
                     yaxis: { title: 'Pending Off Days' },
                     height: 200,
                     margin: { l: 50, r: 10, t: 10, b: 60 },

@@ -34,7 +34,7 @@ export const EmployeeLegend: React.FC<EmployeeLegendProps> = ({
 
   return (
     <div className={`rounded-lg border border-gray-200 bg-white p-2 ${className}`}>
-      <h4 className="text-xs font-semibold text-gray-800 mb-2">Employees</h4>
+      <h4 className="text-xs font-semibold text-gray-800 mb-2">Staff</h4>
       <div className="max-h-32 overflow-y-auto">
         <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-1.5">
           {sortedEmployees.map((emp) => {

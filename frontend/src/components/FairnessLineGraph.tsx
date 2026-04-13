@@ -183,7 +183,7 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
       height: 500,
       margin: { l: 60, r: 20, t: 60, b: 150 }, // Increased bottom margin for better label visibility
       xaxis: {
-        title: 'Employee',
+        title: 'Staff',
         tickangle: -90, // Vertical labels for better readability
         tickfont: { size: 11 },
         automargin: true, // Automatically adjust margins
