@@ -103,15 +103,11 @@ def add_skill_constraints(
         
         for day in dates:
             # Restrict to CL-only: if CL is the only skill, employee can only work CL shifts
-            has_cl_skill = employee_skills.get("CL", False)
-            has_other_skills = any(
+            if employee_skills.get("CL", False) and not any(
                 employee_skills.get(shift, False)
                 for shift in working_shifts
                 if shift != "CL"
-            )
-            cl_only = has_cl_skill and not has_other_skills
-            
-            if cl_only:
+            ):
                 # Can only work CL
                 for shift_type in working_shifts:
                     if shift_type != "CL" and (employee, day, shift_type) in x:

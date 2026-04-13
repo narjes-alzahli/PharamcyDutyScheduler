@@ -258,14 +258,11 @@ class RosterScoring:
         non_clinicians = []
         for emp in employees:
             emp_skills = skills.get(emp, {})
-            has_cl_skill = emp_skills.get("CL", False)
-            has_other_skills = any(
+            if not emp_skills.get("CL", False) or any(
                 emp_skills.get(shift, False)
                 for shift in _DEFAULT_STANDARD_SHIFTS_LIST
                 if shift != "CL"
-            )
-            cl_only = has_cl_skill and not has_other_skills
-            if not cl_only:
+            ):
                 non_clinicians.append(emp)
         
         if len(non_clinicians) < 2:
