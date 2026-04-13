@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { requestsAPI, leaveTypesAPI, LeaveType } from '../services/api';
+import { requestsAPI, leaveTypesAPI, shiftTypesAPI, LeaveType, ShiftType } from '../services/api';
 import { Pagination } from '../components/Pagination';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { CalendarDatePicker } from '../components/CalendarDatePicker';
@@ -37,6 +37,7 @@ export const RosterRequests: React.FC = () => {
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   
   // Pagination state
   const [leavePage, setLeavePage] = useState(1);
@@ -63,6 +64,7 @@ export const RosterRequests: React.FC = () => {
     if (!authLoading) {
     loadRequests();
       loadLeaveTypes();
+      loadShiftTypes();
     // Set default dates: from date = today, to date = 7 days from today
     const today = new Date();
     const todayYYYYMMDD = today.toISOString().split('T')[0];
@@ -107,6 +109,19 @@ export const RosterRequests: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load leave types:', error);
+    }
+  };
+
+  const loadShiftTypes = async () => {
+    try {
+      const types = await shiftTypesAPI.getShiftTypes(true); // Only active types
+      const requestableShiftTypes = types.filter(t => t.code !== 'O' && t.code !== 'DO');
+      setShiftTypes(requestableShiftTypes);
+      if (requestableShiftTypes.length > 0 && !requestableShiftTypes.some(t => t.code === shiftType)) {
+        setShiftType(requestableShiftTypes[0].code);
+      }
+    } catch (error) {
+      console.error('Failed to load shift types:', error);
     }
   };
 
@@ -172,7 +187,8 @@ export const RosterRequests: React.FC = () => {
     const nextWeekYYYYMMDD = nextWeek.toISOString().split('T')[0];
     setShiftFromDate(todayYYYYMMDD);
     setShiftToDate(nextWeekYYYYMMDD);
-    setShiftType('M');
+    const defaultShift = shiftTypes.find(st => st.code === 'M')?.code || shiftTypes[0]?.code || 'M';
+    setShiftType(defaultShift);
     setRequestType('Must');
     setShiftReason('');
     setEditingShiftId(null);
@@ -800,16 +816,11 @@ export const RosterRequests: React.FC = () => {
                       onChange={(e) => setShiftType(e.target.value)}
                       className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
-                      <option value="M">M - Main</option>
-                      <option value="IP">IP - Inpatient</option>
-                      <option value="A">A - Afternoon</option>
-                      <option value="N">N - Night</option>
-                      <option value="M3">M3 - M3</option>
-                      <option value="M4">M4 - M4</option>
-                      <option value="H">H - Harat</option>
-                      <option value="CL">CL - Clinic</option>
-                      <option value="MS">MS - Medical Store</option>
-                      <option value="C">C - Course</option>
+                      {shiftTypes.map((st) => (
+                        <option key={st.code} value={st.code}>
+                          {st.code} - {st.description || st.code}
+                        </option>
+                      ))}
                     </select>
                   </div>
 

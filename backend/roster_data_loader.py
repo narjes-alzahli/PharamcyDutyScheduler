@@ -156,6 +156,8 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
     locks_records = []
     # Also collect non-standard shift requests to add as time_off (direct assignments)
     non_standard_shift_records = []
+    # AS requests are preference-only input for solver objective (not locks/time_off)
+    as_preferences = []
     
     # Track seen locks to prevent duplicates (use employee, dates, shift, force as key)
     seen_locks = set()
@@ -185,6 +187,26 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
             continue
         seen_locks.add(lock_key)
         
+        # AS is a special shift request that only affects solver preferences.
+        if shift_code == "AS" and shift.force:
+            as_preferences.append({
+                "employee": shift.user.employee_name,
+                "from_date": shift.from_date,
+                "to_date": shift.to_date,
+            })
+            # Keep AS visible in Requests UI as an approved shift request row.
+            # Solver ignores AS from locks and uses `as_preferences` only.
+            locks_records.append({
+                'employee': shift.user.employee_name,
+                'from_date': shift.from_date,
+                'to_date': shift.to_date,
+                'shift': shift_code,
+                'force': shift.force,
+                'request_id': f"SR_{shift.id}",
+                'reason': shift.reason
+            })
+            continue
+
         # Non-standard shifts with force=True need special handling:
         # - Go to locks (for UI display in "Locks" tab)
         # - Also go to time_off (for solver as direct assignments)
@@ -257,7 +279,8 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
     return {
         'employees': employees_df,
         'time_off': time_off_df,
-        'locks': locks_df
+        'locks': locks_df,
+        'as_preferences': as_preferences
     }
 
 

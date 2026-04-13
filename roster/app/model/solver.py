@@ -114,7 +114,8 @@ class RosterSolver:
             leave_codes=leave_codes_set,
             locks=locks,
             working_shift_codes=working_shift_codes,
-            previous_period_shifts=getattr(data, "previous_period_shifts", None)
+            previous_period_shifts=getattr(data, "previous_period_shifts", None),
+            as_preferences=getattr(data, "as_preferences", None),
         )
         
         # Solve

@@ -93,6 +93,16 @@ class SpecialRequirement(BaseModel):
         populate_by_name = True
 
 
+class ASPreference(BaseModel):
+    """Adaptive-shift preference request (preference only, not lock/time off)."""
+    employee: str
+    from_date: date = Field(alias="from_date")
+    to_date: date = Field(alias="to_date")
+
+    class Config:
+        populate_by_name = True
+
+
 def canonicalize_schedule_code(raw: Any, allowed: Optional[Set[str]]) -> str:
     """Map a raw code to canonical spelling: strip whitespace, then case-insensitive match to ``allowed``.
 
@@ -192,6 +202,13 @@ def parse_holidays_dataframe(df: Optional[pd.DataFrame]) -> Dict[date, str]:
     return out
 
 
+def parse_as_preferences(raw: Optional[List[Dict[str, Any]]]) -> List[ASPreference]:
+    """Parse AS preference entries from backend payload."""
+    if not raw:
+        return []
+    return [ASPreference(**row) for row in raw]
+
+
 class RosterData:
     """Main data container for roster inputs."""
     
@@ -207,6 +224,7 @@ class RosterData:
         self.leave_dict: Dict[Tuple[str, date], str] = {}
         self.special_requirements_dict: Dict[Tuple[str, date, str], bool] = {}
         self.holidays_dict: Dict[date, str] = {}  # Separate holidays dict for pending_off calculation
+        self.as_preferences: List[ASPreference] = []
         # [HISTORY_AWARE_FAIRNESS] Assignment history for fairness calculations
         self.history_counts: Dict[str, Dict[str, int]] = None
         # Previous committed-period shifts for boundary carry-over rules
@@ -222,6 +240,7 @@ class RosterData:
         time_off: Optional[pd.DataFrame] = None,
         locks: Optional[pd.DataFrame] = None,
         holidays_dict: Optional[Dict[date, str]] = None,
+        as_preferences: Optional[List[Dict[str, Any]]] = None,
         data_dir: Optional[Path] = None,
     ) -> "RosterData":
         """Build RosterData from in-memory frames (same parsing as CSV load_data)."""
@@ -231,6 +250,7 @@ class RosterData:
         inst.leave = parse_leave_dataframe(time_off)
         inst.special_requirements = parse_locks_dataframe(locks)
         inst.holidays_dict = dict(holidays_dict) if holidays_dict else {}
+        inst.as_preferences = parse_as_preferences(as_preferences)
         inst._build_dictionaries()
         return inst
         
@@ -441,7 +461,8 @@ class RosterConfig:
             "sequence_preference_miss": 1500.0,  # A/N/M4 preferred follow-up not used
             "sequence_fallback_miss": 4000.0,  # A/N/M4 acceptable fallback also not met
             "do_after_n": 1.0,
-            "a_to_n_penalty": 5.0
+            "a_to_n_penalty": 5.0,
+            "as_preference": 1000.0,
         }
         self.rest_codes = {"O"}  # DO is a leave type, not a rest code
         self.leave_codes = []  # Will be populated from config file (includes DO from leave_types table)

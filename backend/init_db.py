@@ -204,6 +204,13 @@ def init_db():
                 is_active=True
             ),
             ShiftType(
+                code="AS",
+                description="All Shifts",
+                color_hex="#c4b5fd",
+                is_working_shift=True,
+                is_active=True
+            ),
+            ShiftType(
                 code="O",
                 description="Off Duty",
                 color_hex="#ffffff",

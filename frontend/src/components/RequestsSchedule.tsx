@@ -17,7 +17,7 @@ interface RequestsScheduleProps {
 }
 
 // Standard working shifts that go to locks
-const STANDARD_SHIFT_CODES = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'IP+P', 'P', 'M+P']);
+const STANDARD_SHIFT_CODES = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'IP+P', 'P', 'M+P', 'AS']);
 
 export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   year,
@@ -619,12 +619,13 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
       cellRequestId.startsWith('LR_') || cellRequestId.startsWith('SR_')
     );
     
-    // If cell has an approved request, check if it's actually approved
+    // If cell has an approved request, check if it's actually approved.
+    // Manager-added roster-generator requests should remain directly editable.
     let approvedRequestInfo: { requestId: string; employee: string; type: 'leave' | 'shift' } | null = null;
     if (hasApprovedRequest && cellRequestId) {
       if (cellRequestId.startsWith('LR_')) {
         const req = allLeaveRequests.find(r => r.request_id === cellRequestId);
-        if (req && req.status === 'Approved') {
+        if (req && req.status === 'Approved' && req.reason !== 'Added via Roster Generator') {
           approvedRequestInfo = {
             requestId: cellRequestId,
             employee: req.employee || employee,
@@ -633,7 +634,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         }
       } else if (cellRequestId.startsWith('SR_')) {
         const req = allShiftRequests.find(r => r.request_id === cellRequestId);
-        if (req && req.status === 'Approved') {
+        if (req && req.status === 'Approved' && req.reason !== 'Added via Roster Generator') {
           approvedRequestInfo = {
             requestId: cellRequestId,
             employee: req.employee || employee,

@@ -7,6 +7,8 @@ from ortools.sat.python import cp_model
 # Default standard working shifts (fallback when demands don't include all shifts)
 # These should match what's in the database - updated when standard shifts change
 _DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+_AS_RANGE_SHIFTS = {"A", "N", "M4", "E"}
+_AS_OUTSIDE_RANGE_SHIFTS = {"M", "M3", "IP"}
 
 
 class RosterScoring:
@@ -29,7 +31,8 @@ class RosterScoring:
         leave_codes: Optional[Set[str]] = None,
         locks: Optional[Dict[Tuple[str, date, str], bool]] = None,
         working_shift_codes: Optional[List[str]] = None,
-        previous_period_shifts: Optional[Dict[Tuple[str, date], str]] = None
+        previous_period_shifts: Optional[Dict[Tuple[str, date], str]] = None,
+        as_preferences: Optional[List[Any]] = None,
     ) -> None:
         """Add objective function to minimize penalties.
         
@@ -99,12 +102,74 @@ class RosterScoring:
         )
         if fairness_vars:
             objectives.append(sum(fairness_vars) * self.weights.get("fairness", 5.0))
+
+        as_preference_vars = self._add_as_preference_variables(
+            model, x, dates, as_preferences
+        )
+        if as_preference_vars:
+            objectives.append(sum(as_preference_vars) * self.weights.get("as_preference", 1000.0))
         
         # DO after N preference removed - DO is now only assigned when requested in time off
         # (No longer preferring DO after N shifts)
         
         if objectives:
             model.Minimize(sum(objectives))
+
+    def _add_as_preference_variables(
+        self,
+        model: cp_model.CpModel,
+        x: Dict[Tuple[str, date, str], cp_model.IntVar],
+        dates: List[date],
+        as_preferences: Optional[List[Any]] = None,
+    ) -> List[cp_model.IntVar]:
+        """Add penalty vars for AS preference ranges.
+
+        Inside AS range -> prefer {A, N, M4, E}
+        Outside AS range (same request month) -> prefer {M, M3, IP}
+        """
+        if not as_preferences:
+            return []
+
+        date_set = set(dates)
+        emp_month_ranges: Dict[Tuple[str, int, int], Set[date]] = {}
+        for pref in as_preferences:
+            if isinstance(pref, dict):
+                employee = pref.get("employee")
+                from_date = pref.get("from_date")
+                to_date = pref.get("to_date")
+            else:
+                employee = getattr(pref, "employee", None)
+                from_date = getattr(pref, "from_date", None)
+                to_date = getattr(pref, "to_date", None)
+            if not employee or not from_date or not to_date:
+                continue
+            month_key = (employee, from_date.year, from_date.month)
+            if month_key not in emp_month_ranges:
+                emp_month_ranges[month_key] = set()
+            current = from_date
+            while current <= to_date:
+                if current.year == from_date.year and current.month == from_date.month:
+                    emp_month_ranges[month_key].add(current)
+                current += timedelta(days=1)
+
+        misses: List[cp_model.IntVar] = []
+        for (emp, year, month), inside_range_days in emp_month_ranges.items():
+            for day in dates:
+                if day.year != year or day.month != month or day not in date_set:
+                    continue
+
+                preferred_shifts = _AS_RANGE_SHIFTS if day in inside_range_days else _AS_OUTSIDE_RANGE_SHIFTS
+                preferred_vars = [x[(emp, day, s)] for s in preferred_shifts if (emp, day, s) in x]
+                if not preferred_vars:
+                    continue
+
+                preferred_assigned = model.NewIntVar(0, 1, f"as_pref_assigned_{emp}_{day}")
+                model.Add(preferred_assigned == sum(preferred_vars))
+                miss = model.NewBoolVar(f"as_pref_miss_{emp}_{day}")
+                model.Add(miss + preferred_assigned == 1)
+                misses.append(miss)
+
+        return misses
     
     def _add_unfilled_coverage_variables(
         self,

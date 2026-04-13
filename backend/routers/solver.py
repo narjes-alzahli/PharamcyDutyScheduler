@@ -372,7 +372,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     "unfilled_coverage": getattr(request, "unfilled_penalty", None) or 1000.0,
                     "fairness": request.fairness_weight,
                     "rest_after_shift": 4000.0,
-                    "do_after_n": 1.0
+                    "do_after_n": 1.0,
+                    "as_preference": 1000.0,
                 },
                 "rest_codes": rest_codes,
                 "leave_codes": leave_codes,  # All active leave codes for the solver
@@ -406,6 +407,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 time_off=time_off_for_solver if not time_off_for_solver.empty else None,
                 locks=locks_df if not locks_df.empty else None,
                 holidays_dict=holidays_for_csv if holidays_for_csv else None,
+                as_preferences=roster_data.get("as_preferences", []),
                 data_dir=temp_path,
             )
             data.previous_period_shifts = prev_period_shifts or {}

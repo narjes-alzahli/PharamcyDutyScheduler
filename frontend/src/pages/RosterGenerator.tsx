@@ -220,10 +220,12 @@ export const RosterGenerator: React.FC = () => {
     }
   }, [jobId, solving]);
 
-  const loadRosterData = async (retryCount = 0): Promise<void> => {
+  const loadRosterData = async (retryCount = 0, silent = false): Promise<void> => {
     const maxRetries = 2;
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       const data = await dataAPI.getRosterData();
       
       // Log request_ids for debugging
@@ -238,7 +240,7 @@ export const RosterGenerator: React.FC = () => {
       if (error.response?.status === 500 && retryCount < maxRetries) {
         console.log(`Retrying loadRosterData (attempt ${retryCount + 1}/${maxRetries})...`);
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
-        return loadRosterData(retryCount + 1);
+        return loadRosterData(retryCount + 1, silent);
       }
       
       // Show user-friendly error message only on final failure
@@ -249,7 +251,9 @@ export const RosterGenerator: React.FC = () => {
         // The user can manually retry by navigating away and back
       }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -538,7 +542,9 @@ export const RosterGenerator: React.FC = () => {
           );
           
           // Check if reason indicates it's a Roster Generator request
-          const isRosterGeneratorRequest = item.reason === 'Added via Roster Generator' || !item.reason;
+          // Only auto-edit requests that were created by the roster generator.
+          // Employee-submitted approved requests (often with empty reason) must not be auto-updated.
+          const isRosterGeneratorRequest = item.reason === 'Added via Roster Generator';
           
           if (hasRequestId && isRosterGeneratorRequest) {
             // This is an existing request - if it's a range, use it directly
@@ -571,6 +577,10 @@ export const RosterGenerator: React.FC = () => {
                 });
               }
             });
+          } else if (hasRequestId && !isRosterGeneratorRequest) {
+            // Keep employee-submitted approved requests untouched during admin auto-save.
+            // They are already persisted server-side and should not be re-created.
+            return;
           } else {
             // New request (no request_id) - will be created as a range
             leaveRequestsToCreate.push(item);
@@ -818,7 +828,7 @@ export const RosterGenerator: React.FC = () => {
         const hadUpdates = hadSuccessfulUpdates || leaveRequestsToCreateClean.length > 0;
         if (hadUpdates) {
           console.log('🔄 Reloading roster data to sync with server...');
-          await loadRosterData();
+          await loadRosterData(0, false);
           console.log('✅ Roster data reloaded, UI should now reflect saved dates');
         } else {
           console.log('⏭️ No updates made, skipping reload');
@@ -831,7 +841,7 @@ export const RosterGenerator: React.FC = () => {
         });
         setTimeout(() => setSaveNotification(null), 4000);
         // Reload on error to get correct state from server
-        await loadRosterData();
+        await loadRosterData(0, false);
       } finally {
         isSavingTimeOffRef.current = false;
       }
@@ -880,13 +890,16 @@ export const RosterGenerator: React.FC = () => {
             lock.request_id.toString().trim() !== ''
           );
           
-          if (hasRequestId && (lock.reason === 'Added via Roster Generator' || !lock.reason)) {
+          if (hasRequestId && lock.reason === 'Added via Roster Generator') {
             // This is an edit - group by request_id
             const reqId = lock.request_id.toString();
             if (!locksByRequestId.has(reqId)) {
               locksByRequestId.set(reqId, []);
             }
             locksByRequestId.get(reqId)!.push(lock);
+          } else if (hasRequestId) {
+            // Existing non-roster-generator request: keep as-is and do not upsert.
+            return;
           } else {
             // This is a new lock - will be created via updateLocks
             locksToCreate.push(lock);
@@ -997,7 +1010,7 @@ export const RosterGenerator: React.FC = () => {
         setTimeout(() => setSaveNotification(null), 2000);
         
         // Reload data to get updated request_ids - CRITICAL for future edits
-        await loadRosterData();
+        await loadRosterData(0, false);
         await loadAllShiftRequests();
       } catch (error: any) {
         console.error('Failed to save shift requests:', error);
@@ -1007,7 +1020,7 @@ export const RosterGenerator: React.FC = () => {
         });
         setTimeout(() => setSaveNotification(null), 4000);
         // Reload on error to get correct state from server
-        await loadRosterData();
+        await loadRosterData(0, false);
       }
     }, 800);
   };
@@ -1043,7 +1056,7 @@ export const RosterGenerator: React.FC = () => {
       setTimeout(() => setSaveNotification(null), 2000);
       
       // Reload data to get the new request_id
-      await loadRosterData();
+      await loadRosterData(0, false);
     } catch (error: any) {
       console.error('Failed to add leave request:', error);
       setSaveNotification({
