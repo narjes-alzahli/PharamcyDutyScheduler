@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { schedulesAPI, Schedule, dataAPI } from '../services/api';
+import { schedulesAPI, Schedule, dataAPI, shiftTypesAPI, leaveTypesAPI } from '../services/api';
+import { buildMyWorkingShiftsIcs } from '../utils/rosterCalendarIcs';
 import { ScheduleTable } from '../components/ScheduleTable';
 import * as htmlToImage from 'html-to-image';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +37,8 @@ export const AllRostersPage: React.FC = () => {
   const [viewing, setViewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [calendarExporting, setCalendarExporting] = useState(false);
+  const [calendarExportError, setCalendarExportError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -44,6 +47,7 @@ export const AllRostersPage: React.FC = () => {
   const scheduleCardRef = useRef<HTMLDivElement>(null);
   const scheduleImageRef = useRef<HTMLDivElement>(null);
   const isManager = user?.employee_type === 'Manager';
+  const isStaff = user?.employee_type === 'Staff';
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -827,6 +831,60 @@ export const AllRostersPage: React.FC = () => {
 
   const monthSchedule = getMonthSchedule();
 
+  const handleDownloadMyCalendar = async () => {
+    if (!user?.employee_name || !selectedYear || !selectedMonth) return;
+    setCalendarExporting(true);
+    setCalendarExportError(null);
+    try {
+      const [shiftTypes, leaveTypes] = await Promise.all([
+        shiftTypesAPI.getShiftTypes(true),
+        leaveTypesAPI.getLeaveTypes(true),
+      ]);
+      const workingShiftCodes = new Set(
+        shiftTypes.filter((st) => st.is_working_shift).map((st) => st.code),
+      );
+      const leaveCodes = new Set(leaveTypes.map((lt) => lt.code));
+      const scheduleTitle =
+        currentPeriod === 'pre-ramadan'
+          ? `February ${selectedYear} (Pre-Ramadan)`
+          : currentPeriod === 'ramadan'
+            ? `Ramadan ${selectedYear}`
+            : currentPeriod === 'post-ramadan'
+              ? `March ${selectedYear} (Post-Ramadan)`
+              : `${monthNames[selectedMonth - 1]} ${selectedYear}`;
+      const { ics, eventCount } = buildMyWorkingShiftsIcs({
+        entries: monthSchedule as { employee: string; date: string; shift: string }[],
+        employeeName: user.employee_name,
+        workingShiftCodes,
+        leaveCodes,
+        calendarTitle: `My shifts — ${scheduleTitle}`,
+      });
+      if (eventCount === 0) {
+        setCalendarExportError(
+          'No working shifts in this period for your name on the roster.',
+        );
+        return;
+      }
+      const blob = new Blob(['\ufeff', ics], {
+        type: 'text/calendar;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safePeriod = (currentPeriod || `m${selectedMonth}`).replace(/[^a-z0-9]+/gi, '-');
+      link.download = `my-roster-${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${safePeriod}.ics`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to build calendar file.';
+      setCalendarExportError(msg);
+    } finally {
+      setCalendarExporting(false);
+    }
+  };
+
   // Calculate metrics
   const calculateMetrics = () => {
     if (!monthSchedule.length) return null;
@@ -1183,27 +1241,45 @@ export const AllRostersPage: React.FC = () => {
                         </button>
                       </>
                     ) : (
-                      <div className="flex gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <button
                           onClick={handleViewImage}
-                          disabled={viewing || downloading}
+                          disabled={viewing || downloading || calendarExporting}
                           className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
                           {viewing ? 'Preparing...' : 'View Schedule'}
                         </button>
                         <button
                           onClick={handleDownloadImage}
-                          disabled={viewing || downloading}
+                          disabled={viewing || downloading || calendarExporting}
                           className="px-4 py-2 bg-red-600 text-white font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors hover:bg-red-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
                           {downloading ? 'Preparing...' : 'Download'}
                         </button>
+                        {isStaff && (
+                          <button
+                            type="button"
+                            onClick={handleDownloadMyCalendar}
+                            disabled={
+                              calendarExporting ||
+                              viewing ||
+                              downloading ||
+                              !monthSchedule.length
+                            }
+                            className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition-colors hover:bg-emerald-700 disabled:opacity-70 disabled:cursor-not-allowed"
+                          >
+                            {calendarExporting ? 'Preparing...' : 'Add to my calendar'}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
                 </div>
                 {downloadError && (
                   <p className="mb-3 text-sm text-red-600">{downloadError}</p>
+                )}
+                {calendarExportError && (
+                  <p className="mb-3 text-sm text-red-600">{calendarExportError}</p>
                 )}
                 <div ref={scheduleImageRef} style={{ overflow: 'visible' }}>
                   <ScheduleTable
