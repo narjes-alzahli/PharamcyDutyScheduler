@@ -99,15 +99,14 @@ Default UI: `http://localhost:3333` (see `frontend/.env` for `PORT` and `REACT_A
 **Goal:** Users open a real website; the API runs as a stable process (not your laptop).
 
 1. **Path:** `/opt/apps/PharamcyDutyScheduler_tailwind`
-2. **`.env`:** Ensure root `.env` and `frontend/.env` exist (copy from `.env.example` in each place). Fix `DATABASE_URL`, `BACKEND_PORT`, `REACT_APP_API_URL`. Restart the API after changing anything it reads only at startup.
-3. **Reload Backend:** After Python / API / solver changes, backend usually reloads automatically. Or you can restart the API manually in a shell:
+2. **`.env`:** Copy **`.env.example` → `.env`** in the **repo root** and again under **`frontend/`**. For production, use the **PRODUCTION** sections in those files (what to set for `DATABASE_URL`, `REACT_APP_API_URL`, etc.)—they are not the same as local dev.
+3. **Backend:** If you changed **Python code**, the **HTTP API**, the **solver**, **database** settings, or anything else, usually the backend auto-reloads, but you can manually restart the service:
 
 ```bash
-cd /opt/apps/PharamcyDutyScheduler_tailwind
-source .venv/bin/activate
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 #or: python run_backend.py
+sudo systemctl restart dawamiplus-backend.service
 ```
 
+Only run `sudo systemctl daemon-reload` if you edited a file under `/etc/systemd/system/`.
 
 4. **Rebuild Frontend:** Rebuild static files after React / UI changes
 
