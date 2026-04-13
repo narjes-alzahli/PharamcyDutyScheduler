@@ -1,14 +1,12 @@
 #!/bin/bash
-# Setup Python virtual environment and install dependencies
+# Create .venv if missing and install dependencies from requirements.txt
 
-# Create venv if it doesn't exist
-[ ! -d "scheduler_env" ] && python3 -m venv scheduler_env
+[ ! -d ".venv" ] && python3 -m venv .venv
 
-# Activate venv
-source scheduler_env/bin/activate
+source .venv/bin/activate
 
-# Install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo "✅ Environment ready! Run: python run_backend.py"
+echo "✅ Environment ready! Activate later with: source .venv/bin/activate"
+echo "   Then run: python run_backend.py"

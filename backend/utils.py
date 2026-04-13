@@ -2,7 +2,7 @@
 
 import bcrypt
 import jwt
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any
 import math
 import os
@@ -134,5 +134,58 @@ def sanitize_json_floats(obj: Any) -> Any:
         return {k: sanitize_json_floats(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [sanitize_json_floats(v) for v in obj]
+    return obj
+
+
+def deep_json_safe(obj: Any) -> Any:
+    """Recursively convert objects to JSON-safe values (numpy scalars, date keys, NaN).
+
+    Used for solver job payloads where metrics may use date dict keys and DataFrame rows
+    may contain numpy integers; ``jsonable_encoder`` alone can still fail on ``numpy.int64``.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover
+        np = None  # type: ignore
+
+    try:
+        import pandas as pd
+    except ImportError:  # pragma: no cover
+        pd = None  # type: ignore
+
+    if obj is None:
+        return None
+
+    if np is not None:
+        if isinstance(obj, np.generic):
+            return deep_json_safe(obj.item())
+        if isinstance(obj, np.ndarray):
+            return deep_json_safe(obj.tolist())
+
+    if pd is not None and isinstance(obj, float) and pd.isna(obj):
+        return None
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+
+    if isinstance(obj, dict):
+        out: Dict[Any, Any] = {}
+        for k, v in obj.items():
+            if isinstance(k, (datetime, date)):
+                nk = k.isoformat()
+            elif np is not None and isinstance(k, np.generic):
+                nk = k.item()
+            else:
+                nk = k
+            if not isinstance(nk, str):
+                nk = str(nk)
+            out[nk] = deep_json_safe(v)
+        return out
+
+    if isinstance(obj, (list, tuple)):
+        return [deep_json_safe(x) for x in obj]
+
     return obj
 

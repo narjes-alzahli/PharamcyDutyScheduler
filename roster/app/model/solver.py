@@ -1,7 +1,7 @@
 """Main solver for staff rostering optimization."""
 
 from datetime import date, timedelta
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Any
 from ortools.sat.python import cp_model
 import pandas as pd
 import time

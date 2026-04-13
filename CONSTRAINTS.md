@@ -1,5 +1,15 @@
 # Staff Scheduling Rules & Constraints
 
+## Roster generation (summary)
+
+Generation uses a **constraint solver** (Google OR-Tools CP-SAT). It uses the same data you manage in the app: who can cover which shift types, how many people you need each day, approved leave and locked shifts, and rules like rest after certain shifts.
+
+A **sanity check** runs first to catch obvious problems. Then the solver builds a model where **hard** rules must be satisfied (for example: one assignment per person per day, skills match shifts, coverage targets for non-soft shifts) and **soft** goals are minimized as much as possible (for example: fairness, unfilled demand penalties for shifts that allow it).
+
+Implementation is split across modules such as `solver.py` (orchestration), `constraints.py` (rules in the model), and `scoring.py` (objective / penalties). The sections below list each rule in detail.
+
+---
+
 ## Hard Rules (Must Be Followed)
 
 ### 1. One Shift Per Day

@@ -13,7 +13,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-scheduler_env/
+.venv/
 venv/
 env/
 ENV/

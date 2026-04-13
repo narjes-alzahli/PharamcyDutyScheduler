@@ -1,6 +1,7 @@
 """Solver endpoints for schedule generation."""
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pathlib import Path
@@ -21,6 +22,7 @@ from roster.app.model.solver import RosterSolver
 from backend.routers.auth import get_current_user
 from backend.database import SessionLocal, get_db
 from backend.models import LeaveType
+from backend.utils import deep_json_safe
 from backend.roster_data_loader import (
     load_roster_data_from_db, 
     load_month_demands, 
@@ -77,7 +79,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
     db = SessionLocal()
     try:
         solver_jobs[job_id]["status"] = "running"
-        
+
         # Create temporary directory for solver
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -422,9 +424,9 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 window_months=3
             )
             data.history_counts = history_counts
-            
+
             solver = RosterSolver(config)
-            
+
             success, assignments, metrics = solver.solve(
                 data,
                 time_limit_seconds=request.time_limit
@@ -521,18 +523,24 @@ async def solve_schedule(
     )
 
 
-@router.get("/job/{job_id}", response_model=JobStatus)
+@router.get("/job/{job_id}")
 async def get_job_status(job_id: str, current_user: dict = Depends(get_current_user)):
-    """Get solver job status."""
+    """Get solver job status.
+
+    ``result`` is deep-sanitized (numpy scalars, date keys in metrics, NaN) so responses
+    never fail JSON encoding with 500.
+    """
     if job_id not in solver_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     job = solver_jobs[job_id]
-    return JobStatus(
-        job_id=job_id,
-        status=job["status"],
-        result=job.get("result"),
-        error=job.get("error"),
-        issues=job.get("issues")
-    )
+    payload = {
+        "job_id": job_id,
+        "status": job["status"],
+        "progress": job.get("progress"),
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "issues": job.get("issues"),
+    }
+    return JSONResponse(content=deep_json_safe(payload))
 
