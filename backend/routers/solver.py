@@ -113,18 +113,16 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 solver_jobs[job_id]["error"] = error_msg
                 return
             
-            # Filter demands to date range if custom range is provided (double-check, though load_demands_by_date_range should already filter)
-            if request.start_date and request.end_date:
-                month_demands = month_demands[
-                    (pd.to_datetime(month_demands['date']) >= pd.Timestamp(start_date)) &
-                    (pd.to_datetime(month_demands['date']) <= pd.Timestamp(end_date))
-                ]
-                # Ensure we have demands for all dates in the range (important for cross-month periods)
-                if month_demands.empty:
-                    error_msg = f"No demands data found for {period_name}. Please add demands in the Staffing Needs tab before solving."
-                    solver_jobs[job_id]["status"] = "failed"
-                    solver_jobs[job_id]["error"] = error_msg
-                    return
+            # Always clamp demands to the selected solve period.
+            month_demands = month_demands[
+                (pd.to_datetime(month_demands['date']) >= pd.Timestamp(start_date)) &
+                (pd.to_datetime(month_demands['date']) <= pd.Timestamp(end_date))
+            ]
+            if month_demands.empty:
+                error_msg = f"No demands data found for {period_name}. Please add demands in the Staffing Needs tab before solving."
+                solver_jobs[job_id]["status"] = "failed"
+                solver_jobs[job_id]["error"] = error_msg
+                return
             # Convert date strings to date objects for the holidays CSV
             holidays_for_csv = {}
             for date_str, holiday_name in holidays_dict.items():
@@ -140,9 +138,9 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             if 'holiday' in demands_for_solver.columns:
                 demands_for_solver = demands_for_solver.drop(columns=['holiday'])
             
-            # Filter time_off to date range if custom range is provided
+            # Filter time_off to the selected solve period (month or custom range).
             time_off_for_solver = roster_data['time_off'].copy()
-            if not time_off_for_solver.empty and request.start_date and request.end_date:
+            if not time_off_for_solver.empty:
                 def overlaps_range(row):
                     from_date = pd.to_datetime(row.get('from_date', ''), errors='coerce')
                     to_date = pd.to_datetime(row.get('to_date', ''), errors='coerce')
@@ -162,8 +160,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 # Only keep standard shifts in locks - non-standard shifts are in time_off
                 locks_df = locks_df[locks_df['shift'].isin(STANDARD_WORKING_SHIFTS)]
             
-            # Filter locks to date range if custom range is provided
-            if request.start_date and request.end_date and not locks_df.empty:
+            # Filter locks to the selected solve period (month or custom range).
+            if not locks_df.empty:
                 def lock_in_range(row):
                     from_date = pd.to_datetime(row.get('from_date', ''), errors='coerce')
                     to_date = pd.to_datetime(row.get('to_date', ''), errors='coerce')
@@ -460,6 +458,9 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     error_msg += "Try increasing the time limit or relaxing constraints."
                 solver_jobs[job_id]["error"] = error_msg
                 
+    except ValueError as e:
+        solver_jobs[job_id]["status"] = "failed"
+        solver_jobs[job_id]["error"] = f"Roster data error: {e}"
     except Exception as e:
         solver_jobs[job_id]["status"] = "failed"
         solver_jobs[job_id]["error"] = str(e)

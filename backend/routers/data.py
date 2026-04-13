@@ -1,12 +1,14 @@
 """Data management endpoints."""
 
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pathlib import Path
 import pandas as pd
 import json
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple, Set
 import sys
 
 # Add project root to path
@@ -37,7 +39,277 @@ from backend.user_employee_sync import (
 )
 from datetime import date
 
+from roster.app.model.schema import canonicalize_schedule_code
+
 router = APIRouter()
+
+
+def _date_ranges_overlap(a_start: date, a_end: date, b_start: date, b_end: date) -> bool:
+    return not (a_end < b_start or b_end < a_start)
+
+
+def _parse_roster_calendar_date(s: str, *, employee: str, field_label: str) -> date:
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        parts = s.split("-")
+        if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:
+            try:
+                return date(int(parts[2]), int(parts[1]), int(parts[0]))
+            except ValueError:
+                pass
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Invalid date format ({field_label}) for employee {employee}: {s!r}. "
+            "Use YYYY-MM-DD or DD-MM-YYYY."
+        ),
+    )
+
+
+def _maybe_leave_request_id(rid: Optional[str]) -> Optional[int]:
+    if not rid:
+        return None
+    s = str(rid)
+    if s.startswith("LR_"):
+        try:
+            return int(s.split("_", 1)[1])
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
+def _maybe_shift_request_id(rid: Optional[str]) -> Optional[int]:
+    if not rid:
+        return None
+    s = str(rid)
+    if s.startswith("SR_"):
+        try:
+            return int(s.split("_", 1)[1])
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
+def _validate_time_off_leave_batch(db: Session, leave_entries: List[TimeOffEntry], leave_codes: Set[str]) -> None:
+    """Reject overlapping approved leave windows for the same person with different leave codes."""
+    rows: List[Tuple[str, int, date, date, str, Optional[int]]] = []
+    for entry in leave_entries:
+        user = db.query(User).filter(User.employee_name == entry.employee).first()
+        if not user:
+            continue
+        try:
+            code = canonicalize_schedule_code(entry.code, leave_codes)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        leave_type = db.query(LeaveType).filter(LeaveType.code == code).first()
+        if not leave_type:
+            continue
+        d0 = _parse_roster_calendar_date(
+            entry.from_date, employee=entry.employee, field_label="from_date"
+        )
+        d1 = _parse_roster_calendar_date(
+            entry.to_date, employee=entry.employee, field_label="to_date"
+        )
+        rows.append((entry.employee, user.id, d0, d1, code, _maybe_leave_request_id(entry.request_id)))
+
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            emp_a, uid_a, a0, a1, code_a, _ = rows[i]
+            _, uid_b, b0, b1, code_b, _ = rows[j]
+            if uid_a != uid_b:
+                continue
+            if not _date_ranges_overlap(a0, a1, b0, b1):
+                continue
+            if code_a != code_b:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Overlapping leave for {emp_a} with different codes ({code_a!r} vs {code_b!r}) "
+                        f"between {a0}–{a1} and {b0}–{b1}."
+                    ),
+                )
+
+    for emp, uid, d0, d1, code, self_lr_id in rows:
+        others = (
+            db.query(LeaveRequest)
+            .options(joinedload(LeaveRequest.leave_type))
+            .filter(
+                LeaveRequest.user_id == uid,
+                LeaveRequest.status == RequestStatus.APPROVED,
+            )
+            .all()
+        )
+        for o in others:
+            if self_lr_id is not None and o.id == self_lr_id:
+                continue
+            if not _date_ranges_overlap(d0, d1, o.from_date, o.to_date):
+                continue
+            o_code = o.leave_type.code
+            if o_code != code:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Leave for {emp} ({d0}–{d1}, {code!r}) overlaps an existing approved leave "
+                        f"({o.from_date}–{o.to_date}, {o_code!r})."
+                    ),
+                )
+
+
+def _validate_time_off_shift_batch(
+    db: Session, shift_entries: List[TimeOffEntry], shift_codes: Set[str]
+) -> None:
+    """Reject overlapping shift-as-time-off windows for the same person with different shift codes."""
+    rows: List[Tuple[str, int, date, date, str, Optional[int]]] = []
+    for entry in shift_entries:
+        user = db.query(User).filter(User.employee_name == entry.employee).first()
+        if not user:
+            continue
+        try:
+            code = canonicalize_schedule_code(entry.code, shift_codes)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        st = db.query(ShiftType).filter(ShiftType.code == code).first()
+        if not st:
+            continue
+        d0 = _parse_roster_calendar_date(
+            entry.from_date, employee=entry.employee, field_label="from_date"
+        )
+        d1 = _parse_roster_calendar_date(
+            entry.to_date, employee=entry.employee, field_label="to_date"
+        )
+        rows.append((entry.employee, user.id, d0, d1, code, _maybe_shift_request_id(entry.request_id)))
+
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            emp_a, uid_a, a0, a1, code_a, _ = rows[i]
+            _, uid_b, b0, b1, code_b, _ = rows[j]
+            if uid_a != uid_b:
+                continue
+            if not _date_ranges_overlap(a0, a1, b0, b1):
+                continue
+            if code_a != code_b:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Overlapping shift time-off for {emp_a} with different codes "
+                        f"({code_a!r} vs {code_b!r}) between {a0}–{a1} and {b0}–{b1}."
+                    ),
+                )
+
+    for emp, uid, d0, d1, code, self_sr_id in rows:
+        others = (
+            db.query(ShiftRequest)
+            .options(joinedload(ShiftRequest.shift_type))
+            .filter(
+                ShiftRequest.user_id == uid,
+                ShiftRequest.status == RequestStatus.APPROVED,
+            )
+            .all()
+        )
+        for o in others:
+            if self_sr_id is not None and o.id == self_sr_id:
+                continue
+            if not _date_ranges_overlap(d0, d1, o.from_date, o.to_date):
+                continue
+            o_code = o.shift_type.code
+            if o_code != code:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Shift time-off for {emp} ({d0}–{d1}, {code!r}) overlaps an existing "
+                        f"shift request ({o.from_date}–{o.to_date}, {o_code!r})."
+                    ),
+                )
+
+
+def _validate_lock_entries_batch(db: Session, entries: List[LockEntry], active_shift_codes: Set[str]) -> None:
+    rows: List[Tuple[str, int, date, date, str, bool, Optional[int]]] = []
+    for entry in entries:
+        user = db.query(User).filter(User.employee_name == entry.employee).first()
+        if not user:
+            continue
+        try:
+            shift = canonicalize_schedule_code(entry.shift, active_shift_codes)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        d0 = _parse_roster_calendar_date(
+            entry.from_date, employee=entry.employee, field_label="from_date"
+        )
+        d1 = _parse_roster_calendar_date(
+            entry.to_date, employee=entry.employee, field_label="to_date"
+        )
+        rows.append(
+            (
+                entry.employee,
+                user.id,
+                d0,
+                d1,
+                shift,
+                bool(entry.force),
+                _maybe_shift_request_id(entry.request_id),
+            )
+        )
+
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            emp_a, uid_a, a0, a1, sh_a, f_a, _ = rows[i]
+            _, uid_b, b0, b1, sh_b, f_b, _ = rows[j]
+            if uid_a != uid_b:
+                continue
+            if not _date_ranges_overlap(a0, a1, b0, b1):
+                continue
+            if sh_a != sh_b:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Overlapping shift locks for {emp_a}: {sh_a!r} vs {sh_b!r} "
+                        f"({a0}–{a1} vs {b0}–{b1})."
+                    ),
+                )
+            if f_a != f_b:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Overlapping shift locks for {emp_a} on shift {sh_a!r} with conflicting "
+                        f"force={f_a!r} vs force={f_b!r} ({a0}–{a1} vs {b0}–{b1})."
+                    ),
+                )
+
+    for emp, uid, d0, d1, shift, force, self_sid in rows:
+        others = (
+            db.query(ShiftRequest)
+            .options(joinedload(ShiftRequest.shift_type))
+            .filter(
+                ShiftRequest.user_id == uid,
+                ShiftRequest.status == RequestStatus.APPROVED,
+            )
+            .all()
+        )
+        for o in others:
+            if self_sid is not None and o.id == self_sid:
+                continue
+            if not _date_ranges_overlap(d0, d1, o.from_date, o.to_date):
+                continue
+            o_code = o.shift_type.code
+            if o_code != shift:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Lock for {emp} ({d0}–{d1}, {shift!r}) overlaps an existing shift request "
+                        f"({o.from_date}–{o.to_date}, {o_code!r})."
+                    ),
+                )
+            if o.force != force:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Lock for {emp} ({d0}–{d1}, {shift!r}) overlaps an existing request with "
+                        f"conflicting force={o.force!r} vs {force!r}."
+                    ),
+                )
+
+
 security = HTTPBearer()
 
 
@@ -436,23 +708,39 @@ async def update_time_off(
     # Separate entries into leave types and shift types
     # (STANDARD_WORKING_SHIFTS already defined above)
     
+    shift_codes = {
+        st.code
+        for st in db.query(ShiftType).filter(ShiftType.is_active == True).all()
+    }
+    leave_codes_set = {
+        lt.code
+        for lt in db.query(LeaveType).filter(LeaveType.is_active == True).all()
+    }
+    combined_codes = shift_codes | leave_codes_set
+
     leave_entries = []
     shift_entries = []
-    
+
     for entry in entries:
-        # Check if code is a shift type or leave type
-        shift_type = db.query(ShiftType).filter(ShiftType.code == entry.code).first()
-        leave_type = db.query(LeaveType).filter(LeaveType.code == entry.code).first()
-        
-        # If it's a shift type (especially non-standard), treat as shift request
-        # Non-standard shifts with force=True appear in time_off
+        try:
+            canon = canonicalize_schedule_code(entry.code, combined_codes)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        shift_type = db.query(ShiftType).filter(ShiftType.code == canon).first()
+        leave_type = db.query(LeaveType).filter(LeaveType.code == canon).first()
+
         if shift_type:
             shift_entries.append(entry)
         elif leave_type:
             leave_entries.append(entry)
         else:
-            logger.warning(f"Code '{entry.code}' not found as shift or leave type, skipping")
-    
+            logger.warning(
+                f"Code {entry.code!r} (canonical {canon!r}) not found as shift or leave type, skipping"
+            )
+
+    _validate_time_off_leave_batch(db, leave_entries, leave_codes_set)
+    _validate_time_off_shift_batch(db, shift_entries, shift_codes)
+
     # Process leave entries - use upsert pattern (update if exists, create if not)
     created_leave_count = 0
     updated_leave_count = 0
@@ -461,11 +749,12 @@ async def update_time_off(
         user = db.query(User).filter(User.employee_name == entry.employee).first()
         if not user:
             continue
-        
-        leave_type = db.query(LeaveType).filter(LeaveType.code == entry.code).first()
+
+        canon_code = canonicalize_schedule_code(entry.code, leave_codes_set)
+        leave_type = db.query(LeaveType).filter(LeaveType.code == canon_code).first()
         if not leave_type:
             continue
-        
+
         # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
         try:
             from_date = date.fromisoformat(entry.from_date)
@@ -552,11 +841,12 @@ async def update_time_off(
         user = db.query(User).filter(User.employee_name == entry.employee).first()
         if not user:
             continue
-        
-        shift_type = db.query(ShiftType).filter(ShiftType.code == entry.code).first()
+
+        canon_code = canonicalize_schedule_code(entry.code, shift_codes)
+        shift_type = db.query(ShiftType).filter(ShiftType.code == canon_code).first()
         if not shift_type:
             continue
-        
+
         # Parse dates - handle both YYYY-MM-DD and DD-MM-YYYY formats
         try:
             from_date = date.fromisoformat(entry.from_date)
@@ -730,13 +1020,19 @@ async def update_locks(
     logger = logging.getLogger(__name__)
     
     logger.info(f"Received {len(entries)} shift lock entries to save")
-    
+
+    active_shift_codes = {
+        st.code
+        for st in db.query(ShiftType).filter(ShiftType.is_active == True).all()
+    }
+    _validate_lock_entries_batch(db, entries, active_shift_codes)
+
     # Use upsert pattern: update existing requests or create new ones
     # This is more efficient than deleting all and recreating
     # Allow multiple shift requests - don't prevent duplicates
     created_count = 0
     updated_count = 0
-    
+
     for entry in entries:
         # Find user by employee_name
         user = db.query(User).filter(User.employee_name == entry.employee).first()
@@ -784,14 +1080,17 @@ async def update_locks(
                     detail=f"Failed to parse to_date '{entry.to_date}' for employee {entry.employee}: {str(e)}"
                 )
         
-        # Find shift type by code
-        shift_type = db.query(ShiftType).filter(ShiftType.code == entry.shift).first()
+        try:
+            canon_shift = canonicalize_schedule_code(entry.shift, active_shift_codes)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        shift_type = db.query(ShiftType).filter(ShiftType.code == canon_shift).first()
         if not shift_type:
             raise HTTPException(
                 status_code=400,
-                detail=f"Shift type '{entry.shift}' not found for employee {entry.employee}"
+                detail=f"Shift type {entry.shift!r} not found for employee {entry.employee}",
             )
-        
+
         # If request_id is provided, update that specific request
         if entry.request_id:
             # Parse request_id (format: "SR_123")

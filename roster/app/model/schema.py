@@ -93,6 +93,39 @@ class SpecialRequirement(BaseModel):
         populate_by_name = True
 
 
+def canonicalize_schedule_code(raw: Any, allowed: Optional[Set[str]]) -> str:
+    """Map a raw code to canonical spelling: strip whitespace, then case-insensitive match to ``allowed``.
+
+    If ``allowed`` is None or empty, returns stripped ``raw`` (no validation).
+    Raises ``ValueError`` if the code cannot be matched.
+    """
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        raise ValueError("Schedule code is empty")
+    s = str(raw).strip()
+    if not s:
+        raise ValueError("Schedule code is empty")
+    if not allowed:
+        return s
+    if s in allowed:
+        return s
+    lower_to_canon: Dict[str, str] = {}
+    for a in allowed:
+        k = a.lower()
+        if k in lower_to_canon and lower_to_canon[k] != a:
+            raise ValueError(
+                f"Ambiguous case-insensitive schedule code {raw!r}: "
+                f"{lower_to_canon[k]!r} vs {a!r}"
+            )
+        lower_to_canon[k] = a
+    lk = s.lower()
+    if lk in lower_to_canon:
+        return lower_to_canon[lk]
+    preview = sorted(allowed)[:30]
+    raise ValueError(
+        f"Unknown schedule code {raw!r}. Known codes (sample): {preview}"
+    )
+
+
 def parse_employees_dataframe(df: pd.DataFrame) -> List[Employee]:
     """Parse employees.csv-equivalent data (same rules as RosterData._load_employees)."""
     if df is None or df.empty:
@@ -241,26 +274,63 @@ class RosterData:
             df = pd.read_csv(holidays_file, keep_default_na=False, na_values=[])
             self.holidays_dict = parse_holidays_dataframe(df)
             
+    def _canonicalization_codes(self) -> Optional[Set[str]]:
+        """Union of config shift/leave codes for normalizing strings (solver/DB spelling)."""
+        cfg = getattr(self, "config", None)
+        if cfg is None:
+            return None
+        codes: Set[str] = set()
+        codes.update(getattr(cfg, "all_shift_codes", None) or [])
+        codes.update(getattr(cfg, "leave_codes", None) or [])
+        return codes if codes else None
+
     def _build_dictionaries(self) -> None:
         """Build lookup dictionaries for efficient access."""
         self.employees_dict = {emp.employee: emp for emp in self.employees}
         self.daily_requirements_dict = {dr.date: dr for dr in self.daily_requirements}
-        
-        # Build leave dictionary with date ranges
+        allowed = self._canonicalization_codes()
+
+        # Build leave dictionary with date ranges (fail on conflicting codes same day)
         self.leave_dict = {}
         for leave in self.leave:
+            code = (
+                canonicalize_schedule_code(leave.code, allowed)
+                if allowed
+                else str(leave.code).strip()
+            )
             current_date = leave.from_date
             while current_date <= leave.to_date:
-                self.leave_dict[(leave.employee, current_date)] = leave.code
+                key = (leave.employee, current_date)
+                existing = self.leave_dict.get(key)
+                if existing is not None and existing != code:
+                    raise ValueError(
+                        f"Overlapping leave for {leave.employee!r} on {current_date}: "
+                        f"{existing!r} vs {code!r} (only one leave code per person per day)."
+                    )
+                self.leave_dict[key] = code
                 current_date = current_date + timedelta(days=1)
-        
-        # Build special requirements dictionary with date ranges
+
+        # Build special requirements dictionary (fail on conflicting force for same emp/day/shift)
         self.special_requirements_dict = {}
         for sr in self.special_requirements:
+            shift = (
+                canonicalize_schedule_code(sr.shift, allowed)
+                if allowed
+                else str(sr.shift).strip()
+            )
             current_date = sr.from_date
             while current_date <= sr.to_date:
-                self.special_requirements_dict[(sr.employee, current_date, sr.shift)] = sr.force
+                key = (sr.employee, current_date, shift)
+                existing_force = self.special_requirements_dict.get(key)
+                if existing_force is not None and existing_force != sr.force:
+                    raise ValueError(
+                        f"Conflicting lock/special requirement for {sr.employee!r} on "
+                        f"{current_date} shift {shift!r}: force={existing_force!r} vs "
+                        f"force={sr.force!r}."
+                    )
+                self.special_requirements_dict[key] = sr.force
                 current_date = current_date + timedelta(days=1)
+
         
     def get_employee_skills(self, employee: str) -> Dict[str, bool]:
         """Get skills for an employee."""
