@@ -209,6 +209,8 @@ class RosterData:
         self.holidays_dict: Dict[date, str] = {}  # Separate holidays dict for pending_off calculation
         # [HISTORY_AWARE_FAIRNESS] Assignment history for fairness calculations
         self.history_counts: Dict[str, Dict[str, int]] = None
+        # Previous committed-period shifts for boundary carry-over rules
+        self.previous_period_shifts: Dict[Tuple[str, date], str] = {}
 
     @classmethod
     def from_dataframes(
@@ -435,7 +437,9 @@ class RosterConfig:
             "unfilled_coverage": 1000.0,
             "overstaffing": 10.0,
             "fairness": 5.0,
-            "rest_after_shift": 4000.0,  # soft rest rules - satisfy as much as possible
+            "rest_after_shift": 4000.0,  # for non A/N/M4 rest rules only
+            "sequence_preference_miss": 1500.0,  # A/N/M4 preferred follow-up not used
+            "sequence_fallback_miss": 4000.0,  # A/N/M4 acceptable fallback also not met
             "do_after_n": 1.0,
             "a_to_n_penalty": 5.0
         }

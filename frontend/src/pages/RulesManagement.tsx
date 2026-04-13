@@ -511,9 +511,12 @@ export const RulesManagement: React.FC = () => {
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
               <h4 className="text-lg font-semibold text-gray-900 mb-3">Shift Patterns</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>Rest after shifts (high priority, few exceptions): 2 days off after Night, 1 day off after M4 or Afternoon</li>
-                <li>You cannot work night shifts on back-to-back days</li>
-                <li>Some shift combinations are not allowed (e.g., morning after night)</li>
+                <li>Friday/Saturday is treated as one weekend; each person can work only one of those days unless both are explicitly approved requests</li>
+                <li>If someone works Friday or Saturday in one weekend, the following weekend is forced to O on Friday and Saturday (unless approved requests override)</li>
+                <li>After A: strongest preference is A→O, fallback is A→N→O→O</li>
+                <li>After N: strongest preference is N→O→O, fallback is N→O→M</li>
+                <li>After M4: strongest preference is M4→O, then M4→A→O, then M4→A→N→O→O</li>
+                <li>Forbidden adjacency rules still apply (for example, certain shifts are blocked after N)</li>
               </ul>
             </section>
 
@@ -531,8 +534,10 @@ export const RulesManagement: React.FC = () => {
               <h4 className="text-lg font-semibold text-gray-900 mb-3">Schedule Quality</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>Coverage: M and IP filled as much as possible; all other shifts must be fully covered</li>
-                <li>Rest after N/M4/A is strongly preferred (high-priority soft rule)</li>
+                <li>A/N/M4 follow-up chains are optimized with weighted priorities (best pattern first, then fallbacks)</li>
                 <li>Distributes shifts fairly among staff</li>
+                <li>Cross-period boundary uses previous committed schedules: adjacency and weekend carry-over are hard rules; A/N/M4 chain carry-over is soft scoring (all with approved-request overrides)</li>
+                <li>Because boundary weekend carry-over is hard, the first in-period weekend can become more constrained when many staff worked the previous weekend</li>
               </ul>
             </section>
           </div>

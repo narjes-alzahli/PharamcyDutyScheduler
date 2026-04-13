@@ -821,8 +821,12 @@ def load_assignment_history(
 # [HISTORY_AWARE_FAIRNESS] END - History extraction function
 
 
-def load_previous_period_last_days(start_date: date, db: Session = None) -> Dict[Tuple[str, date], str]:
-    """Load the last 2 days of the immediately previous committed period.
+def load_previous_period_last_days(
+    start_date: date,
+    db: Session = None,
+    lookback_days: int = 2
+) -> Dict[Tuple[str, date], str]:
+    """Load the last N days of the immediately previous committed period.
     
     This function finds the most recent committed schedule before start_date and loads
     the last 2 days of that period. This works for normal months and special periods
@@ -833,7 +837,7 @@ def load_previous_period_last_days(start_date: date, db: Session = None) -> Dict
         db: Database session (optional, will create one if not provided)
     
     Returns:
-        Dict mapping (employee_name, date) to shift code for the last 2 days of previous period.
+        Dict mapping (employee_name, date) to shift code for the last N days of previous period.
         Returns empty dict if no previous period exists or isn't committed.
     """
     from backend.models import CommittedSchedule
@@ -849,16 +853,16 @@ def load_previous_period_last_days(start_date: date, db: Session = None) -> Dict
     try:
         # Find all unique committed dates before start_date
         # Get distinct dates ordered by date descending (most recent first)
-        # Limit to 2 to get the last 2 days of the previous period
+        # Limit to lookback_days to get the trailing days of previous period
         period_dates_result = db.query(CommittedSchedule.date).filter(
             CommittedSchedule.date < start_date
-        ).distinct().order_by(CommittedSchedule.date.desc()).limit(2).all()
+        ).distinct().order_by(CommittedSchedule.date.desc()).limit(max(1, lookback_days)).all()
         
         if not period_dates_result:
             return {}
         
         # Extract date objects from query result (SQLAlchemy 1.4 returns tuples/Row objects)
-        last_2_dates = []
+        last_dates = []
         for row in period_dates_result:
             # SQLAlchemy 1.4 returns tuples when querying a single column
             if isinstance(row, tuple):
@@ -870,19 +874,19 @@ def load_previous_period_last_days(start_date: date, db: Session = None) -> Dict
                 date_val = row
             
             if isinstance(date_val, date):
-                last_2_dates.append(date_val)
+                last_dates.append(date_val)
         
-        if not last_2_dates:
+        if not last_dates:
             return {}
         
         # Sort to ensure chronological order (oldest first)
-        last_2_dates = sorted(last_2_dates)
+        last_dates = sorted(last_dates)
         
         # Load committed schedules for these dates
         prev_schedules = (
             db.query(CommittedSchedule)
             .options(joinedload(CommittedSchedule.user))
-            .filter(CommittedSchedule.date.in_(last_2_dates))
+            .filter(CommittedSchedule.date.in_(last_dates))
             .all()
         )
         

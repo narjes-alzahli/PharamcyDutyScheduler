@@ -181,16 +181,13 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 # Standard month - use first day of month
                 period_start = date(request.year, request.month, 1)
             
-            # Load the last 2 days of the previous committed period
+            # Load trailing days of the previous committed period
             # This finds the actual previous committed period, not just calendar month boundaries
-            prev_period_shifts = load_previous_period_last_days(period_start, db)
+            prev_period_shifts = load_previous_period_last_days(period_start, db, lookback_days=8)
             
             if prev_period_shifts:
                 # Get first 2 days of the period being generated
                 first_day = period_start
-                # Calculate second day (may not exist if period is only 1 day, but that's unlikely)
-                from datetime import timedelta
-                second_day = first_day + timedelta(days=1)
                 
                 # Get the actual last 2 dates from the previous period
                 prev_dates = sorted(set(date for _, date in prev_period_shifts.keys()))
@@ -204,19 +201,13 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     last_date = None
                     second_last_date = None
                 
-                # Track which employees need rest on which days
-                rest_required = {}  # (employee, day) -> True if rest required
                 # Track forbidden shifts (forbidden adjacencies)
                 forbidden_shifts = {}  # (employee, day, shift) -> True if shift is forbidden
                 
                 # Apply adjacency rules based on previous period's shifts
                 for (emp, prev_date), shift in prev_period_shifts.items():
                     if shift == "N":
-                        if second_last_date and prev_date == second_last_date:
-                            rest_required[(emp, first_day)] = True
-                        elif prev_date == last_date:
-                            rest_required[(emp, first_day)] = True
-                            rest_required[(emp, second_day)] = True
+                        if prev_date == last_date:
                             for s1, s2 in FORBIDDEN_ADJACENCY_PAIRS:
                                 if s1 == "N":
                                     forbidden_shifts[(emp, first_day, s2)] = True
@@ -224,22 +215,60 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                         for s1, s2 in FORBIDDEN_ADJACENCY_PAIRS:
                             if s1 == shift:
                                 forbidden_shifts[(emp, first_day, s2)] = True
-                    if shift == "M4" and prev_date == last_date:
-                        rest_required[(emp, first_day)] = True
-                    elif shift == "A" and prev_date == last_date:
-                        rest_required[(emp, first_day)] = True
-                
-                # Add locks to force O (Off Duty) for required rest days
-                rest_locks = []
-                for (emp, rest_day), _ in rest_required.items():
-                    rest_locks.append({
-                        'employee': emp,
-                        'from_date': rest_day,
-                        'to_date': rest_day,
-                        'shift': 'O',
-                        'force': True,
-                        'reason': 'Adjacency constraint from previous period'
-                    })
+
+                # Weekend carry-over across period boundary:
+                # if an employee worked Fri/Sat in the previous weekend, force O on next Fri/Sat
+                # unless there is an explicit in-range forced working lock on those days.
+                from datetime import timedelta
+                boundary_weekend_locks = []
+
+                # Identify the nearest previous Saturday (within one week before period start).
+                prev_saturday = None
+                for delta in range(1, 8):
+                    candidate = period_start - timedelta(days=delta)
+                    if candidate.weekday() == 5:  # Saturday
+                        prev_saturday = candidate
+                        break
+
+                if prev_saturday is not None:
+                    prev_friday = prev_saturday - timedelta(days=1)
+                    next_friday = prev_friday + timedelta(days=7)
+                    next_saturday = prev_saturday + timedelta(days=7)
+
+                    # Build quick lookup for existing forced working locks on boundary weekend days.
+                    forced_work_days = set()
+                    if not locks_df.empty:
+                        for _, row in locks_df.iterrows():
+                            if row.get('force') is True:
+                                day_val = pd.to_datetime(row.get('from_date', ''), errors='coerce')
+                                shift_val = row.get('shift')
+                                emp_val = row.get('employee')
+                                if pd.notna(day_val) and emp_val and shift_val in STANDARD_WORKING_SHIFTS and shift_val != "O":
+                                    forced_work_days.add((emp_val, day_val.date()))
+
+                    prev_shift_map = {(e, d): s for (e, d), s in prev_period_shifts.items()}
+                    employees_in_prev = set(emp for (emp, _), _shift in prev_period_shifts.items())
+                    for emp in employees_in_prev:
+                        worked_prev_weekend = (
+                            prev_shift_map.get((emp, prev_friday)) in STANDARD_WORKING_SHIFTS - {"O"} or
+                            prev_shift_map.get((emp, prev_saturday)) in STANDARD_WORKING_SHIFTS - {"O"}
+                        )
+                        if not worked_prev_weekend:
+                            continue
+
+                        for target_day in (next_friday, next_saturday):
+                            if not (start_date <= target_day <= end_date):
+                                continue
+                            if (emp, target_day) in forced_work_days:
+                                continue
+                            boundary_weekend_locks.append({
+                                'employee': emp,
+                                'from_date': target_day,
+                                'to_date': target_day,
+                                'shift': 'O',
+                                'force': True,
+                                'reason': 'Weekend carry-over from previous period'
+                            })
                 
                 # Add locks to forbid specific shifts (forbidden adjacencies)
                 forbidden_locks = []
@@ -254,7 +283,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     })
                 
                 # Merge all locks
-                all_new_locks = rest_locks + forbidden_locks
+                all_new_locks = boundary_weekend_locks + forbidden_locks
                 if all_new_locks:
                     new_locks_df = pd.DataFrame(all_new_locks)
                     # Merge with existing locks (avoid duplicates)
@@ -379,6 +408,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 holidays_dict=holidays_for_csv if holidays_for_csv else None,
                 data_dir=temp_path,
             )
+            data.previous_period_shifts = prev_period_shifts or {}
             
             # [HISTORY_AWARE_FAIRNESS] Extract assignment history for fairness calculations
             # Build skills dict from employees data

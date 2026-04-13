@@ -363,6 +363,80 @@ def add_sequencing_constraints(
     pass
 
 
+def add_weekend_workload_constraints(
+    model: cp_model.CpModel,
+    x: Dict[Tuple[str, date, str], cp_model.IntVar],
+    employees: List[str],
+    dates: List[date],
+    shifts: List[str],
+    locks: Dict[Tuple[str, date, str], bool],
+    working_shift_codes: Optional[List[str]] = None
+) -> None:
+    """Weekend rules for Fri/Sat:
+    1) In each weekend, employee can work only one of Fri/Sat, unless both days are explicitly requested.
+    2) If employee works Fri/Sat in a weekend, next weekend should be O/O unless that next weekend day is explicitly requested.
+    """
+    if working_shift_codes:
+        working_shifts = set(working_shift_codes)
+    else:
+        working_shifts = set(_DEFAULT_STANDARD_SHIFTS_LIST)
+
+    date_set = set(dates)
+    sorted_dates = sorted(dates)
+    friday_dates = [d for d in sorted_dates if d.weekday() == 4]  # Friday
+
+    for employee in employees:
+        for friday in friday_dates:
+            saturday = friday + timedelta(days=1)
+            if saturday not in date_set:
+                continue
+
+            fri_work_vars = [
+                x[(employee, friday, shift)]
+                for shift in working_shifts
+                if (employee, friday, shift) in x
+            ]
+            sat_work_vars = [
+                x[(employee, saturday, shift)]
+                for shift in working_shifts
+                if (employee, saturday, shift) in x
+            ]
+            if not fri_work_vars or not sat_work_vars:
+                continue
+
+            fri_forced_work = any(locks.get((employee, friday, shift)) is True for shift in working_shifts)
+            sat_forced_work = any(locks.get((employee, saturday, shift)) is True for shift in working_shifts)
+
+            # Weekend at-most-one workday unless both days are explicitly requested.
+            if not (fri_forced_work and sat_forced_work):
+                model.Add(sum(fri_work_vars) + sum(sat_work_vars) <= 1)
+
+            # works_this_weekend = 1 iff employee works Friday or Saturday in this weekend.
+            works_this_weekend = model.NewBoolVar(f"works_weekend_{employee}_{friday}")
+            weekend_work_sum = sum(fri_work_vars) + sum(sat_work_vars)
+            model.Add(weekend_work_sum >= works_this_weekend)
+            model.Add(weekend_work_sum <= 2 * works_this_weekend)
+
+            next_friday = friday + timedelta(days=7)
+            next_saturday = friday + timedelta(days=8)
+
+            # If they worked this weekend, next Fri/Sat should be O unless explicit request forces work.
+            for target_day in (next_friday, next_saturday):
+                if target_day not in date_set:
+                    continue
+                if (employee, target_day, "O") not in x:
+                    continue
+
+                forced_work_next_day = any(
+                    locks.get((employee, target_day, shift)) is True
+                    for shift in working_shifts
+                )
+                if forced_work_next_day:
+                    continue
+
+                model.Add(x[(employee, target_day, "O")] == 1).OnlyEnforceIf(works_this_weekend)
+
+
 def add_all_constraints(
     model: cp_model.CpModel,
     x: Dict[Tuple[str, date, str], cp_model.IntVar],
@@ -403,6 +477,11 @@ def add_all_constraints(
     
     # Sequencing rules (pass time_off, leave_codes, and locks to check for existing leave types and forced work)
     add_sequencing_constraints(model, x, employees, dates, time_off, leave_codes, required_rest_after_shifts, working_shift_codes, locks)
+
+    # Weekend rules:
+    # - Fri/Sat at-most-one workday unless both are explicitly requested
+    # - If worked this weekend, next weekend should be O/O unless explicitly requested otherwise
+    add_weekend_workload_constraints(model, x, employees, dates, shifts, locks, working_shift_codes)
     
     # CL availability constraint
     add_cl_availability_constraints(model, x, employees, dates, time_off)

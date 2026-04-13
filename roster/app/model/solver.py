@@ -113,7 +113,8 @@ class RosterSolver:
             required_rest_after_shifts=required_rest,
             leave_codes=leave_codes_set,
             locks=locks,
-            working_shift_codes=working_shift_codes
+            working_shift_codes=working_shift_codes,
+            previous_period_shifts=getattr(data, "previous_period_shifts", None)
         )
         
         # Solve

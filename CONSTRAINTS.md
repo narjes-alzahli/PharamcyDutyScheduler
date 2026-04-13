@@ -52,15 +52,13 @@ Staff cannot work these shift combinations on consecutive days:
 
 *Note: These rules can be overridden by approved employee shift requests (force=True). If an employee requests both shifts in a forbidden pair, the constraint will be skipped to honor their request.*
 
-### 10. Required Rest After Shifts (high-priority soft rule)
-The solver tries to satisfy rest after these shifts as much as possible (strong penalty if violated):
-- **After Night shift**: Prefer 2 rest days (Off Duty) on the next two days
-- **After M4 shift**: Prefer 1 rest day (Off Duty) the next day
-- **After Afternoon shift**: Prefer 1 rest day (Off Duty) the next day
-
-If the solver cannot satisfy rest (e.g. coverage or other constraints), it may assign work and incur a penalty rather than failing. Exceptions (no penalty when rest is skipped):
-- If staff have approved leave (e.g., DO, AL, etc.) on the rest day, leave counts as rest
-- If staff **requested** the shift AND **requested** another shift on the rest day(s), their request is respected
+### 10. Weekend Workload Rules (Friday/Saturday)
+- Weekend is defined as **Friday and Saturday**.
+- In any weekend, a staff member can work **at most one** of Friday/Saturday.
+- Exception: if both Friday and Saturday are explicitly approved shift requests (forced locks), both can be worked.
+- If staff work either Friday or Saturday in weekend **W**, then weekend **W+1** (next Friday and Saturday) is forced to **O**.
+- Exception: if weekend **W+1** has explicit approved shift request(s), those requests override the forced O on those day(s).
+- Boundary note: this weekend carry-over is currently implemented as a **hard lock** (not a soft preference).
 
 ### 11. Single-Skill Staff
 Staff who are only qualified for one type of shift:
@@ -87,7 +85,19 @@ The system tries to make the schedule as fair as possible by:
    - Equal weekend shifts (among multi-skill employees)
    - Equal total working days (among multi-skill employees only; single-skill employees have fixed schedules)
 
-3. **Avoiding Over-staffing**: Prefers assigning exactly the required number of staff (not more)
+3. **Shift Sequence Preferences (A/N/M4 hierarchy)**:
+   - **After A shift**:
+     - Super high preference: `A -> O`
+     - Next best fallback: `A -> N -> O -> O`
+   - **After N shift**:
+     - Super high preference: `N -> O -> O`
+     - Next best fallback: `N -> O -> M`
+   - **After M4 shift**:
+     - Super high preference: `M4 -> O`
+     - Next best fallback: `M4 -> A -> O`
+     - Next fallback: `M4 -> A -> N -> O -> O`
+
+4. **Avoiding Over-staffing**: Prefers assigning exactly the required number of staff (not more)
 
 ---
 
@@ -110,7 +120,14 @@ The following leave types count as rest days for weekly and monthly rest require
 
 - All hard rules must be satisfied for a schedule to be valid
 - **Coverage**: Only M and IP allow under-staffing (with a penalty). All other shifts must meet demand exactly.
-- **Rest after N/M4/A** is a high-priority soft rule (penalty weight 4000): the solver satisfies it as much as possible but can violate it if necessary; only a few exceptions when needed.
+- **A/N/M4 follow-up is now modeled as a hierarchy of soft preferences** (best pattern first, then allowed fallbacks with stronger penalties for missing both).
+- Generic `rest_after_shift` penalties still exist for non-A/N/M4 rules if configured.
+- **Cross-period behavior**:
+  - Previous committed period data is used at the boundary.
+  - Forbidden adjacency carries over into the first day of the generated period (**hard**).
+  - Weekend rotation carry-over applies at boundary (previous weekend work can force next weekend O/O, unless explicit approved requests override) (**hard**).
+  - A/N/M4 hierarchy preferences also carry over at boundary as penalties for the first days of the generated period (**soft**), with request overrides.
+- Practical risk: because boundary weekend carry-over is hard, it can make the first in-period weekend tighter when many people worked the previous weekend.
 - If the system cannot find a solution, hard rules cannot be satisfied (e.g. coverage for non-M/IP shifts, time off, qualifications).
 - Optimization goals are preferences - the system will try to achieve them but will prioritize satisfying all hard rules first
 
