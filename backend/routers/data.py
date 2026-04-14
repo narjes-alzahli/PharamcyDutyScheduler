@@ -44,6 +44,19 @@ from roster.app.model.schema import canonicalize_schedule_code
 router = APIRouter()
 
 
+def _coalesce_int(value: Any, default: int) -> int:
+    """JSON may send null for optional numbers; dict.get(key, default) still returns None if key exists."""
+    if value is None:
+        return default
+    return int(value)
+
+
+def _coalesce_float(value: Any, default: float) -> float:
+    if value is None:
+        return default
+    return float(value)
+
+
 def _date_ranges_overlap(a_start: date, a_end: date, b_start: date, b_end: date) -> bool:
     return not (a_end < b_start or b_end < a_start)
 
@@ -313,15 +326,19 @@ def _validate_lock_entries_batch(db: Session, entries: List[LockEntry], active_s
 security = HTTPBearer()
 
 
-def get_pending_off_from_most_recent_committed_month(db: Session) -> Dict[str, Optional[float]]:
+def get_pending_off_from_most_recent_committed_month(
+    db: Session,
+) -> Tuple[Dict[str, Optional[float]], Dict[int, Optional[float]]]:
     """
     For user accounts / global employee list: pending_off from the chronologically latest
     (year, month) that has committed rows AND schedule_metrics with an employees report.
     Walks backward from newest month if the newest has no metrics yet.
+
+    Returns (by_display_name, by_user_id) so overlays work after renames when metrics carry user_id.
     """
     pairs = db.query(CommittedSchedule.year, CommittedSchedule.month).distinct().all()
     if not pairs:
-        return {}
+        return {}, {}
     ordered = sorted(pairs, key=lambda p: (p[0], p[1]), reverse=True)
     for y, m in ordered:
         rec = db.query(ScheduleMetrics).filter(ScheduleMetrics.year == y, ScheduleMetrics.month == m).first()
@@ -331,23 +348,31 @@ def get_pending_off_from_most_recent_committed_month(db: Session) -> Dict[str, O
         if not isinstance(emps, list) or len(emps) == 0:
             continue
         out: Dict[str, Optional[float]] = {}
+        out_uid: Dict[int, Optional[float]] = {}
         for emp in emps:
             if not isinstance(emp, dict):
                 continue
             name = emp.get("employee")
-            if not name:
-                continue
             po = emp.get("pending_off")
+            val: Optional[float]
             if po is None or po == "null":
-                out[str(name)] = None
+                val = None
             else:
                 try:
-                    out[str(name)] = float(po)
+                    val = float(po)
                 except (TypeError, ValueError):
-                    out[str(name)] = None
-        if out:
-            return out
-    return {}
+                    val = None
+            uid = emp.get("user_id")
+            if uid is not None:
+                try:
+                    out_uid[int(uid)] = val
+                except (TypeError, ValueError):
+                    pass
+            if name:
+                out[str(name)] = val
+        if out or out_uid:
+            return out, out_uid
+    return {}, {}
 
 
 class EmployeeData(BaseModel):
@@ -398,11 +423,22 @@ async def get_employees(
     roster_data = load_roster_data_from_db(db)
     employees_df = roster_data['employees']
     records = employees_df.to_dict("records")
-    latest_po = get_pending_off_from_most_recent_committed_month(db)
+    latest_po, latest_po_uid = get_pending_off_from_most_recent_committed_month(db)
     for row in records:
-        name = row.get("employee")
-        if name and name in latest_po:
-            row["pending_off"] = latest_po[name]
+        po_set = False
+        uid = row.get("user_id")
+        if uid is not None:
+            try:
+                i = int(uid)
+                if i in latest_po_uid:
+                    row["pending_off"] = latest_po_uid[i]
+                    po_set = True
+            except (TypeError, ValueError):
+                pass
+        if not po_set:
+            name = row.get("employee")
+            if name and name in latest_po:
+                row["pending_off"] = latest_po[name]
     return sanitize_json_floats(records)
 
 
@@ -462,9 +498,9 @@ async def update_employees(
         emp.skill_IP_P = bool(emp_data.get('skill_IP_P', True))
         emp.skill_P = bool(emp_data.get('skill_P', True))
         emp.skill_M_P = bool(emp_data.get('skill_M_P', True))
-        emp.min_days_off = int(emp_data.get('min_days_off', 4))
-        emp.weight = float(emp_data.get('weight', 1.0))
-        emp.pending_off = float(emp_data.get('pending_off', 0.0))
+        emp.min_days_off = _coalesce_int(emp_data.get('min_days_off', 4), 4)
+        emp.weight = _coalesce_float(emp_data.get('weight', 1.0), 1.0)
+        emp.pending_off = _coalesce_float(emp_data.get('pending_off', 0.0), 0.0)
 
     for emp_data in employees:
         name = str(emp_data.get('employee', '')).strip()
@@ -564,9 +600,9 @@ async def update_employees(
                 skill_IP_P=bool(emp_data.get('skill_IP_P', True)),
                 skill_P=bool(emp_data.get('skill_P', True)),
                 skill_M_P=bool(emp_data.get('skill_M_P', True)),
-                min_days_off=int(emp_data.get('min_days_off', 4)),
-                weight=float(emp_data.get('weight', 1.0)),
-                pending_off=float(emp_data.get('pending_off', 0.0)),
+                min_days_off=_coalesce_int(emp_data.get('min_days_off', 4), 4),
+                weight=_coalesce_float(emp_data.get('weight', 1.0), 1.0),
+                pending_off=_coalesce_float(emp_data.get('pending_off', 0.0), 0.0),
             )
             db.add(new_emp)
             db.flush()

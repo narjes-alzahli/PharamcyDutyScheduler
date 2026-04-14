@@ -982,20 +982,59 @@ export const AllRostersPage: React.FC = () => {
     const poByName = new Map<string, number | null | undefined>(
       committedRows.map((e: any) => [e.employee, e.pending_off]),
     );
+    const poByUserId = new Map<number, number | null | undefined>();
+    committedRows.forEach((e: any) => {
+      const raw = e.user_id;
+      if (raw === null || raw === undefined || raw === '') return;
+      const uid = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isNaN(uid)) poByUserId.set(uid, e.pending_off);
+    });
     const hasSnapshot = committedRows.length > 0;
     const apiNames = new Set(employeesFromAPI.map((e: any) => e.employee));
 
     if (employeesFromAPI.length > 0) {
       if (hasSnapshot) {
-        const rows: { employee: string; pending_off?: number | null }[] = employeesFromAPI.map(
-          (emp: any) => ({
-            employee: emp.employee,
-            pending_off: poByName.has(emp.employee) ? poByName.get(emp.employee) : undefined,
-          }),
-        );
+        const rows: { employee: string; pending_off?: number | null; user_id?: number }[] =
+          employeesFromAPI.map((emp: any) => {
+            const uid =
+              emp.user_id !== null && emp.user_id !== undefined && emp.user_id !== ''
+                ? typeof emp.user_id === 'number'
+                  ? emp.user_id
+                  : Number(emp.user_id)
+                : null;
+            let pending_off: number | null | undefined;
+            if (uid !== null && !Number.isNaN(uid) && poByUserId.has(uid)) {
+              pending_off = poByUserId.get(uid);
+            } else if (poByName.has(emp.employee)) {
+              pending_off = poByName.get(emp.employee);
+            } else {
+              pending_off = undefined;
+            }
+            return { employee: emp.employee, pending_off, user_id: emp.user_id };
+          });
         committedRows.forEach((row: any) => {
-          if (!apiNames.has(row.employee)) {
-            rows.push({ employee: row.employee, pending_off: row.pending_off });
+          const raw = row.user_id;
+          const uid =
+            raw !== null && raw !== undefined && raw !== ''
+              ? typeof raw === 'number'
+                ? raw
+                : Number(raw)
+              : null;
+          const matchedById =
+            uid !== null &&
+            !Number.isNaN(uid) &&
+            employeesFromAPI.some((e: any) => {
+              const eu = e.user_id;
+              if (eu === null || eu === undefined || eu === '') return false;
+              const n = typeof eu === 'number' ? eu : Number(eu);
+              return !Number.isNaN(n) && n === uid;
+            });
+          if (!matchedById && !apiNames.has(row.employee)) {
+            rows.push({
+              employee: row.employee,
+              pending_off: row.pending_off,
+              user_id: row.user_id,
+            });
           }
         });
         return rows;

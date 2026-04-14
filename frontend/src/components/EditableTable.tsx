@@ -198,7 +198,6 @@ export const EditableTable: React.FC<EditableTableProps> = ({
             type="checkbox"
             checked={!!rawValue}
             onChange={(e) => handleCellChange(rowIndex, col.key, e.target.checked)}
-            onBlur={handleBlur}
             className="mx-auto accent-primary-600"
           />
         );

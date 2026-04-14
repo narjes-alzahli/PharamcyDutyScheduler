@@ -6,6 +6,7 @@ import re
 from typing import Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.models import User, EmployeeSkills, EmployeeType, CommittedSchedule, ScheduleMetrics
 
@@ -97,8 +98,19 @@ def apply_display_name_change_cascade(db: Session, old_name: str, new_name: str)
             s.employee_name = new_name
     for metrics_record in db.query(ScheduleMetrics).all():
         if metrics_record.metrics and isinstance(metrics_record.metrics, dict):
-            emps = metrics_record.metrics.get("employees")
+            m = metrics_record.metrics
+            changed = False
+            emps = m.get("employees")
             if isinstance(emps, list):
                 for row in emps:
                     if isinstance(row, dict) and row.get("employee") == old_name:
                         row["employee"] = new_name
+                        changed = True
+            # Legacy name-keyed employee_metrics; user_id-keyed buckets (keys "123") are unchanged on rename.
+            emetric = m.get("employee_metrics")
+            if isinstance(emetric, dict) and old_name in emetric:
+                emetric[new_name] = emetric.pop(old_name)
+                changed = True
+            # In-place edits to a JSON column are not detected unless flagged (SQLAlchemy).
+            if changed:
+                flag_modified(metrics_record, "metrics")

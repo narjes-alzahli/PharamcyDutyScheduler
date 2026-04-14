@@ -20,7 +20,7 @@ sys.path.insert(0, str(project_root))
 from backend.routers.auth import get_current_user
 from backend.database import get_db
 from backend.utils import sanitize_json_floats
-from backend.models import CommittedSchedule, ScheduleMetrics, EmployeeSkills
+from backend.models import User, CommittedSchedule, ScheduleMetrics, EmployeeSkills
 from backend.user_employee_sync import committed_schedule_display_name
 from backend.roster_data_loader import load_month_holidays
 from roster.app.model.solver import RosterSolver
@@ -36,6 +36,13 @@ def _resolve_schedule_user_id(db: Session, display_name: str) -> int:
     if not name:
         raise HTTPException(status_code=400, detail="Schedule entry is missing a staff name")
     es = db.query(EmployeeSkills).filter(EmployeeSkills.name == name).first()
+    if es is None:
+        es = (
+            db.query(EmployeeSkills)
+            .join(User, EmployeeSkills.user_id == User.id)
+            .filter(User.employee_name == name)
+            .first()
+        )
     if es is None or es.user_id is None:
         raise HTTPException(
             status_code=400,
@@ -45,6 +52,43 @@ def _resolve_schedule_user_id(db: Session, display_name: str) -> int:
             ),
         )
     return es.user_id
+
+
+def _enrich_employee_rows_with_user_id(db: Session, rows: Optional[List[dict]]) -> None:
+    """Attach stable ``user_id`` to each employee report row; display ``employee`` stays the label."""
+    if not rows:
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = (row.get("employee") or "").strip()
+        if not name:
+            continue
+        try:
+            row["user_id"] = _resolve_schedule_user_id(db, name)
+        except HTTPException:
+            continue
+
+
+def _remap_employee_metrics_to_user_id_keys(db: Session, metrics: Dict) -> None:
+    """Rewrite metrics['employee_metrics'] from name-keys to str(user_id) keys (JSON-safe). Keeps legacy unknown keys."""
+    if not isinstance(metrics, dict):
+        return
+    em = metrics.get("employee_metrics")
+    if not isinstance(em, dict) or not em:
+        return
+    new_em: Dict[str, object] = {}
+    for key, val in em.items():
+        sk = str(key)
+        if sk.isdigit():
+            new_em[sk] = val
+            continue
+        try:
+            uid = _resolve_schedule_user_id(db, sk)
+            new_em[str(uid)] = val
+        except HTTPException:
+            new_em[sk] = val
+    metrics["employee_metrics"] = new_em
 
 
 def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dict[str, float]:
@@ -66,23 +110,45 @@ def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dic
         ScheduleMetrics.month == prev_month
     ).first()
     
-    initial_pending_off = {}
-    
-    if prev_metrics and prev_metrics.metrics and 'employees' in prev_metrics.metrics:
-        # Use previous month's final pending_off values
-        prev_employees = prev_metrics.metrics['employees']
+    initial_pending_off: Dict[str, float] = {}
+    po_by_uid: Dict[int, float] = {}
+    po_by_name: Dict[str, float] = {}
+
+    if prev_metrics and prev_metrics.metrics and "employees" in prev_metrics.metrics:
+        prev_employees = prev_metrics.metrics["employees"]
         for emp_data in prev_employees:
-            employee_name = emp_data.get('employee')
-            pending_off = emp_data.get('pending_off', 0.0)
+            if not isinstance(emp_data, dict):
+                continue
+            pending_off = emp_data.get("pending_off")
+            if pending_off is None:
+                continue
+            try:
+                pof = float(pending_off)
+            except (TypeError, ValueError):
+                continue
+            uid = emp_data.get("user_id")
+            if uid is not None:
+                try:
+                    po_by_uid[int(uid)] = pof
+                except (TypeError, ValueError):
+                    pass
+            employee_name = emp_data.get("employee")
             if employee_name:
-                initial_pending_off[employee_name] = float(pending_off)
-    
-    # For any employees not in previous month, use current EmployeeSkills.pending_off
+                po_by_name[str(employee_name).strip()] = pof
+
     all_employees = db.query(EmployeeSkills).all()
+    for emp in all_employees:
+        uid = emp.user_id
+        nkey = str(emp.name).strip()
+        if uid is not None and uid in po_by_uid:
+            initial_pending_off[emp.name] = po_by_uid[uid]
+        elif nkey in po_by_name:
+            initial_pending_off[emp.name] = po_by_name[nkey]
+
     for emp in all_employees:
         if emp.name not in initial_pending_off:
             initial_pending_off[emp.name] = float(emp.pending_off or 0.0)
-    
+
     return initial_pending_off
 
 
@@ -357,6 +423,8 @@ async def commit_schedule(
                 if emp_data.get('employee') not in employee_order_map:
                     ordered_employees.append(emp_data)
             metrics['employees'] = ordered_employees
+            _enrich_employee_rows_with_user_id(db, ordered_employees)
+            _remap_employee_metrics_to_user_id_keys(db, metrics)
         
         # Save/update metrics
         existing_metrics = db.query(ScheduleMetrics).filter(
@@ -374,18 +442,36 @@ async def commit_schedule(
             )
             db.add(metrics_entry)
         
-        # Update EmployeeSkills.pending_off based on employee report data
-        if employees:
-            for emp_data in employees:
-                employee_name = emp_data.get('employee')
+        # Update EmployeeSkills.pending_off (prefer enriched metrics rows with user_id)
+        report_rows = (
+            metrics.get("employees")
+            if isinstance(metrics, dict) and isinstance(metrics.get("employees"), list) and metrics["employees"]
+            else employees
+        )
+        if report_rows:
+            for emp_data in report_rows:
                 pending_off = emp_data.get('pending_off')
-                if employee_name and pending_off is not None:
-                    # Find employee_skills by name
-                    employee_skills = db.query(EmployeeSkills).filter(
-                        EmployeeSkills.name == employee_name
-                    ).first()
-                    if employee_skills:
-                        employee_skills.pending_off = float(pending_off)
+                if pending_off is None:
+                    continue
+                employee_skills = None
+                uid = emp_data.get("user_id")
+                if uid is not None:
+                    try:
+                        employee_skills = (
+                            db.query(EmployeeSkills)
+                            .filter(EmployeeSkills.user_id == int(uid))
+                            .first()
+                        )
+                    except (TypeError, ValueError):
+                        employee_skills = None
+                if employee_skills is None:
+                    employee_name = emp_data.get("employee")
+                    if employee_name:
+                        employee_skills = db.query(EmployeeSkills).filter(
+                            EmployeeSkills.name == employee_name
+                        ).first()
+                if employee_skills:
+                    employee_skills.pending_off = float(pending_off)
         
         db.commit()
         
@@ -477,6 +563,10 @@ async def update_schedule(
             metrics['employees'] = ordered_employees
         else:
             metrics['employees'] = employees
+        em_list = metrics.get("employees")
+        if isinstance(em_list, list) and em_list:
+            _enrich_employee_rows_with_user_id(db, em_list)
+            _remap_employee_metrics_to_user_id_keys(db, metrics)
         
         existing_metrics = db.query(ScheduleMetrics).filter(
             ScheduleMetrics.year == year,
@@ -494,16 +584,34 @@ async def update_schedule(
             db.add(metrics_entry)
         
         # Update EmployeeSkills.pending_off based on recalculated employee report
-        for emp_data in employees:
-            employee_name = emp_data.get('employee')
+        report_rows = (
+            metrics.get("employees")
+            if isinstance(metrics, dict) and isinstance(metrics.get("employees"), list) and metrics["employees"]
+            else employees
+        )
+        for emp_data in report_rows:
             pending_off = emp_data.get('pending_off')
-            if employee_name and pending_off is not None:
-                # Find employee_skills by name
-                employee_skills = db.query(EmployeeSkills).filter(
-                    EmployeeSkills.name == employee_name
-                ).first()
-                if employee_skills:
-                    employee_skills.pending_off = float(pending_off)
+            if pending_off is None:
+                continue
+            employee_skills = None
+            uid = emp_data.get("user_id")
+            if uid is not None:
+                try:
+                    employee_skills = (
+                        db.query(EmployeeSkills)
+                        .filter(EmployeeSkills.user_id == int(uid))
+                        .first()
+                    )
+                except (TypeError, ValueError):
+                    employee_skills = None
+            if employee_skills is None:
+                employee_name = emp_data.get('employee')
+                if employee_name:
+                    employee_skills = db.query(EmployeeSkills).filter(
+                        EmployeeSkills.name == employee_name
+                    ).first()
+            if employee_skills:
+                employee_skills.pending_off = float(pending_off)
         
         db.commit()
         
