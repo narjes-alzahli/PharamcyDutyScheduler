@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer
 from pathlib import Path
 import pandas as pd
 import json
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from sqlalchemy.orm import Session, joinedload
 from datetime import date as date_type
 from calendar import monthrange
@@ -22,7 +22,7 @@ from backend.database import get_db
 from backend.utils import sanitize_json_floats
 from backend.models import User, CommittedSchedule, ScheduleMetrics, EmployeeSkills
 from backend.user_employee_sync import committed_schedule_display_name
-from backend.roster_data_loader import load_month_holidays
+from backend.roster_data_loader import load_holidays_by_date_range
 from roster.app.model.solver import RosterSolver
 from roster.app.model.schema import RosterConfig
 
@@ -152,21 +152,45 @@ def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dic
     return initial_pending_off
 
 
+def get_pending_off_window_inclusive(
+    year: int, month: int, selected_period: Optional[str]
+) -> Optional[Tuple[date_type, date_type]]:
+    """Match frontend ``getPendingOffWindow`` (2026 Ramadan split). Inclusive date bounds."""
+    if year != 2026 or not selected_period:
+        return None
+    if selected_period == "pre-ramadan" and month == 2:
+        return date_type(2026, 2, 1), date_type(2026, 2, 18)
+    if selected_period == "ramadan" and month in (2, 3):
+        return date_type(2026, 2, 19), date_type(2026, 3, 18)
+    if selected_period == "post-ramadan" and month == 3:
+        return date_type(2026, 3, 19), date_type(2026, 3, 31)
+    return None
+
+
 def recalculate_employee_report(
-    schedule: List[dict], 
-    year: int, 
-    month: int, 
-    db: Session
+    schedule: List[dict],
+    year: int,
+    month: int,
+    db: Session,
+    selected_period: Optional[str] = None,
 ) -> pd.DataFrame:
     """Recalculate employee report from schedule data."""
-    from datetime import date
-    
+    from datetime import date, timedelta
+
     # Get initial pending_off for this month
     initial_pending_off = get_initial_pending_off_for_month(year, month, db)
-    
-    # Get all dates in the month
-    days_in_month = monthrange(year, month)[1]
-    dates = [date(year, month, day) for day in range(1, days_in_month + 1)]
+
+    window = get_pending_off_window_inclusive(year, month, selected_period)
+    if window:
+        start_d, end_d = window
+        dates: List[date] = []
+        cur = start_d
+        while cur <= end_d:
+            dates.append(cur)
+            cur += timedelta(days=1)
+    else:
+        days_in_month = monthrange(year, month)[1]
+        dates = [date(year, month, day) for day in range(1, days_in_month + 1)]
     
     # Convert schedule to assignments format: {(employee, date, shift): 1}
     assignments = {}
@@ -181,8 +205,9 @@ def recalculate_employee_report(
     # Get employee names from schedule
     employees = list(set([entry['employee'] for entry in schedule if 'employee' in entry]))
     
-    # Load holidays for this month
-    holidays = load_month_holidays(year, month, db)
+    holidays: Dict[str, str] = {}
+    if dates:
+        holidays = load_holidays_by_date_range(dates[0], dates[-1], db)
     
     # Create a minimal RosterData-like object for holidays
     class SimpleRosterData:
@@ -508,8 +533,10 @@ async def update_schedule(
             raise HTTPException(status_code=404, detail="Schedule not found")
         
         schedule = schedule_data['schedule']  # List of {employee, date, shift}
-        employees = schedule_data.get('employees', [])  # Optional employee report data
-        
+        selected_period = schedule_data.get("selected_period")  # optional: pre-ramadan | ramadan | post-ramadan (2026)
+        if selected_period is not None and not isinstance(selected_period, str):
+            selected_period = None
+
         # Delete existing schedule entries
         db.query(CommittedSchedule).filter(
             CommittedSchedule.year == year,
@@ -533,16 +560,17 @@ async def update_schedule(
             )
             db.add(schedule_entry)
         
-        # Recalculate employee report from updated schedule
-        # This ensures pending_off values are updated based on the new schedule
-        employee_df = recalculate_employee_report(schedule, year, month, db)
+        # Recalculate employee report from updated schedule (same date scope as frontend when selected_period set)
+        employee_df = recalculate_employee_report(
+            schedule, year, month, db, selected_period=selected_period
+        )
         employees = employee_df.to_dict('records')
-        
+
         # Update metrics
         metrics = schedule_data.get('metrics', {})
         if not isinstance(metrics, dict):
             metrics = {}
-        
+
         # Store recalculated employees data in metrics JSON
         # Reorder employees to match EmployeeSkills table order (by ID)
         if employees:
@@ -567,7 +595,12 @@ async def update_schedule(
         if isinstance(em_list, list) and em_list:
             _enrich_employee_rows_with_user_id(db, em_list)
             _remap_employee_metrics_to_user_id_keys(db, metrics)
-        
+
+        if selected_period:
+            metrics["pending_off_period"] = selected_period
+        else:
+            metrics.pop("pending_off_period", None)
+
         existing_metrics = db.query(ScheduleMetrics).filter(
             ScheduleMetrics.year == year,
             ScheduleMetrics.month == month

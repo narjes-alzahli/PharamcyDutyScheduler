@@ -8,7 +8,11 @@ import { RequestsSchedule } from '../components/RequestsSchedule';
 import { useAuth } from '../contexts/AuthContext';
 import { CalendarDatePicker } from '../components/CalendarDatePicker';
 import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
-import { calculatePendingOff } from '../utils/pendingOffCalculation';
+import {
+  calculatePendingOff,
+  getPendingOffWindow,
+  filterEntriesToPendingWindow,
+} from '../utils/pendingOffCalculation';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -2297,28 +2301,22 @@ export const RosterGenerator: React.FC = () => {
                           );
                         }
                         
-                        // Calculate initial pending_off by reverse-calculating from original schedule
-                        // Helper to check if date is in selected period range
-                        const isDateInRange = (dateStr: string): boolean => {
-                          if (!selectedYear || !selectedMonth) return false;
-                          const date = new Date(dateStr);
-                          if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
-                            if (selectedPeriod === 'pre-ramadan') {
-                              return date >= new Date('2026-02-01') && date <= new Date('2026-02-18');
-                            } else if (selectedPeriod === 'ramadan') {
-                              return date >= new Date('2026-02-19') && date <= new Date('2026-03-19');
-                            } else if (selectedPeriod === 'post-ramadan') {
-                              return date >= new Date('2026-03-20') && date <= new Date('2026-03-31');
-                            }
-                          }
-                          return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
-                        };
-                        
-                        const originalScheduleEntries = originalGeneratedSchedule.filter((entry: any) => {
-                          return isDateInRange(entry.date);
-                        });
-                        
-                        const originalCalculated = calculatePendingOff(originalScheduleEntries, {}, {}, selectedYear, selectedMonth);
+                        const pendingWindow = getPendingOffWindow(selectedYear, selectedMonth, selectedPeriod);
+                        const originalScheduleEntries = filterEntriesToPendingWindow(
+                          originalGeneratedSchedule,
+                          selectedYear,
+                          selectedMonth,
+                          selectedPeriod,
+                        );
+
+                        const originalCalculated = calculatePendingOff(
+                          originalScheduleEntries,
+                          {},
+                          {},
+                          selectedYear,
+                          selectedMonth,
+                          pendingWindow,
+                        );
                         const originalEmployeesMap = new Map(generatedEmployees.map((e: any) => [e.employee, e]));
                         
                         // Reverse-calculate initial pending_off
@@ -2327,7 +2325,8 @@ export const RosterGenerator: React.FC = () => {
                           const original = originalEmployeesMap.get(calc.employee);
                           if (original) {
                             const finalPendingOff = original.pending_off || 0;
-                            const addedThisMonth = calc.weekend_shifts + calc.night_shifts - calc.DOs_given;
+                            const addedThisMonth =
+                              calc.weekend_days_in_month + calc.night_shifts - calc.Os_given;
                             initialPendingOff[calc.employee] = Math.max(0, finalPendingOff - addedThisMonth);
                           } else {
                             initialPendingOff[calc.employee] = 0;
@@ -2341,12 +2340,21 @@ export const RosterGenerator: React.FC = () => {
                           }
                         });
                         
-                        // Calculate from current (edited) schedule
-                        const currentScheduleEntries = generatedSchedule.filter((entry: any) => {
-                          return isDateInRange(entry.date);
-                        });
-                        
-                        const recalculated = calculatePendingOff(currentScheduleEntries, initialPendingOff, {}, selectedYear, selectedMonth);
+                        const currentScheduleEntries = filterEntriesToPendingWindow(
+                          generatedSchedule,
+                          selectedYear,
+                          selectedMonth,
+                          selectedPeriod,
+                        );
+
+                        const recalculated = calculatePendingOff(
+                          currentScheduleEntries,
+                          initialPendingOff,
+                          {},
+                          selectedYear,
+                          selectedMonth,
+                          pendingWindow,
+                        );
                         
                         // Create a map of employees with their skill information
                         const employeesWithSkillsMap = new Map(
@@ -2378,8 +2386,8 @@ export const RosterGenerator: React.FC = () => {
                             total_working_days: e.total_working_days,
                             night_shifts: e.night_shifts,
                             afternoon_shifts: 0, // Not used in display
-                            weekend_shifts: e.weekend_shifts,
-                            DOs_given: e.DOs_given,
+                            weekend_days_in_month: e.weekend_days_in_month,
+                            Os_given: e.Os_given,
                             ...skills, // Include all skill fields
                           };
                         });

@@ -9,7 +9,12 @@ import { useDate } from '../contexts/DateContext';
 import { isTokenExpired } from '../utils/tokenUtils';
 import Plot from 'react-plotly.js';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
-import { calculatePendingOff, PendingOffData } from '../utils/pendingOffCalculation';
+import {
+  calculatePendingOff,
+  PendingOffData,
+  getPendingOffWindow,
+  filterEntriesToPendingWindow,
+} from '../utils/pendingOffCalculation';
 import { FairnessLineGraph } from '../components/FairnessLineGraph';
 
 /** Committed month employee report: top-level `employees` or `metrics.employees` (list endpoint omits top-level). */
@@ -788,7 +793,8 @@ export const AllRostersPage: React.FC = () => {
         selectedYear,
         selectedMonth,
         normalizedSchedule,
-        getEmployeeRowsFromSchedule(currentSchedule)
+        getEmployeeRowsFromSchedule(currentSchedule),
+        currentPeriod,
       );
       
       // Reload the schedule to get the updated version
@@ -926,27 +932,34 @@ export const AllRostersPage: React.FC = () => {
     if (!monthSchedule.length || !originalSchedule || origRows.length === 0) return null;
     if (!selectedYear || !selectedMonth) return null;
     
-    // Get original schedule entries for this month
-    const originalScheduleEntries = originalSchedule.schedule.filter((entry: any) => {
-      const date = new Date(entry.date);
-      return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
-    });
-    
-    // Calculate what was added in the original month from the original schedule
-    const originalCalculated = calculatePendingOff(originalScheduleEntries, {}, {}, selectedYear, selectedMonth);
+    const pendingWindow = getPendingOffWindow(selectedYear, selectedMonth, currentPeriod);
+    const originalScheduleEntries = filterEntriesToPendingWindow(
+      originalSchedule.schedule || [],
+      selectedYear,
+      selectedMonth,
+      currentPeriod,
+    );
+
+    const originalCalculated = calculatePendingOff(
+      originalScheduleEntries,
+      {},
+      {},
+      selectedYear,
+      selectedMonth,
+      pendingWindow,
+    );
     const originalEmployeesMap = new Map(origRows.map((e: any) => [e.employee, e]));
     
     // Reverse-calculate initial pending_off for each employee:
-    // final_pending_off = initial_pending_off + (weekend_shifts + night_shifts - DOs_given)
-    // So initial_pending_off = final_pending_off - (weekend_shifts + night_shifts - DOs_given)
+    // final = initial + weekend_days + N_credit - O_count
     const initialPendingOff: Record<string, number> = {};
     
     originalCalculated.forEach(calc => {
       const original = originalEmployeesMap.get(calc.employee);
       if (original) {
         const finalPendingOff = original.pending_off || 0;
-        // Calculate what was added this month: weekend_shifts + night_shifts - DOs_given
-        const addedThisMonth = calc.weekend_shifts + calc.night_shifts - calc.DOs_given;
+        const addedThisMonth =
+          calc.weekend_days_in_month + calc.night_shifts - calc.Os_given;
         // Initial = Final - Added
         initialPendingOff[calc.employee] = Math.max(0, finalPendingOff - addedThisMonth);
       } else {
@@ -963,9 +976,21 @@ export const AllRostersPage: React.FC = () => {
       }
     });
     
-    // Now calculate from current (potentially edited) schedule using the calculated initial values
-    return calculatePendingOff(monthSchedule, initialPendingOff, {}, selectedYear, selectedMonth);
-  }, [monthSchedule, originalSchedule, selectedYear, selectedMonth]);
+    const entriesForPending = filterEntriesToPendingWindow(
+      monthSchedule,
+      selectedYear,
+      selectedMonth,
+      currentPeriod,
+    );
+    return calculatePendingOff(
+      entriesForPending,
+      initialPendingOff,
+      {},
+      selectedYear,
+      selectedMonth,
+      pendingWindow,
+    );
+  }, [monthSchedule, originalSchedule, selectedYear, selectedMonth, currentPeriod]);
 
   /**
    * P/O column: only values from this viewed month’s committed snapshot (`employees` or `metrics.employees`).

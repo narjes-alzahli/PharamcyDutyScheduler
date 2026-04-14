@@ -325,11 +325,18 @@ export const schedulesAPI = {
       metrics,
     });
   },
-  updateSchedule: async (year: number, month: number, schedule: any[], employees?: any[]): Promise<void> => {
-    await api.put(`/api/schedules/committed/${year}/${month}`, {
-      schedule,
-      employees,
-    });
+  updateSchedule: async (
+    year: number,
+    month: number,
+    schedule: any[],
+    employees?: any[],
+    selectedPeriod?: string | null,
+  ): Promise<void> => {
+    const payload: Record<string, unknown> = { schedule, employees };
+    if (selectedPeriod != null && selectedPeriod !== '') {
+      payload.selected_period = selectedPeriod;
+    }
+    await api.put(`/api/schedules/committed/${year}/${month}`, payload);
   },
 };
 

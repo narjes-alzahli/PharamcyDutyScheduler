@@ -216,58 +216,57 @@ class RosterSolver:
         dates: List[date],
         demands: Dict[date, Dict[str, int]] = None,
         initial_pending_off: Dict[str, float] = None,
-        roster_data: 'RosterData' = None
+        roster_data: 'RosterData' = None,
     ) -> pd.DataFrame:
-        """Create employee workload report with pending_off calculation."""
+        """Create employee workload report with pending_off calculation.
+
+        pending_off = (
+            weekend_days_in_scope
+            + (1 per N shift on a weekday, 2 per N on Fri/Sat)
+            + previous_pending_off
+        ) - (count of O rest shifts in the period)
+
+        Weekend days are Fri/Sat (weekday() 4,5). ``dates`` should cover the roster period
+        (typically full month) so weekend_days matches calendar Fri/Sat in that range.
+        """
+        _ = roster_data  # callers still pass RosterData; N weighting uses calendar Fri/Sat only
         rows = []
-        
+        weekend_days_in_month = sum(1 for d in dates if d.weekday() in (4, 5))
+
         for emp in employees:
             total_working_days = 0
-            night_shifts = 0
+            night_shifts = 0  # weighted N credit: +1 weekday, +2 Fri/Sat
             afternoon_shifts = 0
-            weekend_shifts = 0
-            DOs_given = 0  # Only count "DO" (Day Off) codes
-            
+            Os_given = 0  # rest day "O" only (not DO)
+
             for day in dates:
                 # Count working shifts
                 working_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL"]
                 for shift in working_shifts:
                     if assignments.get((emp, day, shift), 0) == 1:
                         total_working_days += 1
-                        
+
                         if shift == "N":
-                            # Night shift counting logic: Friday/Saturday/vacation counts as 2
-                            is_weekend = day.weekday() in [4, 5]  # Friday=4, Saturday=5
-                            # Check for holiday using roster_data.get_holiday() instead of demands dict
-                            is_vacation = roster_data and roster_data.get_holiday(day) is not None
-                            
-                            if is_weekend or is_vacation:
-                                night_shifts += 2  # Count as 2 for pending_off calculation
-                            else:
-                                night_shifts += 1
+                            is_weekend = day.weekday() in (4, 5)  # Friday, Saturday
+                            night_shifts += 2 if is_weekend else 1
                         elif shift == "A":
                             afternoon_shifts += 1
-                        
-                        # Weekend shifts (Friday=4, Saturday=5) - any shift on weekend
-                        if day.weekday() in [4, 5]:
-                            weekend_shifts += 1
-                
-                # Count only "DO" (Day Off) codes for pending_off calculation
-                if assignments.get((emp, day, "DO"), 0) == 1:
-                    DOs_given += 1
-            
-            # Calculate pending_off: (weekend_shifts + night_shifts + previous_pending_off) - (DOs_given + previous_DOs)
+
+                if assignments.get((emp, day, "O"), 0) == 1:
+                    Os_given += 1
+
             previous_pending_off = initial_pending_off.get(emp, 0.0) if initial_pending_off else 0.0
-            previous_DOs = 0.0  # Set to 0 for now as requested
-            pending_off = weekend_shifts + night_shifts + previous_pending_off - DOs_given - previous_DOs
-            
+            pending_off = (
+                weekend_days_in_month + night_shifts + previous_pending_off - Os_given
+            )
+
             rows.append({
                 "employee": emp,
                 "total_working_days": total_working_days,
                 "night_shifts": night_shifts,
                 "afternoon_shifts": afternoon_shifts,
-                "weekend_shifts": weekend_shifts,
-                "DOs_given": DOs_given,
+                "weekend_days_in_month": weekend_days_in_month,
+                "Os_given": Os_given,
                 "pending_off": pending_off
             })
         
