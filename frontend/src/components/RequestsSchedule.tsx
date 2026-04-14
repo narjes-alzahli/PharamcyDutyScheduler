@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { leaveTypesAPI, shiftTypesAPI, LeaveType, ShiftType, requestsAPI } from '../services/api';
-import { parseDateToISO } from '../utils/dateFormat';
+import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
 import { shiftColors as defaultShiftColors } from '../utils/shiftColors';
 
 interface RequestsScheduleProps {
@@ -12,12 +12,78 @@ interface RequestsScheduleProps {
   onTimeOffChange: (newData: any[]) => void;
   onLocksChange: (newData: any[]) => void;
   onSaveNotification: (notification: { message: string; type: 'success' | 'error' }) => void;
+  /** Human summary for toast after a cell/range save (shift, dates, person). */
+  onRequestSaveSummary?: (summary: string) => void;
   onReload: () => void;
   selectedPeriod?: string | null; // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
 }
 
 // Standard working shifts that go to locks
 const STANDARD_SHIFT_CODES = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'IP+P', 'P', 'M+P', 'AS']);
+
+/** Matches save toasts: `Name · DD-MM-YYYY[–DD-MM-YYYY] · detail` */
+function formatPersonDatesDetail(
+  employee: string,
+  fromDate: string,
+  toDate: string,
+  detail: string
+): string {
+  const d1 = formatDateDDMMYYYY(fromDate);
+  const d2 = formatDateDDMMYYYY(toDate);
+  const dateStr = fromDate === toDate ? d1 : `${d1}–${d2}`;
+  return `${employee} · ${dateStr} · ${detail}`;
+}
+
+function formatBatchActionNotification(
+  verb: 'Saved' | 'Deleted' | 'Rejected',
+  lines: string[]
+): string {
+  if (lines.length === 0) return `${verb}.`;
+  if (lines.length === 1) return `${verb} · ${lines[0]}`;
+  return `${verb} ${lines.length} requests · ${lines[0]}${lines.length > 1 ? '…' : ''}`;
+}
+
+function buildContiguousRangesFromCells(
+  cells: Array<{ employee: string; date: string }>
+): Array<{ employee: string; from_date: string; to_date: string }> {
+  const byEmployee = new Map<string, string[]>();
+  cells.forEach((cell) => {
+    const isoDate = parseDateToISO(cell.date) || cell.date;
+    if (!byEmployee.has(cell.employee)) {
+      byEmployee.set(cell.employee, []);
+    }
+    byEmployee.get(cell.employee)!.push(isoDate);
+  });
+
+  const ranges: Array<{ employee: string; from_date: string; to_date: string }> = [];
+  byEmployee.forEach((dates, employeeName) => {
+    const uniqueSortedDates = Array.from(new Set(dates)).sort();
+    if (uniqueSortedDates.length === 0) return;
+
+    let rangeStart = uniqueSortedDates[0];
+    let prevDate = uniqueSortedDates[0];
+
+    for (let i = 1; i < uniqueSortedDates.length; i++) {
+      const currentDate = uniqueSortedDates[i];
+      const prev = new Date(prevDate);
+      const curr = new Date(currentDate);
+      const dayDiff = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (dayDiff === 1) {
+        prevDate = currentDate;
+        continue;
+      }
+
+      ranges.push({ employee: employeeName, from_date: rangeStart, to_date: prevDate });
+      rangeStart = currentDate;
+      prevDate = currentDate;
+    }
+
+    ranges.push({ employee: employeeName, from_date: rangeStart, to_date: prevDate });
+  });
+
+  return ranges;
+}
 
 export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   year,
@@ -28,6 +94,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
   onTimeOffChange,
   onLocksChange,
   onSaveNotification,
+  onRequestSaveSummary,
   onReload,
   selectedPeriod,
 }) => {
@@ -49,6 +116,8 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     type: 'leave' | 'shift';
     action: 'reject' | 'delete';
     cell: { employee: string; date: string };
+    /** Inner line: `Name · dates · code/shift` (same shape as save toasts) */
+    toastInner?: string;
   } | null>(null);
   const [allLeaveRequests, setAllLeaveRequests] = useState<any[]>([]);
   const [allShiftRequests, setAllShiftRequests] = useState<any[]>([]);
@@ -307,8 +376,17 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     const options = getDropdownOptions();
     const selectedOption = options.find(opt => opt.code === newCode);
 
-    // Collect all approved requests to delete (across all cells) before processing
-    const allApprovedRequestsToDelete: Array<{ request_id: string; type: 'LR' | 'SR' }> = [];
+    // Collect approved employee requests (LR_/SR_) to delete via API, with span metadata for toasts
+    const approvedRequestsToTrack: Array<{
+      request_id: string;
+      type: 'LR' | 'SR';
+      employee: string;
+      from_date: string;
+      to_date: string;
+      code?: string;
+      shift?: string;
+      force?: boolean;
+    }> = [];
 
     // STEP 1: Process all cells to remove entries and collect approved requests
     for (const cell of cellsToUpdate) {
@@ -348,10 +426,28 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         
         // Add to collection (avoid duplicates by request_id)
         approvedRequests.forEach((item: any) => {
-          if (item.request_id && !allApprovedRequestsToDelete.some(r => r.request_id === item.request_id)) {
-            allApprovedRequestsToDelete.push({
-              request_id: item.request_id,
-              type: item.request_id.startsWith('LR_') ? 'LR' : 'SR'
+          const id = item.request_id;
+          if (!id || approvedRequestsToTrack.some((r) => r.request_id === id)) return;
+          const from = normalizeDate(item.from_date);
+          const to = normalizeDate(item.to_date);
+          if (id.startsWith('LR_')) {
+            approvedRequestsToTrack.push({
+              request_id: id,
+              type: 'LR',
+              employee: item.employee,
+              from_date: from,
+              to_date: to,
+              code: item.code,
+            });
+          } else if (id.startsWith('SR_')) {
+            approvedRequestsToTrack.push({
+              request_id: id,
+              type: 'SR',
+              employee: item.employee,
+              from_date: from,
+              to_date: to,
+              shift: item.shift,
+              force: !!item.force,
             });
           }
         });
@@ -389,18 +485,37 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     }
 
     // STEP 2: Delete all approved requests at once (if any)
-    if (allApprovedRequestsToDelete.length > 0) {
+    if (approvedRequestsToTrack.length > 0) {
       try {
-        await Promise.all(allApprovedRequestsToDelete.map(async (req) => {
-          if (req.type === 'LR') {
-            await requestsAPI.deleteLeaveRequest(req.request_id);
-          } else if (req.type === 'SR') {
-            await requestsAPI.deleteShiftRequest(req.request_id);
-          }
-        }));
+        await Promise.all(
+          approvedRequestsToTrack.map(async (req) => {
+            if (req.type === 'LR') {
+              await requestsAPI.deleteLeaveRequest(req.request_id);
+            } else if (req.type === 'SR') {
+              await requestsAPI.deleteShiftRequest(req.request_id);
+            }
+          })
+        );
         if (newCode === '') {
-          // For Empty option, we're done after deleting and removing entries
-          onSaveNotification({ message: '✅ Request(s) deleted successfully!', type: 'success' });
+          const deleteLines = approvedRequestsToTrack.map((req) => {
+            if (req.type === 'LR') {
+              return formatPersonDatesDetail(
+                req.employee,
+                req.from_date,
+                req.to_date,
+                req.code || 'leave'
+              );
+            }
+            const detail =
+              req.force === false
+                ? `Cannot work ${req.shift || ''}`
+                : `Must work ${req.shift || ''}`;
+            return formatPersonDatesDetail(req.employee, req.from_date, req.to_date, detail);
+          });
+          onSaveNotification({
+            message: formatBatchActionNotification('Deleted', deleteLines),
+            type: 'success',
+          });
           onReload();
           setEditingCell(null);
           setSearchTerm('');
@@ -409,9 +524,9 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         }
         // If switching types, continue to create new requests below
       } catch (error: any) {
-        onSaveNotification({ 
-          message: `❌ Failed to delete request: ${error.response?.data?.detail || 'Unknown error'}`,
-          type: 'error'
+        onSaveNotification({
+          message: `Failed to delete request: ${error.response?.data?.detail || 'Unknown error'}`,
+          type: 'error',
         });
         return;
       }
@@ -420,7 +535,25 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
       if (hasChanges) {
         onTimeOffChange(newTimeOff);
         onLocksChange(newLocks);
-        onSaveNotification({ message: '✅ Cells cleared successfully!', type: 'success' });
+        const ranges = buildContiguousRangesFromCells(cellsToUpdate);
+        const deleteLines = ranges.map((r) => {
+          const dKey = (parseDateToISO(r.from_date) || r.from_date).split('T')[0];
+          const c = pivotData[r.employee]?.[dKey];
+          let detail = 'cleared';
+          if (c) {
+            if (c.type === 'leave') {
+              detail = c.code || 'leave';
+            } else {
+              detail =
+                c.force === false ? `Cannot work ${c.code}` : `Must work ${c.code}`;
+            }
+          }
+          return formatPersonDatesDetail(r.employee, r.from_date, r.to_date, detail);
+        });
+        onSaveNotification({
+          message: formatBatchActionNotification('Deleted', deleteLines),
+          type: 'success',
+        });
       }
       setEditingCell(null);
       setSearchTerm('');
@@ -446,49 +579,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
       return;
     }
 
-    const buildContiguousRanges = (
-      cells: Array<{ employee: string; date: string }>
-    ): Array<{ employee: string; from_date: string; to_date: string }> => {
-      const byEmployee = new Map<string, string[]>();
-      cells.forEach((cell) => {
-        const isoDate = parseDateToISO(cell.date) || cell.date;
-        if (!byEmployee.has(cell.employee)) {
-          byEmployee.set(cell.employee, []);
-        }
-        byEmployee.get(cell.employee)!.push(isoDate);
-      });
-
-      const ranges: Array<{ employee: string; from_date: string; to_date: string }> = [];
-      byEmployee.forEach((dates, employeeName) => {
-        const uniqueSortedDates = Array.from(new Set(dates)).sort();
-        if (uniqueSortedDates.length === 0) return;
-
-        let rangeStart = uniqueSortedDates[0];
-        let prevDate = uniqueSortedDates[0];
-
-        for (let i = 1; i < uniqueSortedDates.length; i++) {
-          const currentDate = uniqueSortedDates[i];
-          const prev = new Date(prevDate);
-          const curr = new Date(currentDate);
-          const dayDiff = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
-
-          if (dayDiff === 1) {
-            prevDate = currentDate;
-            continue;
-          }
-
-          ranges.push({ employee: employeeName, from_date: rangeStart, to_date: prevDate });
-          rangeStart = currentDate;
-          prevDate = currentDate;
-        }
-
-        ranges.push({ employee: employeeName, from_date: rangeStart, to_date: prevDate });
-      });
-
-      return ranges;
-    };
-
-    const rangesToUpdate = buildContiguousRanges(cellsToUpdate);
+    const rangesToUpdate = buildContiguousRangesFromCells(cellsToUpdate);
 
     // Create one request per contiguous range so delete/reject acts on the whole span.
     for (const range of rangesToUpdate) {
@@ -525,6 +616,25 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
 
     // Apply changes if any
     if (hasChanges) {
+      if (rangesToUpdate.length > 0 && onRequestSaveSummary && selectedOption) {
+        const parts = rangesToUpdate.map((r) => {
+          const d1 = formatDateDDMMYYYY(r.from_date);
+          const d2 = formatDateDDMMYYYY(r.to_date);
+          const dateStr = r.from_date === r.to_date ? d1 : `${d1}–${d2}`;
+          if (selectedOption.type === 'standard') {
+            const isForbid = newCode.endsWith('_FORBID');
+            const baseShiftCode = isForbid ? newCode.replace('_FORBID', '') : newCode;
+            const action = isForbid ? `Cannot work ${baseShiftCode}` : `Must work ${baseShiftCode}`;
+            return `${r.employee} · ${dateStr} · ${action}`;
+          }
+          return `${r.employee} · ${dateStr} · ${newCode}`;
+        });
+        const msg =
+          parts.length === 1
+            ? `Saved · ${parts[0]}`
+            : `Saved ${parts.length} requests · ${parts[0]}${parts.length > 1 ? '…' : ''}`;
+        onRequestSaveSummary(msg);
+      }
       // Always call both change handlers if we made changes
       // This ensures that when switching from leave to shift (or vice versa),
       // both arrays are updated correctly
@@ -726,19 +836,69 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
     } else {
       // Regular click: Check for protected requests first
       if (approvedRequestInfo) {
-        // Show confirmation dialog
+        const pending = approvedRequestInfo;
+        let toastInner: string | undefined;
+        if (pending.type === 'leave') {
+          const req = allLeaveRequests.find((r) => r.request_id === pending.requestId);
+          if (req) {
+            const from = (parseDateToISO(req.from_date) || req.from_date).split('T')[0];
+            const to = (parseDateToISO(req.to_date) || req.to_date).split('T')[0];
+            toastInner = formatPersonDatesDetail(
+              req.employee || employee,
+              from,
+              to,
+              req.leave_type || req.code || cell?.code || ''
+            );
+          }
+        } else {
+          const req = allShiftRequests.find((r) => r.request_id === pending.requestId);
+          if (req) {
+            const from = (parseDateToISO(req.from_date) || req.from_date).split('T')[0];
+            const to = (parseDateToISO(req.to_date) || req.to_date).split('T')[0];
+            const isCannot =
+              req.request_type === 'Cannot' ||
+              String(req.request_type || '').toLowerCase() === 'cannot';
+            const detail = isCannot
+              ? `Cannot work ${req.shift}`
+              : `Must work ${req.shift}`;
+            toastInner = formatPersonDatesDetail(req.employee || employee, from, to, detail);
+          }
+        }
         setPendingRejection({
-          ...approvedRequestInfo,
+          ...pending,
           action: 'reject',
           cell: { employee, date },
+          toastInner,
         });
         return;
       }
       if (rosterGeneratorRequestInfo) {
+        const tid = rosterGeneratorRequestInfo.requestId;
+        const leaveRow = timeOff.find((x: any) => String(x.request_id) === String(tid));
+        const lockRow = locks.find((x: any) => String(x.request_id) === String(tid));
+        let toastInner: string | undefined;
+        if (leaveRow) {
+          const from = (parseDateToISO(leaveRow.from_date) || leaveRow.from_date).split('T')[0];
+          const to = (parseDateToISO(leaveRow.to_date) || leaveRow.to_date).split('T')[0];
+          toastInner = formatPersonDatesDetail(
+            leaveRow.employee,
+            from,
+            to,
+            leaveRow.code || ''
+          );
+        } else if (lockRow) {
+          const from = (parseDateToISO(lockRow.from_date) || lockRow.from_date).split('T')[0];
+          const to = (parseDateToISO(lockRow.to_date) || lockRow.to_date).split('T')[0];
+          const detail = lockRow.force
+            ? `Must work ${lockRow.shift}`
+            : `Cannot work ${lockRow.shift}`;
+          toastInner = formatPersonDatesDetail(lockRow.employee, from, to, detail);
+        }
         setPendingRejection({
           ...rosterGeneratorRequestInfo,
           action: 'delete',
           cell: { employee, date },
+          toastInner,
         });
         return;
       }
@@ -817,11 +977,15 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
         
         // Reload data to reflect the action
         onReload();
-        onSaveNotification({ 
-          message: pendingRejection.action === 'reject'
-            ? '✅ Request rejected and removed from schedule'
-            : '✅ Request deleted. You can now add a new value.',
-          type: 'success' 
+        const verb = pendingRejection.action === 'reject' ? 'Rejected' : 'Deleted';
+        const msg = pendingRejection.toastInner
+          ? `${verb} · ${pendingRejection.toastInner}`
+          : pendingRejection.action === 'reject'
+            ? 'Request rejected and removed from schedule.'
+            : 'Request deleted. You can add a new value.';
+        onSaveNotification({
+          message: msg,
+          type: 'success',
         });
       } catch (error: any) {
         onSaveNotification({ 

@@ -6,6 +6,7 @@ import { DemandsTab } from '../components/DemandsTab';
 import { ScheduleAnalysis } from '../components/ScheduleAnalysis';
 import { RequestsSchedule } from '../components/RequestsSchedule';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { CalendarDatePicker } from '../components/CalendarDatePicker';
 import { formatDateDDMMYYYY, parseDateToISO } from '../utils/dateFormat';
 import {
@@ -117,6 +118,42 @@ export const RosterGenerator: React.FC = () => {
   const jobNotFoundCountRef = useRef<number>(0);
   const hasShownFailureAlertRef = useRef<boolean>(false);
   const defaultSelectionAppliedRef = useRef(false);
+  const requestSaveSummaryRef = useRef<string | null>(null);
+  const requestSaveToastPendingRef = useRef(false);
+
+  const { showToast } = useToast();
+
+  const pushSaveNotification = React.useCallback(
+    (notification: { message: string; type: 'success' | 'error' }) => {
+      let cleaned = notification.message.trim();
+      for (const prefix of ['✅', '❌', '💾', '⚠️']) {
+        if (cleaned.startsWith(prefix)) {
+          cleaned = cleaned.slice(prefix.length).trim();
+          break;
+        }
+      }
+      showToast({
+        message: cleaned,
+        type: notification.type === 'error' ? 'error' : 'success',
+        durationMs: notification.type === 'error' ? 4500 : 3200,
+      });
+    },
+    [showToast]
+  );
+
+  const maybeFlushRequestSaveToast = React.useCallback(() => {
+    const msg = requestSaveSummaryRef.current;
+    if (msg && requestSaveToastPendingRef.current) {
+      showToast({ message: msg, type: 'success', durationMs: 3800 });
+      requestSaveSummaryRef.current = null;
+      requestSaveToastPendingRef.current = false;
+    }
+  }, [showToast]);
+
+  const handleRequestSaveSummary = React.useCallback((summary: string) => {
+    requestSaveSummaryRef.current = summary;
+    requestSaveToastPendingRef.current = true;
+  }, []);
 
   // Wait for auth to be ready before loading data
   const { loading: authLoading } = useAuth();
@@ -190,7 +227,7 @@ export const RosterGenerator: React.FC = () => {
     if (activeTab === 'requests') {
       // Small delay to ensure previous operations complete
       const timer = setTimeout(() => {
-        loadRosterData(0);
+        loadRosterData(0, true);
         loadShiftTypes(); // Reload shift types when switching to requests tab to get latest types
         loadAllShiftRequests(); // Reload shift requests to get latest data
       }, 100);
@@ -372,7 +409,6 @@ export const RosterGenerator: React.FC = () => {
   const timeOffSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const locksSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const isSavingTimeOffRef = React.useRef<boolean>(false);
-  const [saveNotification, setSaveNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Store initial employees data when it's loaded
   useEffect(() => {
@@ -388,22 +424,20 @@ export const RosterGenerator: React.FC = () => {
     
     if (duplicates.length > 0) {
       const uniqueDuplicates = Array.from(new Set(duplicates));
-      setSaveNotification({ 
-        message: `❌ Duplicate staff names found: ${uniqueDuplicates.join(', ')}. Each person must have a unique name.`,
-        type: 'error'
+      pushSaveNotification({
+        message: `Duplicate staff names found: ${uniqueDuplicates.join(', ')}. Each person must have a unique name.`,
+        type: 'error',
       });
-      setTimeout(() => setSaveNotification(null), 5000);
       return;
     }
 
     // Check for empty names
     const emptyNames = newData.filter(emp => !emp.employee || !emp.employee.trim());
     if (emptyNames.length > 0) {
-      setSaveNotification({ 
-        message: '❌ Staff names cannot be empty. Reload roster data if this persists.',
-        type: 'error'
+      pushSaveNotification({
+        message: 'Staff names cannot be empty. Reload roster data if this persists.',
+        type: 'error',
       });
-      setTimeout(() => setSaveNotification(null), 5000);
       return;
     }
 
@@ -430,16 +464,13 @@ export const RosterGenerator: React.FC = () => {
         setRosterData({ ...rosterData, employees: newData });
         // Update initial reference to current data
         initialEmployeesRef.current = JSON.parse(JSON.stringify(newData));
-        // Show success notification (auto-dismisses)
-        setSaveNotification({ message: '✅ Staff skills saved successfully!', type: 'success' });
-        setTimeout(() => setSaveNotification(null), 2000);
+        pushSaveNotification({ message: 'Staff skills saved successfully.', type: 'success' });
       } catch (error: any) {
         console.error('Failed to save staff skills:', error);
-        setSaveNotification({ 
-          message: `❌ ${error.response?.data?.detail || 'Failed to save staff skills'}`,
-          type: 'error'
+        pushSaveNotification({
+          message: error.response?.data?.detail || 'Failed to save staff skills',
+          type: 'error',
         });
-        setTimeout(() => setSaveNotification(null), 4000);
       }
     }, 2000); // 2 second delay after user stops typing
   };
@@ -452,7 +483,11 @@ export const RosterGenerator: React.FC = () => {
 
   const handleCommitSchedule = async () => {
     if (!generatedSchedule || !selectedYear || !selectedMonth) {
-      alert('No schedule to commit');
+      showToast({
+        message: 'No schedule to commit. Generate a schedule first.',
+        type: 'error',
+        durationMs: 4000,
+      });
       return;
     }
 
@@ -470,9 +505,18 @@ export const RosterGenerator: React.FC = () => {
         generatedEmployees || undefined,
         scheduleMetrics || undefined
       );
-      alert('✅ Schedule committed successfully! It will now appear in Monthly Roster and Reports pages.');
+      showToast({
+        message:
+          'Schedule committed. You can open it from the All Rosters page.',
+        type: 'success',
+        durationMs: 4200,
+      });
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to commit schedule');
+      showToast({
+        message: error.response?.data?.detail || 'Failed to commit schedule',
+        type: 'error',
+        durationMs: 5000,
+      });
     }
   };
 
@@ -825,27 +869,25 @@ export const RosterGenerator: React.FC = () => {
         }
         
         console.log('Successfully saved time-off data');
-        setSaveNotification({ message: '✅ Leave data saved successfully!', type: 'success' });
-        setTimeout(() => setSaveNotification(null), 2000);
-        
-        // Only reload if we actually made updates (to avoid unnecessary reloads)
+
+        // Only toast, reload, and sync when we actually persisted changes
         const hadUpdates = hadSuccessfulUpdates || leaveRequestsToCreateClean.length > 0;
         if (hadUpdates) {
+          maybeFlushRequestSaveToast();
           console.log('🔄 Reloading roster data to sync with server...');
-          await loadRosterData(0, false);
+          await loadRosterData(0, true);
           console.log('✅ Roster data reloaded, UI should now reflect saved dates');
         } else {
           console.log('⏭️ No updates made, skipping reload');
         }
       } catch (error: any) {
         console.error('Failed to save time off:', error);
-        setSaveNotification({
-          message: `❌ ${error.response?.data?.detail || 'Failed to save leave data'}`,
+        pushSaveNotification({
+          message: error.response?.data?.detail || 'Failed to save leave data',
           type: 'error',
         });
-        setTimeout(() => setSaveNotification(null), 4000);
         // Reload on error to get correct state from server
-        await loadRosterData(0, false);
+        await loadRosterData(0, true);
       } finally {
         isSavingTimeOffRef.current = false;
       }
@@ -880,6 +922,7 @@ export const RosterGenerator: React.FC = () => {
     }
 
     locksSaveTimeoutRef.current = setTimeout(async () => {
+      let didPersistLocks = false;
       try {
         // Group locks by request_id to handle multi-day requests correctly
         // A single shift request can span multiple days, so we need to group by request_id
@@ -913,6 +956,7 @@ export const RosterGenerator: React.FC = () => {
         // Update existing requests via API
         // For each request_id, find the min from_date and max to_date to update the single request
         if (locksByRequestId.size > 0) {
+          didPersistLocks = true;
           await Promise.all(
             Array.from(locksByRequestId.entries()).map(async ([requestId, locks]) => {
               try {
@@ -1007,24 +1051,24 @@ export const RosterGenerator: React.FC = () => {
         
         if (locksToCreateClean.length > 0) {
           console.log('Creating new shift requests:', locksToCreateClean.length);
+          didPersistLocks = true;
           await dataAPI.updateLocks(locksToCreateClean);
         }
-        
-        setSaveNotification({ message: '✅ Shift requests saved successfully!', type: 'success' });
-        setTimeout(() => setSaveNotification(null), 2000);
-        
-        // Reload data to get updated request_ids - CRITICAL for future edits
-        await loadRosterData(0, false);
-        await loadAllShiftRequests();
+
+        if (didPersistLocks) {
+          maybeFlushRequestSaveToast();
+          // Reload data to get updated request_ids - CRITICAL for future edits
+          await loadRosterData(0, true);
+          await loadAllShiftRequests();
+        }
       } catch (error: any) {
         console.error('Failed to save shift requests:', error);
-        setSaveNotification({
-          message: `❌ ${error.response?.data?.detail || 'Failed to save shift requests'}`,
+        pushSaveNotification({
+          message: error.response?.data?.detail || 'Failed to save shift requests',
           type: 'error',
         });
-        setTimeout(() => setSaveNotification(null), 4000);
         // Reload on error to get correct state from server
-        await loadRosterData(0, false);
+        await loadRosterData(0, true);
       }
     }, 800);
   };
@@ -1043,8 +1087,7 @@ export const RosterGenerator: React.FC = () => {
     
     try {
       setShowAddTimeOff(false);
-      setSaveNotification({ message: '💾 Saving leave request...', type: 'success' });
-      
+
       // Save directly via API (like shift requests do)
       const newTimeOff = {
         employee,
@@ -1056,18 +1099,16 @@ export const RosterGenerator: React.FC = () => {
       console.log('Adding time off directly via API:', newTimeOff);
       const createResponse = await dataAPI.updateTimeOff([newTimeOff]);
       
-      setSaveNotification({ message: '✅ Leave request added successfully!', type: 'success' });
-      setTimeout(() => setSaveNotification(null), 2000);
-      
+      pushSaveNotification({ message: 'Leave request added successfully.', type: 'success' });
+
       // Reload data to get the new request_id
-      await loadRosterData(0, false);
+      await loadRosterData(0, true);
     } catch (error: any) {
       console.error('Failed to add leave request:', error);
-      setSaveNotification({
-        message: `❌ ${error.response?.data?.detail || 'Failed to add leave request'}`,
+      pushSaveNotification({
+        message: error.response?.data?.detail || 'Failed to add leave request',
         type: 'error',
       });
-      setTimeout(() => setSaveNotification(null), 4000);
     }
   };
 
@@ -1389,20 +1430,7 @@ export const RosterGenerator: React.FC = () => {
                   </p>
                 </div>
               </div>
-              
-              {/* Auto-dismissing notification toast */}
-              {saveNotification && (
-                <div 
-                  className={`fixed top-20 right-4 z-50 px-4 py-3 rounded-lg shadow-lg ${
-                    saveNotification.type === 'success' 
-                      ? 'bg-green-500 text-white' 
-                      : 'bg-red-500 text-white'
-                  }`}
-                  style={{ animation: 'slideIn 0.3s ease-out' }}
-                >
-                  {saveNotification.message}
-                </div>
-              )}
+
               {rosterData?.employees && rosterData.employees.length > 0 ? (
                 <>
                   {/* Info Cards */}
@@ -1488,8 +1516,9 @@ export const RosterGenerator: React.FC = () => {
                 locks={rosterData?.locks || []}
                 onTimeOffChange={handleTimeOffChange}
                 onLocksChange={handleLocksChange}
-                onSaveNotification={setSaveNotification}
-                onReload={loadRosterData}
+                onSaveNotification={pushSaveNotification}
+                onRequestSaveSummary={handleRequestSaveSummary}
+                onReload={() => loadRosterData(0, true)}
                 selectedPeriod={selectedPeriod}
               />
             </div>
@@ -1825,8 +1854,7 @@ export const RosterGenerator: React.FC = () => {
                         
                         // Update UI immediately
                         handleTimeOffChange(newData);
-                        setSaveNotification({ message: '✅ Leave request(s) deleted!', type: 'success' });
-                        setTimeout(() => setSaveNotification(null), 2000);
+                        pushSaveNotification({ message: 'Leave request(s) deleted.', type: 'success' });
                         
                         // Sync with backend in the background (don't await - fire and forget)
                         // Delete only the specific request_id(s) from the row being deleted
@@ -1837,17 +1865,16 @@ export const RosterGenerator: React.FC = () => {
                         ).then(() => {
                           console.log('Successfully deleted leave requests from backend');
                           // Optionally reload to ensure sync, but don't block UI
-                          loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
+                          loadRosterData(0, true).catch(err => console.error('Failed to reload after delete:', err));
                         }).catch((error: any) => {
                           console.error('Failed to delete leave request(s) via API:', error);
                           // Show error but don't revert UI (user already saw it deleted)
-                          setSaveNotification({
-                            message: `⚠️ Deleted locally but sync failed: ${error.response?.data?.detail || 'Please refresh'}`,
+                          pushSaveNotification({
+                            message: `Deleted locally but sync failed: ${error.response?.data?.detail || 'Please refresh'}`,
                             type: 'error',
                           });
-                          setTimeout(() => setSaveNotification(null), 4000);
                           // Reload to get correct state from server
-                          loadRosterData().catch(err => console.error('Failed to reload after error:', err));
+                          loadRosterData(0, true).catch(err => console.error('Failed to reload after error:', err));
                         });
                         
                         return; // Exit early - UI already updated
@@ -1869,9 +1896,8 @@ export const RosterGenerator: React.FC = () => {
                           console.log('Attempting API delete for request:', rangeToDelete.request_id);
                           await requestsAPI.deleteLeaveRequest(rangeToDelete.request_id);
                           console.log('Successfully deleted via API');
-                          setSaveNotification({ message: '✅ Leave request deleted!', type: 'success' });
-                          setTimeout(() => setSaveNotification(null), 2000);
-                          await loadRosterData();
+                          pushSaveNotification({ message: 'Leave request deleted.', type: 'success' });
+                          await loadRosterData(0, true);
                           return;
                         } catch (apiError: any) {
                           console.log('API delete failed, will use time_off update method:', apiError.response?.data?.detail);
@@ -1915,24 +1941,23 @@ export const RosterGenerator: React.FC = () => {
                       
                       // Update UI immediately
                       handleTimeOffChange(newData);
-                      setSaveNotification({ message: '✅ Leave request(s) deleted!', type: 'success' });
-                      setTimeout(() => setSaveNotification(null), 2000);
+                      pushSaveNotification({ message: 'Leave request(s) deleted.', type: 'success' });
                       
                       // Try API delete for the specific request_id if it exists
                       if (rangeToDelete.request_id && rangeToDelete.request_id.trim() !== '') {
                         requestsAPI.deleteLeaveRequest(rangeToDelete.request_id)
                           .then(() => {
                             console.log('Successfully deleted leave request from backend');
-                            loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
+                            loadRosterData(0, true).catch(err => console.error('Failed to reload after delete:', err));
                           })
                           .catch((error: any) => {
                             console.log('API delete failed (but UI already updated):', error.response?.data?.detail);
                             // Don't show error to user since UI is already updated - just reload to sync
-                            loadRosterData().catch(err => console.error('Failed to reload after error:', err));
+                            loadRosterData(0, true).catch(err => console.error('Failed to reload after error:', err));
                           });
                       } else {
                         // No request_id - just reload to ensure sync
-                        loadRosterData().catch(err => console.error('Failed to reload after delete:', err));
+                        loadRosterData(0, true).catch(err => console.error('Failed to reload after delete:', err));
                       }
                     }
                   }}
@@ -2137,19 +2162,17 @@ export const RosterGenerator: React.FC = () => {
                         try {
                           console.log('Deleting employee-requested shift request:', itemToDelete.request_id);
                           await requestsAPI.deleteShiftRequest(itemToDelete.request_id);
-                          setSaveNotification({ message: '✅ Shift request deleted successfully!', type: 'success' });
-                          setTimeout(() => setSaveNotification(null), 2000);
+                          pushSaveNotification({ message: 'Shift request deleted.', type: 'success' });
                           // Reload data to reflect the deletion
-                          await loadRosterData();
+                          await loadRosterData(0, true);
                           await loadAllShiftRequests();
                           return;
                         } catch (error: any) {
                           console.error('Failed to delete shift request via API:', error);
-                          setSaveNotification({
-                            message: `❌ ${error.response?.data?.detail || 'Failed to delete shift request'}`,
+                          pushSaveNotification({
+                            message: error.response?.data?.detail || 'Failed to delete shift request',
                             type: 'error',
                           });
-                          setTimeout(() => setSaveNotification(null), 4000);
                           return; // Don't fall through if API delete fails
                         }
                       }
@@ -2160,9 +2183,8 @@ export const RosterGenerator: React.FC = () => {
                         try {
                           console.log('Attempting to delete shift request via API (fallback):', itemToDelete.request_id);
                           await requestsAPI.deleteShiftRequest(itemToDelete.request_id);
-                          setSaveNotification({ message: '✅ Shift request deleted successfully!', type: 'success' });
-                          setTimeout(() => setSaveNotification(null), 2000);
-                          await loadRosterData();
+                          pushSaveNotification({ message: 'Shift request deleted.', type: 'success' });
+                          await loadRosterData(0, true);
                           await loadAllShiftRequests();
                           return;
                         } catch (error: any) {
