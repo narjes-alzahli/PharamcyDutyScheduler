@@ -64,6 +64,7 @@ Staff cannot work these shift combinations on consecutive days:
 Staff who are only qualified for one type of shift:
 - Work that shift Sunday through Thursday
 - Rest on Friday and Saturday
+- If their only skill has **zero demand** on a weekday, they are assigned **O** for that day (instead of being forced to work an unneeded shift)
 - *Exceptions: Can be overridden by approved time off or shift requests*
 
 ### 12. Clinic Availability
@@ -98,6 +99,33 @@ The system tries to make the schedule as fair as possible by:
      - Next fallback: `M4 -> A -> N -> O -> O`
 
 4. **Avoiding Over-staffing**: Prefers assigning exactly the required number of staff (not more)
+
+---
+
+## Holiday & Pending-Off Rules
+
+### Holiday demand behavior
+- Holiday dates override normal demand with holiday templates.
+- **Weekday holiday default**: `N=1, M=1, M3=1, A=1, IP=1, CL=2`.
+- **Weekend holiday (Fri/Sat) default**: `N=1, M3=1, A=1`.
+
+### Pending-off behavior
+- Pending-off includes weekend-day credit for the selected period.
+- Night-shift credit:
+  - `+1` for N on normal weekdays
+  - `+2` for N on weekend days or holiday days
+- Each `O` day subtracts `1`.
+- Previous pending-off is carried into the new period.
+
+---
+
+## Sanity Check Messages (What They Mean)
+
+- The checker now reports per-shift root causes in plain language:
+  - Not enough people **have** the required skill, or
+  - Enough people have the skill, but not enough are **available** that day (leave/locks/forced assignment).
+- It also runs a combined daily coverage check:
+  - Even if each shift looks possible alone, all required shifts together may still be infeasible.
 
 ---
 

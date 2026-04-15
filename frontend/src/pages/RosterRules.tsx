@@ -465,7 +465,7 @@ export const RulesManagement: React.FC = () => {
       {/* Rules Tab */}
       {activeTab === 'scheduling-rules' && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">How the Schedule is Created</h3>
+          <h3 className="text-xl font-bold text-gray-900 mb-4">How the Schedule Works (Simple)</h3>
 
           <div className="space-y-6">
             {/* Core Constraints */}
@@ -474,7 +474,7 @@ export const RulesManagement: React.FC = () => {
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>Each person works one shift per day (or has a day off)</li>
                 <li>People only work shifts they're trained for</li>
-                <li>Coverage: all shifts except M and IP must be fully covered every day; M and IP are filled as much as possible (soft)</li>
+                <li>Most shift demands must be fully covered every day; M and IP are more flexible and can be under-filled if needed</li>
                 <li>Staff with only the Clinic (CL) skill only work clinic shifts</li>
               </ul>
             </section>
@@ -485,25 +485,29 @@ export const RulesManagement: React.FC = () => {
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>Approved time off requests are automatically scheduled</li>
                 <li>Managers can lock shifts: require someone to work a shift, or prevent them from working it</li>
+                <li>If a person is on leave or locked to another shift, they are treated as unavailable for other shifts that day</li>
               </ul>
             </section>
 
-            {/* Caps & Limits */}
+            {/* Holiday Rules */}
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-gray-900 mb-3">Shift Limits</h4>
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Holiday Rules</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>Maximum number of night shifts per person per month</li>
-                <li>Maximum number of afternoon shifts per person per month</li>
-                <li>Minimum number of rest days per person per month</li>
+                <li>Holidays use special demand values</li>
+                <li>Weekday holiday default: N=1, M=1, M3=1, A=1, IP=1, CL=2</li>
+                <li>Weekend holiday (Fri/Sat) default: N=1, M3=1, A=1</li>
+                <li>If a holiday is deleted, that day goes back to normal weekday/weekend demand rules</li>
               </ul>
             </section>
 
-            {/* Rest Day Rules */}
+            {/* Pending Off Rules (PO) */}
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-gray-900 mb-3">Weekly Rest</h4>
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Pending Off (PO) Rules</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>Everyone must have at least 1 rest day per week</li>
-                <li>Rest days include: days off, leave, and weekends</li>
+                <li>PO adds weekend-day credit for the selected period</li>
+                <li>N shift credit: +1 on normal weekdays, +2 on weekend or holiday days</li>
+                <li>Each O (off day) subtracts 1 from PO</li>
+                <li>Previous PO is carried forward to the new period</li>
               </ul>
             </section>
 
@@ -522,22 +526,32 @@ export const RulesManagement: React.FC = () => {
 
             {/* Single Skill Employees */}
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-gray-900 mb-3">Staff with one skill</h4>
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Staff With One Skill</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>Work Sunday through Thursday, rest on Friday and Saturday</li>
+                <li>If their only skill is not needed on a weekday, they are assigned O (off) for that day</li>
                 <li>This can be changed if needed (e.g., for time off or special assignments)</li>
               </ul>
             </section>
 
-            {/* Objective Weights */}
+            {/* Sanity Checks */}
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-gray-900 mb-3">Schedule Quality</h4>
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Sanity Checks Before Solving</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>All required shifts must be covered. M and IP are filled as much as possible when staffing is tight.</li>
-                <li>After A, N, and M4 shifts, the scheduler first tries the best rest pattern, then uses backup patterns only if needed.</li>
-                <li>Shifts are shared as fairly as possible across the team.</li>
-                <li>When a new period starts, the scheduler checks the previous approved schedule so unsafe back-to-back patterns and weekend carry-over are still blocked.</li>
-                <li>Because weekend carry-over is strict, the first weekend in a new period can be harder to fill if many people worked the previous weekend.</li>
+                <li>Checks if enough people have each required skill (for example, CL or MS)</li>
+                <li>Checks if enough skilled people are actually available on that day</li>
+                <li>Error messages now explain the reason: not enough skilled people, or skilled people unavailable (leave/locks)</li>
+                <li>Also checks combined daily coverage (all required shifts together), because each shift may look possible alone but still fail together</li>
+              </ul>
+            </section>
+
+            {/* History Awareness */}
+            <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">History Awareness</h4>
+              <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
+                <li>The scheduler looks at recent approved schedules to keep fairness balanced over time (not just this month)</li>
+                <li>Boundary safety rules carry over from the previous committed period (for example, forbidden next-day combinations)</li>
+                <li>Weekend carry-over is also checked at period boundaries, so the first weekend can be tighter if many people worked the previous weekend</li>
               </ul>
             </section>
 
