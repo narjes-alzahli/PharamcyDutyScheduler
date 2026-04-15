@@ -6,11 +6,11 @@ import api from '../services/api';
 import { Pagination } from '../components/Pagination';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { isTokenExpired } from '../utils/tokenUtils';
-import { UserManagementRequestsSchedule } from '../components/UserManagementRequestsSchedule';
 import { useResizableColumns } from '../hooks/useResizableColumns';
 import { useTableSort } from '../hooks/useTableSort';
 import { useTableSearch } from '../hooks/useTableSearch';
 import { SearchBar } from '../components/SearchBar';
+import { UserManagementRequestsSchedule } from '../components/UserManagementRequestsSchedule';
 import {
   collectOverlappingPendingOrApproved,
   normalizeRequestYmd,
@@ -1595,32 +1595,6 @@ export const UserManagement: React.FC = () => {
     return `${day}-${month}-${year} ${hours}:${minutes}`;
   };
 
-  const handleRequestAction = (
-    requestId: string,
-    type: 'leave' | 'shift',
-    action: 'approve' | 'reject' | 'delete'
-  ) => {
-    if (action === 'approve') {
-      if (type === 'leave') {
-        handleApproveLeave(requestId);
-      } else {
-        handleApproveShift(requestId);
-      }
-    } else if (action === 'reject') {
-      if (type === 'leave') {
-        handleRejectLeave(requestId);
-      } else {
-        handleRejectShift(requestId);
-      }
-    } else if (action === 'delete') {
-      if (type === 'leave') {
-        handleDeleteLeave(requestId);
-      } else {
-        handleDeleteShift(requestId);
-      }
-    }
-  };
-
   const handleCalendarEntryAction = (entry: CalendarEntry, action: 'approve' | 'reject' | 'remove') => {
     setSelectedCalendarEntryId(null);
 
@@ -1842,7 +1816,7 @@ export const UserManagement: React.FC = () => {
               }`}
             >
               <span className="inline-flex items-center space-x-2">
-                <span>Requests</span>
+                <span>Request History</span>
                 {totalPendingCount > 0 && (
                   <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
                     {totalPendingCount}
@@ -1859,9 +1833,13 @@ export const UserManagement: React.FC = () => {
         <div className="space-y-6">
           {/* Filter Dropdown and Month/Year Selector */}
           <div className="bg-white rounded-lg shadow p-4">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-4">
-                <label className="text-sm font-medium text-gray-700">Filter:</label>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Request History</h3>
+                </div>
+                <div className="flex items-center gap-4 flex-wrap">
+                  <label className="text-sm font-medium text-gray-700">Filter:</label>
                 <select
                   value={requestFilter}
                   onChange={(e) => setRequestFilter(e.target.value as 'all' | 'leave' | 'shift')}
@@ -1920,6 +1898,7 @@ export const UserManagement: React.FC = () => {
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
+                </div>
               </div>
               {(pendingLeaveCount + pendingShiftCount) > 0 && (
                 <span className="text-sm text-gray-500">
@@ -1935,7 +1914,6 @@ export const UserManagement: React.FC = () => {
             </div>
           ) : (
             <>
-              {/* Schedule View */}
               <div className="bg-white rounded-lg shadow p-6 mb-6">
                 <h3 className="text-xl font-bold text-gray-900 mb-4">Schedule View</h3>
                 <UserManagementRequestsSchedule
@@ -1945,8 +1923,12 @@ export const UserManagement: React.FC = () => {
                   shiftRequests={filteredShiftRequests}
                   selectedRequestId={selectedCalendarEntryId}
                   onSelectRequest={(requestId) => setSelectedCalendarEntryId(requestId)}
-                  onApprove={(requestId, type) => handleRequestAction(requestId, type, 'approve')}
-                  onReject={(requestId, type) => handleRequestAction(requestId, type, 'reject')}
+                  onApprove={(requestId, type) =>
+                    type === 'leave' ? handleApproveLeave(requestId) : handleApproveShift(requestId)
+                  }
+                  onReject={(requestId, type) =>
+                    type === 'leave' ? handleRejectLeave(requestId) : handleRejectShift(requestId)
+                  }
                   processingRequestId={processingRequest}
                   allEmployees={employees.map(emp => emp.employee)}
                   selectedPeriod={selectedPeriod}

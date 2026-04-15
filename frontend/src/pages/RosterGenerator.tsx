@@ -5,6 +5,7 @@ import { EditableTable } from '../components/EditableTable';
 import { DemandsTab } from '../components/DemandsTab';
 import { ScheduleAnalysis } from '../components/ScheduleAnalysis';
 import { RequestsSchedule } from '../components/RequestsSchedule';
+import { UserManagementRequestsSchedule } from '../components/UserManagementRequestsSchedule';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { CalendarDatePicker } from '../components/CalendarDatePicker';
@@ -114,6 +115,10 @@ export const RosterGenerator: React.FC = () => {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   const [allShiftRequests, setAllShiftRequests] = useState<any[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+  const [shiftRequests, setShiftRequests] = useState<any[]>([]);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [processingRequest, setProcessingRequest] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const jobNotFoundCountRef = useRef<number>(0);
   const hasShownFailureAlertRef = useRef<boolean>(false);
@@ -166,6 +171,7 @@ export const RosterGenerator: React.FC = () => {
       loadLeaveTypes();
       loadShiftTypes();
       loadAllShiftRequests();
+      loadRequestHistory();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading]);
@@ -222,14 +228,67 @@ export const RosterGenerator: React.FC = () => {
     }
   };
 
-  // Reload roster data when switching to requests step to show newly approved requests
+  const loadRequestHistory = async () => {
+    try {
+      const [leaveRes, shiftRes] = await Promise.all([
+        requestsAPI.getAllLeaveRequests(),
+        requestsAPI.getAllShiftRequests(),
+      ]);
+      // Keep this view focused on employee-requested items, matching Request History.
+      setLeaveRequests(leaveRes.filter((req: any) => req.reason !== 'Added via Roster Generator'));
+      setShiftRequests(shiftRes.filter((req: any) => req.reason !== 'Added via Roster Generator'));
+    } catch (error) {
+      console.error('Failed to load request history:', error);
+      setLeaveRequests([]);
+      setShiftRequests([]);
+    }
+  };
+
+  const handleRequestAction = async (
+    requestId: string,
+    type: 'leave' | 'shift',
+    action: 'approve' | 'reject',
+  ) => {
+    try {
+      setProcessingRequest(requestId);
+      if (type === 'leave') {
+        if (action === 'approve') await requestsAPI.approveLeaveRequest(requestId);
+        else await requestsAPI.rejectLeaveRequest(requestId);
+      } else {
+        if (action === 'approve') await requestsAPI.approveShiftRequest(requestId);
+        else await requestsAPI.rejectShiftRequest(requestId);
+      }
+      await Promise.all([loadRequestHistory(), loadRosterData(0, true), loadAllShiftRequests()]);
+      setSelectedRequestId(null);
+      showToast({
+        message: `${action === 'approve' ? 'Approved' : 'Rejected'} ${type} request.`,
+        type: 'success',
+      });
+    } catch (error: any) {
+      showToast({
+        message: error?.response?.data?.detail || `Failed to ${action} ${type} request.`,
+        type: 'error',
+      });
+    } finally {
+      setProcessingRequest(null);
+    }
+  };
+
+  // Reload data when switching between requests-related steps.
   useEffect(() => {
-    if (activeTab === 'requests') {
+    if (activeTab === 'assignments') {
       // Small delay to ensure previous operations complete
       const timer = setTimeout(() => {
         loadRosterData(0, true);
         loadShiftTypes(); // Reload shift types when switching to requests tab to get latest types
         loadAllShiftRequests(); // Reload shift requests to get latest data
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+    if (activeTab === 'requests') {
+      const timer = setTimeout(() => {
+        loadRequestHistory();
+        loadRosterData(0, true);
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -1174,7 +1233,12 @@ export const RosterGenerator: React.FC = () => {
     {
       id: 'requests',
       name: 'Requests',
-      description: 'Review and manage leave and shift requests in a unified schedule view.',
+      description: 'Review leave and shift requests for the selected month.',
+    },
+    {
+      id: 'assignments',
+      name: 'Assignments',
+      description: 'Manage leave and shift assignments in a unified schedule view.',
     },
     {
       id: 'schedule',
@@ -1502,11 +1566,36 @@ export const RosterGenerator: React.FC = () => {
             />
           )}
 
-          {/* Unified Requests Tab */}
+          {/* Requests Tab */}
           {activeTab === 'requests' && (
             <div>
               <div className="mb-4">
                 <h3 className="text-xl font-bold text-gray-900">Requests</h3>
+                <p className="text-gray-600">
+                  Request schedule for the selected month and year.
+                </p>
+              </div>
+              <UserManagementRequestsSchedule
+                year={selectedYear || 2025}
+                month={selectedMonth || 1}
+                leaveRequests={leaveRequests}
+                shiftRequests={shiftRequests}
+                selectedRequestId={selectedRequestId}
+                onSelectRequest={setSelectedRequestId}
+                onApprove={(requestId, type) => handleRequestAction(requestId, type, 'approve')}
+                onReject={(requestId, type) => handleRequestAction(requestId, type, 'reject')}
+                processingRequestId={processingRequest}
+                allEmployees={rosterData?.employees?.map((e: any) => e.employee) || []}
+                selectedPeriod={selectedPeriod}
+              />
+            </div>
+          )}
+
+          {/* Assignments Tab */}
+          {activeTab === 'assignments' && (
+            <div>
+              <div className="mb-4">
+                <h3 className="text-xl font-bold text-gray-900">Assignments</h3>
                 <p className="text-gray-600">Manage leave and shift requests in a unified schedule view. Click any cell to assign or change requests.</p>
               </div>
               <RequestsSchedule
