@@ -557,7 +557,19 @@ def add_single_skill_employee_constraints(
                 )
                 if other_forced_shift:
                     continue
-                
+
+                # If this employee's only skill is not needed on this weekday,
+                # assign O instead of forcing an unnecessary working shift.
+                day_single_shift_demand = 0
+                if demands is not None:
+                    day_single_shift_demand = int((demands.get(day, {}) or {}).get(single_shift, 0) or 0)
+
+                if day_single_shift_demand <= 0:
+                    model.Add(x[key] == 0)
+                    if (employee, day, "O") in x and locks.get((employee, day, "O")) is not False:
+                        model.Add(x[(employee, day, "O")] == 1)
+                    continue
+
                 model.Add(x[key] == 1)
 
 

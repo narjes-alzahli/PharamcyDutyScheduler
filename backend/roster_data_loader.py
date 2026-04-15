@@ -991,13 +991,30 @@ def load_previous_month_last_days(year: int, month: int, db: Session = None) -> 
             db.close()
 
 
-def get_holiday_demands() -> Dict[str, int]:
-    """Get the standard demands for public holidays.
+def get_holiday_demands(is_weekend: bool = False) -> Dict[str, int]:
+    """Get demand template for public holidays.
     
-    Returns:
-        Dict with holiday-specific demand values:
-        - 1N, 1M, 1M3, 1A, 1IP, 2CL
+    Business rule:
+    - If holiday is on Fri/Sat (weekend), keep weekend-style requirements:
+      1N, 1M3, 1A
+    - Otherwise, use weekday holiday requirements:
+      1N, 1M, 1M3, 1A, 1IP, 2CL
     """
+    if is_weekend:
+        return {
+            'N': 1,
+            'M': 0,
+            'M3': 1,
+            'A': 1,
+            'IP': 0,
+            'CL': 0,
+            'M4': 0,
+            'H': 0,
+            'MS': 0,
+            'IP+P': 0,
+            'P': 0,
+            'M+P': 0,
+        }
     return {
         'N': 1,
         'M': 1,
@@ -1008,6 +1025,9 @@ def get_holiday_demands() -> Dict[str, int]:
         'M4': 0,
         'H': 0,
         'MS': 0,
+        'IP+P': 0,
+        'P': 0,
+        'M+P': 0,
     }
 
 
@@ -1046,15 +1066,14 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
     num_days = calendar.monthrange(year, month)[1]
     dates = [date(year, month, day) for day in range(1, num_days + 1)]
     
-    # Get holiday demands
-    holiday_demands = get_holiday_demands()
-    
     records = []
     for d in dates:
         # Check if this date is a holiday
         is_holiday = d in holidays
         
         if is_holiday:
+            is_weekend = d.weekday() in [4, 5]  # Friday (4) or Saturday (5)
+            holiday_demands = get_holiday_demands(is_weekend=is_weekend)
             # Use holiday-specific demands
             record = {
                 'date': d,

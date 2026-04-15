@@ -3,7 +3,7 @@
  *
  * pending_off = (
  *   weekend_days_in_scope
- *   + (1 per N on weekday + 2 per N on Fri/Sat)
+ *   + (1 per N on normal weekday + 2 per N on Fri/Sat or holiday)
  *   + initial_pending_off
  * ) - (count of O shifts for that person in the period)
  */
@@ -121,7 +121,6 @@ export const calculatePendingOff = (
   /** When set (e.g. Ramadan slice), only Fri/Sat inside [from,to] count toward the weekend term. */
   pendingWindow?: { from: string; to: string } | null,
 ): PendingOffData[] => {
-  void holidays; // reserved for parity with older callers; N weighting uses Fri/Sat only
   const wkndDays = weekendDaysInScope(schedule, year, month, pendingWindow);
 
   const employeeData: Record<
@@ -156,16 +155,18 @@ export const calculatePendingOff = (
 
     const empData = employeeData[employee];
 
+    const dateKey = dateStr.split('T')[0];
     const date = new Date(dateStr);
     const dayOfWeek = date.getDay();
     const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
+    const isHoliday = Boolean(holidays[dateKey]);
 
     const workingShifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
     if (workingShifts.includes(shift)) {
       empData.total_working_days += 1;
 
       if (shift === 'N') {
-        empData.night_shifts += isWeekend ? 2 : 1;
+        empData.night_shifts += (isWeekend || isHoliday) ? 2 : 1;
       }
     }
 

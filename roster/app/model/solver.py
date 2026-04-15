@@ -222,20 +222,19 @@ class RosterSolver:
 
         pending_off = (
             weekend_days_in_scope
-            + (1 per N shift on a weekday, 2 per N on Fri/Sat)
+            + (1 per N shift on a normal weekday, 2 per N on Fri/Sat or holiday)
             + previous_pending_off
         ) - (count of O rest shifts in the period)
 
         Weekend days are Fri/Sat (weekday() 4,5). ``dates`` should cover the roster period
         (typically full month) so weekend_days matches calendar Fri/Sat in that range.
         """
-        _ = roster_data  # callers still pass RosterData; N weighting uses calendar Fri/Sat only
         rows = []
         weekend_days_in_month = sum(1 for d in dates if d.weekday() in (4, 5))
 
         for emp in employees:
             total_working_days = 0
-            night_shifts = 0  # weighted N credit: +1 weekday, +2 Fri/Sat
+            night_shifts = 0  # weighted N credit: +1 normal weekday, +2 Fri/Sat or holiday
             afternoon_shifts = 0
             Os_given = 0  # rest day "O" only (not DO)
 
@@ -248,7 +247,8 @@ class RosterSolver:
 
                         if shift == "N":
                             is_weekend = day.weekday() in (4, 5)  # Friday, Saturday
-                            night_shifts += 2 if is_weekend else 1
+                            is_holiday = bool(roster_data.get_holiday(day)) if roster_data else False
+                            night_shifts += 2 if (is_weekend or is_holiday) else 1
                         elif shift == "A":
                             afternoon_shifts += 1
 

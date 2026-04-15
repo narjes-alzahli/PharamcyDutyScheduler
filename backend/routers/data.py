@@ -1405,11 +1405,12 @@ async def save_month_demands(
     
     # Override demands for holidays with holiday-specific values
     if existing_holidays_dates:
-        holiday_demands = get_holiday_demands()
         for idx, row in demands_df.iterrows():
             date_val = row['date']
             if date_val in existing_holidays_dates:
-                # Override with holiday demands
+                # Override with holiday demands, with weekend holidays using weekend template
+                is_weekend = pd.Timestamp(date_val).weekday() in [4, 5]  # Friday/Saturday
+                holiday_demands = get_holiday_demands(is_weekend=is_weekend)
                 demands_df.at[idx, 'need_M'] = holiday_demands.get('M', 0)
                 demands_df.at[idx, 'need_IP'] = holiday_demands.get('IP', 0)
                 demands_df.at[idx, 'need_A'] = holiday_demands.get('A', 0)

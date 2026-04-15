@@ -207,7 +207,74 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
         if getattr(cfg, "weekly_rest_minimum", None) is not None:
             weekly_rest_minimum = int(cfg.weekly_rest_minimum)
 
-    # --- Issue 1 (revised): joint hard coverage per day + M/IP warnings ---
+    # --- Issue 1A: per-shift hard coverage diagnostics (specific reason per shift/day) ---
+    for day in dates:
+        if day not in demands:
+            continue
+        day_demand = demands[day]
+        date_str = day.strftime("%d %B %Y")
+
+        for shift_type in hard_shifts:
+            required_count = int(day_demand.get(shift_type, 0) or 0)
+            if required_count <= 0:
+                continue
+
+            skilled_employees: List[str] = []
+            available_skilled: List[str] = []
+            unavailable_details: List[str] = []
+
+            for emp in employees:
+                emp_skills = skills.get(emp, {})
+                has_skill = bool(emp_skills.get(shift_type, False)) if shift_type != "CL" else bool(emp_skills.get("CL", False))
+                if not has_skill:
+                    continue
+                skilled_employees.append(emp)
+
+                if _employee_can_fill_shift(emp, day, shift_type, skills, time_off, locks, standard):
+                    available_skilled.append(emp)
+                    continue
+
+                reasons: List[str] = []
+                leave_code = time_off.get((emp, day))
+                if leave_code is not None:
+                    if leave_code in standard:
+                        reasons.append(f"already fixed to {leave_code}")
+                    elif leave_code == "O":
+                        reasons.append("off (O)")
+                    else:
+                        reasons.append(f"on leave ({leave_code})")
+
+                if locks.get((emp, day, shift_type)) is False:
+                    reasons.append(f"{shift_type} explicitly forbidden")
+
+                forced_other = [
+                    other for other in standard
+                    if other != shift_type and locks.get((emp, day, other)) is True
+                ]
+                if forced_other:
+                    reasons.append(f"forced to {', '.join(sorted(forced_other))}")
+
+                if not reasons:
+                    reasons.append("unavailable due to constraints")
+
+                unavailable_details.append(f"{emp} ({'; '.join(reasons)})")
+
+            if len(skilled_employees) < required_count:
+                issues.append(
+                    f"❌ {date_str} — **{shift_type}** needs {required_count}, but only "
+                    f"{len(skilled_employees)} staff have this skill: "
+                    f"{', '.join(skilled_employees) if skilled_employees else 'none'}."
+                )
+            elif len(available_skilled) < required_count:
+                short_by = required_count - len(available_skilled)
+                issues.append(
+                    f"❌ {date_str} — **{shift_type}** needs {required_count}, but only "
+                    f"{len(available_skilled)} skilled staff are available (missing {short_by}). "
+                    f"Available: {', '.join(available_skilled) if available_skilled else 'none'}. "
+                    f"Unavailable skilled: {', '.join(unavailable_details) if unavailable_details else 'none'}."
+                )
+
+    # --- Issue 1B (existing): joint hard coverage per day + M/IP warnings ---
     for day in dates:
         if day not in demands:
             continue
@@ -244,7 +311,7 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
                 continue
             assigned_details = ", ".join([f"{emp} ({src})" for emp, src in assigned_entries])
             issues.append(
-                f"❌ On {date_str}, shift **{st}** needs {required_count} staff but {assigned_count} were assigned: "
+                f"❌ {date_str} — **{st}** needs {required_count}, but {assigned_count} are already fixed: "
                 f"{assigned_details}."
             )
 
@@ -271,10 +338,9 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
                 missing = n_slots - msize
                 rem_pos = {k: v for k, v in remaining.items() if v > 0}
                 issues.append(
-                    f"❌ Joint coverage (hard shifts) impossible on {date_str}: "
-                    f"cannot simultaneously fill {n_slots} required non-M/IP slots "
-                    f"with distinct qualified staff (short by at least {missing}). "
-                    f"Unfilled hard demand after fixed assignments: {rem_pos}."
+                    f"❌ {date_str} — combined shift coverage is not possible. "
+                    f"We still need {n_slots} shift assignment(s), but we are short by at least {missing} staff. "
+                    f"Remaining shift needs: {rem_pos}."
                 )
 
         for shift_type in _SOFT_COVERAGE_SHIFTS:
