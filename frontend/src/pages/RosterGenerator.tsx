@@ -235,12 +235,23 @@ export const RosterGenerator: React.FC = () => {
         requestsAPI.getAllShiftRequests(),
       ]);
       // Keep this view focused on employee-requested items, matching Request History.
-      setLeaveRequests(leaveRes.filter((req: any) => req.reason !== 'Added via Roster Generator'));
-      setShiftRequests(shiftRes.filter((req: any) => req.reason !== 'Added via Roster Generator'));
+      const filteredLeaveRequests = leaveRes.filter((req: any) => req.reason !== 'Added via Roster Generator');
+      const filteredShiftRequests = shiftRes.filter((req: any) => req.reason !== 'Added via Roster Generator');
+      setLeaveRequests(filteredLeaveRequests);
+      setShiftRequests(filteredShiftRequests);
+      const pendingCount =
+        filteredLeaveRequests.filter((req: any) => req.status === 'Pending').length +
+        filteredShiftRequests.filter((req: any) => req.status === 'Pending').length;
+      window.dispatchEvent(
+        new CustomEvent('pendingRequestsUpdated', { detail: { count: pendingCount } }),
+      );
     } catch (error) {
       console.error('Failed to load request history:', error);
       setLeaveRequests([]);
       setShiftRequests([]);
+      window.dispatchEvent(
+        new CustomEvent('pendingRequestsUpdated', { detail: { count: 0 } }),
+      );
     }
   };
 
@@ -1211,6 +1222,82 @@ export const RosterGenerator: React.FC = () => {
     [selectedYear]
   );
 
+  const totalPendingRequestCount = useMemo(() => {
+    const leavePending = leaveRequests.filter((req: any) => req.status === 'Pending').length;
+    const shiftPending = shiftRequests.filter((req: any) => req.status === 'Pending').length;
+    return leavePending + shiftPending;
+  }, [leaveRequests, shiftRequests]);
+
+  const pendingCountByMonthOption = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!selectedYear || availableMonths.length === 0) return counts;
+
+    const getOptionKey = (option: RosterMonthOption) =>
+      option.isPeriod && option.periodId ? option.periodId : option.number.toString();
+
+    const inOptionRange = (dateStr: string, option: RosterMonthOption): boolean => {
+      const parsed = parseDateToISO(dateStr);
+      if (!parsed) return false;
+      const date = new Date(parsed);
+      if (Number.isNaN(date.getTime())) return false;
+      if (date.getFullYear() !== selectedYear) return false;
+
+      if (option.isPeriod && option.periodId && selectedYear === 2026) {
+        if (option.periodId === 'pre-ramadan') {
+          return parsed >= '2026-02-01' && parsed <= '2026-02-18';
+        }
+        if (option.periodId === 'ramadan') {
+          return parsed >= '2026-02-19' && parsed <= '2026-03-18';
+        }
+        if (option.periodId === 'post-ramadan') {
+          return parsed >= '2026-03-19' && parsed <= '2026-03-31';
+        }
+      }
+
+      return date.getMonth() + 1 === option.number;
+    };
+
+    availableMonths.forEach((option) => {
+      const key = getOptionKey(option);
+      const leavePending = leaveRequests.filter(
+        (req: any) => req.status === 'Pending' && inOptionRange(req.from_date, option),
+      ).length;
+      const shiftPending = shiftRequests.filter(
+        (req: any) => req.status === 'Pending' && inOptionRange(req.from_date, option),
+      ).length;
+      counts[key] = leavePending + shiftPending;
+    });
+
+    return counts;
+  }, [selectedYear, availableMonths, leaveRequests, shiftRequests]);
+
+  const pendingCountByYear = useMemo(() => {
+    const counts: Record<number, number> = {};
+    const leavePending = leaveRequests.filter((req: any) => req.status === 'Pending');
+    const shiftPending = shiftRequests.filter((req: any) => req.status === 'Pending');
+    const allPending = [...leavePending, ...shiftPending];
+    allPending.forEach((req: any) => {
+      const parsed = parseDateToISO(req.from_date);
+      if (!parsed) return;
+      const date = new Date(parsed);
+      if (Number.isNaN(date.getTime())) return;
+      const year = date.getFullYear();
+      counts[year] = (counts[year] || 0) + 1;
+    });
+    return counts;
+  }, [leaveRequests, shiftRequests]);
+
+  const selectedMonthOptionKey = useMemo(() => {
+    if (!selectedYear || !selectedMonth) return '';
+    if (selectedYear === 2026 && selectedPeriod) return selectedPeriod;
+    return selectedMonth.toString();
+  }, [selectedYear, selectedMonth, selectedPeriod]);
+
+  const selectedMonthPendingCount = useMemo(() => {
+    if (!selectedMonthOptionKey) return 0;
+    return pendingCountByMonthOption[selectedMonthOptionKey] || 0;
+  }, [selectedMonthOptionKey, pendingCountByMonthOption]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1353,9 +1440,15 @@ export const RosterGenerator: React.FC = () => {
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
           >
             <option value="">Select Year...</option>
-            {availableYears.map((year: number) => (
-              <option key={year} value={year}>{year}</option>
-            ))}
+            {availableYears.map((year: number) => {
+              const pending = pendingCountByYear[year] || 0;
+              const label = pending > 0 ? `${year} •` : `${year}`;
+              return (
+                <option key={year} value={year}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
         </div>
         <div>
@@ -1406,9 +1499,16 @@ export const RosterGenerator: React.FC = () => {
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100"
           >
             <option value="">Select Month...</option>
-            {availableMonths.map(({ month, number, isPeriod, periodId }: { month: string; number: number; isPeriod?: boolean; periodId?: string }) => (
-              <option key={`${number}-${month}`} value={isPeriod && periodId ? periodId : number.toString()}>{month}</option>
-            ))}
+            {availableMonths.map(({ month, number, isPeriod, periodId }: { month: string; number: number; isPeriod?: boolean; periodId?: string }) => {
+              const optionValue = isPeriod && periodId ? periodId : number.toString();
+              const pending = pendingCountByMonthOption[optionValue] || 0;
+              const label = pending > 0 ? `${month} •` : month;
+              return (
+                <option key={`${number}-${month}`} value={optionValue}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
         </div>
         {/* Show period info when a period is selected */}
@@ -1474,6 +1574,11 @@ export const RosterGenerator: React.FC = () => {
                     <div>
                       <p className={`text-sm font-medium ${isActive ? 'text-primary-700' : 'text-gray-800'}`}>
                         {step.name}
+                        {step.id === 'requests' && selectedMonthPendingCount > 0 && (
+                          <span className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-semibold text-white">
+                            {selectedMonthPendingCount}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </button>

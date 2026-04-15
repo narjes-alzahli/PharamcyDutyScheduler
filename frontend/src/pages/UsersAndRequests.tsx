@@ -10,7 +10,6 @@ import { useResizableColumns } from '../hooks/useResizableColumns';
 import { useTableSort } from '../hooks/useTableSort';
 import { useTableSearch } from '../hooks/useTableSearch';
 import { SearchBar } from '../components/SearchBar';
-import { UserManagementRequestsSchedule } from '../components/UserManagementRequestsSchedule';
 import {
   collectOverlappingPendingOrApproved,
   normalizeRequestYmd,
@@ -1147,12 +1146,6 @@ export const UserManagement: React.FC = () => {
       setLeaveRequests(filteredLeaveRequests);
       setShiftRequests(filteredShiftRequests);
       hasInitialDataLoaded.current = true; // Mark that we've successfully loaded data
-      const pendingCount =
-        leaveRes.filter((req: any) => req.status === 'Pending').length +
-        shiftRes.filter((req: any) => req.status === 'Pending').length;
-      window.dispatchEvent(
-        new CustomEvent('pendingRequestsUpdated', { detail: { count: pendingCount } })
-      );
     } catch (error: any) {
       // If we get 403 here, something is seriously wrong (auth guard should prevent this)
       // Log it for debugging
@@ -1815,14 +1808,7 @@ export const UserManagement: React.FC = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <span className="inline-flex items-center space-x-2">
-                <span>Request History</span>
-                {totalPendingCount > 0 && (
-                  <span className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-2 text-xs font-semibold text-white bg-red-600 rounded-full">
-                    {totalPendingCount}
-                  </span>
-                )}
-              </span>
+              <span>Request History</span>
             </button>
           </nav>
         </div>

@@ -189,7 +189,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                   }`}
                 >
                   <span>{item.name}</span>
-                  {item.path === '/users' && pendingRequestCount > 0 && (
+                  {item.path === '/generator' && pendingRequestCount > 0 && (
                     <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
                       {pendingRequestCount}
                     </span>
@@ -290,7 +290,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                       }`}
                     >
                       <span>{item.name}</span>
-                      {item.path === '/users' && pendingRequestCount > 0 && (
+                      {item.path === '/generator' && pendingRequestCount > 0 && (
                         <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
                           {pendingRequestCount}
                         </span>
