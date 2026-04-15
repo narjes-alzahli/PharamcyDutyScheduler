@@ -140,6 +140,7 @@ export interface User {
   employee_name: string;
   employee_type: 'Manager' | 'Staff';
   staff_no?: string | null;
+  start_date?: string | null;
 }
 
 export interface LoginRequest {
@@ -457,6 +458,7 @@ export const usersAPI = {
     password: string;
     employee_type: string;
     staff_no?: string | null;
+    start_date?: string | null;
   }): Promise<void> => {
     await api.post('/api/users/', userData);
   },

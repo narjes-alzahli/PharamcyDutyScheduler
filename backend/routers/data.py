@@ -584,6 +584,7 @@ async def update_employees(
                 employee_type=EmployeeType.STAFF,
                 employee_name=name,
                 staff_no=sn_new,
+                start_date=date(2025, 10, 1),
             )
             db.add(new_user)
             db.flush()

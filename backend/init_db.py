@@ -5,6 +5,7 @@ from backend.models import User, LeaveType, ShiftType, EmployeeType, RequestStat
 from backend.utils import hash_password
 from sqlalchemy.orm import Session
 from pathlib import Path
+from datetime import date
 import shutil
 
 
@@ -29,7 +30,8 @@ def init_db():
             username="admin",
             password=hash_password(admin_password),
             employee_name="Admin",
-            employee_type=EmployeeType.MANAGER
+            employee_type=EmployeeType.MANAGER,
+            start_date=date(2025, 10, 1),
         )
         db.add(admin_user)
 
@@ -268,7 +270,8 @@ def init_db():
                 username=emp_data["username"],
                 password=hash_password(default_password),
                 employee_name=emp_data["name"],
-                employee_type=EmployeeType.STAFF
+                employee_type=EmployeeType.STAFF,
+                start_date=date(2025, 10, 1),
             )
             db.add(user)
             db.flush()  # Get the user ID

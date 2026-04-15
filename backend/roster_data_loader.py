@@ -623,7 +623,8 @@ def load_assignment_history(
     db: Session = None,
     method: str = "rolling_window",
     window_months: int = 3,
-    alpha: float = 0.7
+    alpha: float = 0.7,
+    period_start_date: date = None,
 ) -> Dict[str, Dict[str, int]]:
     """Load assignment history from committed schedules for fairness calculations.
     
@@ -648,6 +649,35 @@ def load_assignment_history(
     from backend.database import SessionLocal
     import calendar
     from datetime import date, timedelta
+
+    standard_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
+
+    def _period_start_for_date(dt: date) -> date:
+        """Map a date to the schedule period start (supports 2026 Ramadan split windows)."""
+        if dt.year == 2026:
+            if date(2026, 2, 1) <= dt <= date(2026, 2, 18):
+                return date(2026, 2, 1)   # pre-Ramadan
+            if date(2026, 2, 19) <= dt <= date(2026, 3, 18):
+                return date(2026, 2, 19)  # Ramadan
+            if date(2026, 3, 19) <= dt <= date(2026, 3, 31):
+                return date(2026, 3, 19)  # post-Ramadan
+        return date(dt.year, dt.month, 1)
+
+    def _next_period_start(period_start: date) -> date:
+        if period_start == date(2026, 2, 1):
+            return date(2026, 2, 19)
+        if period_start == date(2026, 2, 19):
+            return date(2026, 3, 19)
+        if period_start == date(2026, 3, 19):
+            return date(2026, 4, 1)
+        if period_start.month == 12:
+            return date(period_start.year + 1, 1, 1)
+        return date(period_start.year, period_start.month + 1, 1)
+
+    def _is_single_skill(emp: str) -> bool:
+        emp_skills = skills.get(emp, {})
+        qualified_shifts = [shift for shift in standard_shifts if emp_skills.get(shift, False)]
+        return len(qualified_shifts) == 1
     
     # Use provided session or create a new one
     if db is None:
@@ -659,6 +689,7 @@ def load_assignment_history(
     try:
         # Calculate start date for history extraction
         first_day_current_month = date(year, month, 1)
+        current_period_start = _period_start_for_date(period_start_date or first_day_current_month)
         
         if method == "rolling_window":
             # Calculate start date: window_months months before current month
@@ -841,6 +872,52 @@ def load_assignment_history(
                 for emp in employees:
                     history[category][emp] = round(decayed_history[category][emp])
         
+        # Bootstrap fairness for new employees: first two schedule periods inherit peer averages
+        # from other multi-skill employees to avoid "zero-history" bias.
+        start_dates_by_employee: Dict[str, date] = {}
+        users_with_start = (
+            db.query(User)
+            .filter(User.start_date.isnot(None))
+            .all()
+        )
+        for usr in users_with_start:
+            if usr.employee_name:
+                start_dates_by_employee[usr.employee_name.strip().lower()] = usr.start_date
+
+        non_single_skill_employees = [emp for emp in employees if not _is_single_skill(emp)]
+        skill_required_by_category = {
+            "nights": "N",
+            "afternoons": "A",
+            "m4": "M4",
+            "e": "E",
+            "M+P": "M+P",
+            "P": "P",
+            "thursdays": None,
+            "weekends": None,
+        }
+
+        for emp in employees:
+            emp_start_date = start_dates_by_employee.get(emp.strip().lower())
+            if not emp_start_date:
+                continue
+            first_period = _period_start_for_date(emp_start_date)
+            second_period = _next_period_start(first_period)
+            if current_period_start not in (first_period, second_period):
+                continue
+
+            for category, required_skill in skill_required_by_category.items():
+                peers = []
+                for peer in non_single_skill_employees:
+                    if peer == emp:
+                        continue
+                    if required_skill and not skills.get(peer, {}).get(required_skill, False):
+                        continue
+                    peers.append(peer)
+                if not peers:
+                    continue
+                avg_history = round(sum(history[category][peer] for peer in peers) / len(peers))
+                history[category][emp] = avg_history
+
         return history
     finally:
         if close_db:

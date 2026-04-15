@@ -21,6 +21,7 @@ interface User {
   employee_name: string;
   employee_type: string;
   staff_no?: string | null;
+  start_date?: string | null;
   password_hidden: string;
   pending_off?: number | null;
 }
@@ -792,8 +793,10 @@ export const UserManagement: React.FC = () => {
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserStaffNo, setNewUserStaffNo] = useState('');
+  const [newUserStartDate, setNewUserStartDate] = useState('2025-10-01');
   const [newUserType, setNewUserType] = useState('Staff');
   const [editingStaffNo, setEditingStaffNo] = useState('');
+  const [editingStartDate, setEditingStartDate] = useState('2025-10-01');
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
@@ -813,7 +816,7 @@ export const UserManagement: React.FC = () => {
   const { columnWidths: shiftWidths, handleMouseDown: shiftHandleMouseDown, tableRef: shiftTableRef, isResizing: shiftResizing } = useResizableColumns(shiftTableColumns, 150);
   
   // Resizable columns for users table
-  const usersTableColumns = ['username', 'employee_name', 'staff_no', 'employee_type', 'pending_off', 'password', 'actions'];
+  const usersTableColumns = ['username', 'employee_name', 'staff_no', 'employee_type', 'start_date', 'pending_off', 'password', 'actions'];
   const { columnWidths: usersWidths, handleMouseDown: usersHandleMouseDown, tableRef: usersTableRef, isResizing: usersResizing } = useResizableColumns(usersTableColumns, 200);
   
   
@@ -829,7 +832,7 @@ export const UserManagement: React.FC = () => {
   }, [users, employees]);
 
   // Search and sort for users
-  const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(usersWithPendingOff, ['username', 'employee_name', 'staff_no', 'employee_type']);
+  const { searchTerm: usersSearchTerm, setSearchTerm: setUsersSearchTerm, filteredData: searchedUsers } = useTableSearch(usersWithPendingOff, ['username', 'employee_name', 'staff_no', 'employee_type', 'start_date']);
   const { sortedData: sortedUsers, sortConfig: usersSortConfig, handleSort: handleUsersSort } = useTableSort(searchedUsers);
   
   // Calendar and table filter dates (must be declared before useMemo hooks)
@@ -851,7 +854,8 @@ export const UserManagement: React.FC = () => {
   const [usersPage, setUsersPage] = useState(1);
   const [leavePage, setLeavePage] = useState(1);
   const [shiftPage, setShiftPage] = useState(1);
-  const itemsPerPage = 15;
+  const usersItemsPerPage = 30;
+  const requestsItemsPerPage = 15;
   
   // Get available month/year combinations from requests
   const availableLeaveMonthYears = useMemo(() => {
@@ -1235,6 +1239,7 @@ export const UserManagement: React.FC = () => {
         password: newUserPassword,
         employee_type: newUserType,
         staff_no: newUserStaffNo.trim() || undefined,
+        start_date: newUserStartDate || undefined,
       });
       
       setNotification({ message: '✅ User created successfully! Staff users get a roster skills profile automatically.', type: 'success' });
@@ -1242,6 +1247,7 @@ export const UserManagement: React.FC = () => {
       setNewUserName('');
       setNewUserPassword('');
       setNewUserStaffNo('');
+      setNewUserStartDate('2025-10-01');
       setNewUserType('Staff');
       setShowCreateUser(false);
       await loadData();
@@ -1295,6 +1301,7 @@ export const UserManagement: React.FC = () => {
         employee_type: employeeType,
         pending_off: employeeType === 'Staff' ? editingPendingOff : undefined,
         staff_no: editingStaffNo.trim(),
+        start_date: editingStartDate || null,
       });
       
       setNotification({ message: '✅ User account updated successfully!', type: 'success' });
@@ -1303,6 +1310,7 @@ export const UserManagement: React.FC = () => {
       setSelectedEmployee('');
       setEditingEmployeeName('');
       setEditingUsername('');
+      setEditingStartDate('2025-10-01');
       setShowEditUser(false);
       (window as any).editingOldUsername = undefined;
       await loadData();
@@ -1654,26 +1662,26 @@ export const UserManagement: React.FC = () => {
 
   // Paginated data
   const paginatedUsers = useMemo(() => {
-    const start = (usersPage - 1) * itemsPerPage;
-    const end = start + itemsPerPage;
+    const start = (usersPage - 1) * usersItemsPerPage;
+    const end = start + usersItemsPerPage;
     return sortedUsers.slice(start, end);
-  }, [sortedUsers, usersPage]);
+  }, [sortedUsers, usersPage, usersItemsPerPage]);
   
   const paginatedLeaveRequests = useMemo(() => {
-    const start = (leavePage - 1) * itemsPerPage;
-    const end = start + itemsPerPage;
+    const start = (leavePage - 1) * requestsItemsPerPage;
+    const end = start + requestsItemsPerPage;
     return sortedLeaveRequests.slice(start, end);
-  }, [sortedLeaveRequests, leavePage]);
+  }, [sortedLeaveRequests, leavePage, requestsItemsPerPage]);
   
   const paginatedShiftRequests = useMemo(() => {
-    const start = (shiftPage - 1) * itemsPerPage;
-    const end = start + itemsPerPage;
+    const start = (shiftPage - 1) * requestsItemsPerPage;
+    const end = start + requestsItemsPerPage;
     return sortedShiftRequests.slice(start, end);
-  }, [sortedShiftRequests, shiftPage]);
+  }, [sortedShiftRequests, shiftPage, requestsItemsPerPage]);
 
-  const usersTotalPages = Math.ceil(sortedUsers.length / itemsPerPage);
-  const leaveTotalPages = Math.ceil(sortedLeaveRequests.length / itemsPerPage);
-  const shiftTotalPages = Math.ceil(sortedShiftRequests.length / itemsPerPage);
+  const usersTotalPages = Math.ceil(sortedUsers.length / usersItemsPerPage);
+  const leaveTotalPages = Math.ceil(sortedLeaveRequests.length / requestsItemsPerPage);
+  const shiftTotalPages = Math.ceil(sortedShiftRequests.length / requestsItemsPerPage);
 
   // MAJOR RESTRUCTURE: Show loading while auth is being verified
   // This prevents components from rendering and making API calls before auth is ready
@@ -2047,7 +2055,7 @@ export const UserManagement: React.FC = () => {
                             currentPage={leavePage}
                             totalPages={leaveTotalPages}
                             onPageChange={setLeavePage}
-                            itemsPerPage={itemsPerPage}
+                                  itemsPerPage={requestsItemsPerPage}
                             totalItems={sortedLeaveRequests.length}
                           />
                         )}
@@ -2182,7 +2190,7 @@ export const UserManagement: React.FC = () => {
                             currentPage={shiftPage}
                             totalPages={shiftTotalPages}
                             onPageChange={setShiftPage}
-                            itemsPerPage={itemsPerPage}
+                                  itemsPerPage={requestsItemsPerPage}
                             totalItems={sortedShiftRequests.length}
                           />
                         )}
@@ -2399,7 +2407,7 @@ export const UserManagement: React.FC = () => {
                   currentPage={leavePage}
                   totalPages={leaveTotalPages}
                   onPageChange={setLeavePage}
-                  itemsPerPage={itemsPerPage}
+                  itemsPerPage={requestsItemsPerPage}
                   totalItems={sortedLeaveRequests.length}
                 />
               )}
@@ -2612,7 +2620,7 @@ export const UserManagement: React.FC = () => {
                   currentPage={shiftPage}
                   totalPages={shiftTotalPages}
                   onPageChange={setShiftPage}
-                  itemsPerPage={itemsPerPage}
+                  itemsPerPage={requestsItemsPerPage}
                   totalItems={sortedShiftRequests.length}
                 />
               )}
@@ -2671,6 +2679,7 @@ export const UserManagement: React.FC = () => {
               setEmployeeType('Staff');
               setSelectedEmployee('');
               setNewUserStaffNo('');
+              setNewUserStartDate('2025-10-01');
               setShowCreateUser(true);
             }}
             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
@@ -2683,7 +2692,7 @@ export const UserManagement: React.FC = () => {
           <SearchBar
             searchTerm={usersSearchTerm}
             onSearchChange={setUsersSearchTerm}
-            placeholder="Search users by username, employee name, staff no, or type..."
+            placeholder="Search users by username, employee name, staff no, start date, or type..."
           />
           <div className="overflow-x-auto">
             <table ref={usersTableRef} className="min-w-full divide-y divide-gray-200 border border-gray-300" style={{ tableLayout: 'auto', width: '100%' }}>
@@ -2724,6 +2733,15 @@ export const UserManagement: React.FC = () => {
                       </button>
                     </div>
                     <div onMouseDown={(e) => usersHandleMouseDown(e, 'employee_type')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
+                  </th>
+                  <th key="start_date" style={{ width: `${usersWidths.start_date || 160}px`, maxWidth: `${usersWidths.start_date || 160}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
+                    <div className="flex items-center space-x-1 truncate">
+                      <span className="truncate">Start Date</span>
+                      <button onClick={() => handleUsersSort('start_date')} className="p-1 hover:bg-gray-200 rounded text-xs flex-shrink-0" title="Sort by start date">
+                        {usersSortConfig?.key === 'start_date' ? (usersSortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                      </button>
+                    </div>
+                    <div onMouseDown={(e) => usersHandleMouseDown(e, 'start_date')} className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${usersResizing ? 'bg-blue-500' : ''}`} style={{ userSelect: 'none' }} />
                   </th>
                   <th key="pending_off" style={{ width: `${usersWidths.pending_off || 150}px`, maxWidth: `${usersWidths.pending_off || 150}px`, position: 'sticky', top: 0, zIndex: 10 }} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 bg-gray-50 overflow-hidden">
                     <div className="flex items-center space-x-1 truncate">
@@ -2766,6 +2784,11 @@ export const UserManagement: React.FC = () => {
                         {user.employee_type}
                       </div>
                     </td>
+                    <td style={{ width: `${usersWidths.start_date || 160}px`, maxWidth: `${usersWidths.start_date || 160}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
+                      <div className="truncate" title={user.start_date || ''}>
+                        {user.start_date || '—'}
+                      </div>
+                    </td>
                     <td style={{ width: `${usersWidths.pending_off || 150}px`, maxWidth: `${usersWidths.pending_off || 150}px` }} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 overflow-hidden">
                       <div className="truncate" title={user.employee_type === 'Manager' ? 'N/A' : String(user.pending_off ?? 0)}>
                         {user.employee_type === 'Manager' ? 'N/A' : String(user.pending_off ?? 0)}
@@ -2785,6 +2808,7 @@ export const UserManagement: React.FC = () => {
                             setEditingUsername(user.username);
                             setEmployeeType(user.employee_type);
                             setEditingStaffNo(user.staff_no ?? '');
+                            setEditingStartDate(user.start_date || '2025-10-01');
                             setEditingPendingOff(user.pending_off !== null && user.pending_off !== undefined ? Number(user.pending_off) : 0);
                             setNewPassword('');
                             setShowCreateUser(false);
@@ -2824,7 +2848,7 @@ export const UserManagement: React.FC = () => {
                 currentPage={usersPage}
                 totalPages={usersTotalPages}
                 onPageChange={setUsersPage}
-                itemsPerPage={itemsPerPage}
+                itemsPerPage={usersItemsPerPage}
                 totalItems={sortedUsers.length}
               />
             )}
@@ -2867,6 +2891,18 @@ export const UserManagement: React.FC = () => {
                   onChange={(e) => setEditingStaffNo(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   placeholder="e.g. 58812 (leave empty to clear)"
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={editingStartDate}
+                  onChange={(e) => setEditingStartDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  required
                 />
               </div>
 
@@ -2947,6 +2983,7 @@ export const UserManagement: React.FC = () => {
                     setEditingEmployeeName('');
                     setEditingUsername('');
                     setEditingStaffNo('');
+                    setEditingStartDate('2025-10-01');
                     setEditingPendingOff(0);
                     setNewPassword('');
                     setEmployeeType('Staff');
@@ -3025,6 +3062,18 @@ export const UserManagement: React.FC = () => {
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={newUserStartDate}
+                  onChange={(e) => setNewUserStartDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  required
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Role
                 </label>
                 <select
@@ -3050,6 +3099,7 @@ export const UserManagement: React.FC = () => {
                     setNewUserName('');
                     setNewUserPassword('');
                     setNewUserStaffNo('');
+                    setNewUserStartDate('2025-10-01');
                     setNewUserType('Staff');
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"

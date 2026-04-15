@@ -5,9 +5,11 @@ from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional
+from datetime import date
 import sys
 import re
 from sqlalchemy.orm import Session
+from sqlalchemy import case, func
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
@@ -28,6 +30,7 @@ class UserCreate(BaseModel):
     password: str
     employee_type: str
     staff_no: Optional[str] = None
+    start_date: Optional[date] = None
 
 
 class UserUpdate(BaseModel):
@@ -38,6 +41,7 @@ class UserUpdate(BaseModel):
     old_username: Optional[str] = None  # Used to find the user if username/employee_name changed
     pending_off: Optional[float] = None
     staff_no: Optional[str] = None
+    start_date: Optional[date] = None
 
 
 @router.get("/")
@@ -49,7 +53,27 @@ async def get_all_users(
     if current_user['employee_type'] != 'Manager':
         raise HTTPException(status_code=403, detail="Only managers can view users")
     
-    db_users = db.query(User).all()
+    db_users = (
+        db.query(User)
+        .outerjoin(EmployeeSkills, EmployeeSkills.user_id == User.id)
+        .order_by(
+            # Custom ordering in User Accounts:
+            # - anka first
+            # - hawra second-to-last
+            # - abdulla(h) last
+            case(
+                (func.lower(User.username) == "anka", 0),
+                (func.lower(User.username) == "hawra", 2),
+                (func.lower(User.username).in_(["abdulla", "abdullah"]), 3),
+                else_=1,
+            ),
+            # Match schedule-view staff ordering first (EmployeeSkills.id ascending)
+            case((User.employee_type == EmployeeType.STAFF, 0), else_=1),
+            EmployeeSkills.id.asc(),
+            User.id.asc(),
+        )
+        .all()
+    )
     users = []
     for user in db_users:
         users.append({
@@ -57,6 +81,7 @@ async def get_all_users(
             'employee_name': user.employee_name,
             'employee_type': user.employee_type.value,
             'staff_no': user.staff_no,
+            'start_date': user.start_date.isoformat() if user.start_date else None,
             'password_hidden': '*' * len(user.password) if user.password else ''
         })
     return users
@@ -95,6 +120,7 @@ async def create_user(
         employee_name=user_data.employee_name,
         employee_type=employee_type,
         staff_no=sn,
+        start_date=user_data.start_date or date(2025, 10, 1),
     )
     db.add(new_user)
     db.flush()  # Get the user ID
@@ -182,6 +208,8 @@ async def update_user(
             if conflict:
                 raise HTTPException(status_code=400, detail="Staff number already in use")
         user.staff_no = sn
+    if "start_date" in update_payload:
+        user.start_date = update.start_date or date(2025, 10, 1)
     
     # Auto-create/update employee_skills for staff users
     if user.employee_type == EmployeeType.STAFF:

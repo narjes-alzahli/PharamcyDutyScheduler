@@ -30,6 +30,7 @@ class User(Base):
     employee_name = Column(String, nullable=False)
     employee_type = Column(SQLEnum(EmployeeType), nullable=False, default=EmployeeType.STAFF)
     staff_no = Column(String(32), nullable=True, unique=True, index=True)  # Official staff number (e.g. 58812); Admin often 00000
+    start_date = Column(Date, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

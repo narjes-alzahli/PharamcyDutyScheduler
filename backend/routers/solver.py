@@ -430,7 +430,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 skills_dict,
                 db=db,
                 method="rolling_window",
-                window_months=3
+                window_months=3,
+                period_start_date=start_date,
             )
             data.history_counts = history_counts
 
