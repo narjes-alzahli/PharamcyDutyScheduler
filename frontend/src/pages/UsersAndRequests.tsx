@@ -1835,9 +1835,6 @@ export const UserManagement: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="flex flex-col gap-4">
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">Request History</h3>
-                </div>
                 <div className="flex items-center gap-4 flex-wrap">
                   <label className="text-sm font-medium text-gray-700">Filter:</label>
                 <select
@@ -1914,27 +1911,6 @@ export const UserManagement: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="bg-white rounded-lg shadow p-6 mb-6">
-                <h3 className="text-xl font-bold text-gray-900 mb-4">Schedule View</h3>
-                <UserManagementRequestsSchedule
-                  year={scheduleMonthDate.getFullYear()}
-                  month={scheduleMonthDate.getMonth() + 1}
-                  leaveRequests={filteredLeaveRequests}
-                  shiftRequests={filteredShiftRequests}
-                  selectedRequestId={selectedCalendarEntryId}
-                  onSelectRequest={(requestId) => setSelectedCalendarEntryId(requestId)}
-                  onApprove={(requestId, type) =>
-                    type === 'leave' ? handleApproveLeave(requestId) : handleApproveShift(requestId)
-                  }
-                  onReject={(requestId, type) =>
-                    type === 'leave' ? handleRejectLeave(requestId) : handleRejectShift(requestId)
-                  }
-                  processingRequestId={processingRequest}
-                  allEmployees={employees.map(emp => emp.employee)}
-                  selectedPeriod={selectedPeriod}
-                />
-              </div>
-
               {/* Collapsible Leave Requests Table - Only show when filter is 'all' or 'leave' */}
               {(requestFilter === 'all' || requestFilter === 'leave') && (
                 <div className="bg-white rounded-lg shadow p-6 mb-6">

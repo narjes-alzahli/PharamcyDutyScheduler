@@ -1011,17 +1011,19 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
             <p className="text-sm text-gray-600 mb-6">
               {pendingRejection.action === 'reject' ? (
                 <>
-                  This cell contains an approved {pendingRejection.type === 'leave' ? 'leave' : 'shift'} request 
-                  made by <strong>{pendingRejection.employee}</strong>. If you want to change this assignment, 
-                  you need to reject the request first. The entire request will be rejected and removed from the schedule.
+                  This cell is linked to an approved request. To change this assignment, delete the request first.
                 </>
               ) : (
                 <>
-                  This entry was added via Roster Generator for <strong>{pendingRejection.employee}</strong>.
-                  To replace it, delete it first. This will remove the whole request range, then you can add a new value.
+                  This cell is linked to an assignment added by admin. To change it, delete this assignment first.
                 </>
               )}
             </p>
+            {pendingRejection.toastInner && (
+              <p className="mb-6 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                {pendingRejection.toastInner}
+              </p>
+            )}
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => handleRejectRequest(false)}
