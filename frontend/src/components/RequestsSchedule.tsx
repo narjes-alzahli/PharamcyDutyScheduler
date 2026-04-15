@@ -19,7 +19,7 @@ interface RequestsScheduleProps {
 }
 
 // Standard working shifts that go to locks
-const STANDARD_SHIFT_CODES = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'IP+P', 'P', 'M+P', 'AS']);
+const STANDARD_SHIFT_CODES = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'MS', 'IP+P', 'P', 'M+P', 'AS']);
 
 /** Matches save toasts: `Name · DD-MM-YYYY[–DD-MM-YYYY] · detail` */
 function formatPersonDatesDetail(
@@ -1011,7 +1011,7 @@ export const RequestsSchedule: React.FC<RequestsScheduleProps> = ({
             <p className="text-sm text-gray-600 mb-6">
               {pendingRejection.action === 'reject' ? (
                 <>
-                  This cell is linked to an approved request. To change this assignment, delete the request first.
+                  This cell is linked to an approved request. To change it, delete the request first.
                 </>
               ) : (
                 <>

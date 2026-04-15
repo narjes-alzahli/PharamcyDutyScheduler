@@ -549,6 +549,10 @@ def add_single_skill_employee_constraints(
                     continue
                 model.Add(x[key] == 0)
             else:
+                # If this exact shift is explicitly forced, honor that request.
+                if lock_value is True:
+                    continue
+
                 # Skip if another shift is explicitly locked in
                 other_forced_shift = any(
                     locks.get((employee, day, shift)) is True
@@ -566,8 +570,15 @@ def add_single_skill_employee_constraints(
 
                 if day_single_shift_demand <= 0:
                     model.Add(x[key] == 0)
+                    # Only force O when there is no explicit forced assignment for the day.
+                    forced_any_shift = any(
+                        locks.get((employee, day, shift)) is True
+                        for shift in shifts
+                        if (employee, day, shift) in x
+                    )
                     if (employee, day, "O") in x and locks.get((employee, day, "O")) is not False:
-                        model.Add(x[(employee, day, "O")] == 1)
+                        if not forced_any_shift:
+                            model.Add(x[(employee, day, "O")] == 1)
                     continue
 
                 model.Add(x[key] == 1)
