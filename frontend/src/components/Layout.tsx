@@ -146,8 +146,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     ? [
         { name: 'Roster Generator', path: '/generator' },
         { name: 'Roster History', path: '/rosters' },
-        { name: 'User Management', path: '/users' },
-        { name: 'Rules Management', path: '/rules' },
+        { name: 'Users & Requests', path: '/users' },
+        { name: 'Roster Rules', path: '/rules' },
       ]
     : [
         { name: 'Requests', path: '/requests' },

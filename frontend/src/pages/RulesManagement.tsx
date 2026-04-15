@@ -192,7 +192,7 @@ export const RulesManagement: React.FC = () => {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
-          <p className="text-gray-600">Only managers can access Rules &amp; Shifts.</p>
+          <p className="text-gray-600">Only managers can access Roster Rules.</p>
         </div>
       </div>
     );
@@ -200,7 +200,7 @@ export const RulesManagement: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Rules &amp; Shifts</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster Rules</h2>
 
       {notification && (
         <div className={`mb-4 p-4 rounded-lg ${
@@ -241,7 +241,7 @@ export const RulesManagement: React.FC = () => {
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            Scheduling Rules
+            Rules
           </button>
         </nav>
       </div>
@@ -462,7 +462,7 @@ export const RulesManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Scheduling Rules Tab */}
+      {/* Rules Tab */}
       {activeTab === 'scheduling-rules' && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-xl font-bold text-gray-900 mb-4">How the Schedule is Created</h3>
