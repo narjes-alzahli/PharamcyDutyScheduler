@@ -21,6 +21,7 @@ class Employee(BaseModel):
     skill_H: bool = Field(alias="skill_H")
     skill_CL: bool = Field(alias="skill_CL")
     skill_E: bool = Field(alias="skill_E")
+    skill_MS: bool = Field(alias="skill_MS")
     skill_IP_P: bool = Field(alias="skill_IP_P")
     skill_P: bool = Field(alias="skill_P")
     skill_M_P: bool = Field(alias="skill_M_P")
@@ -51,6 +52,7 @@ class DailyRequirement(BaseModel):
     need_H: int = Field(ge=0, alias="need_H")
     need_CL: int = Field(ge=0, alias="need_CL")
     need_E: int = Field(ge=0, alias="need_E", default=0)
+    need_MS: int = Field(ge=0, alias="need_MS", default=0)
     need_IP_P: int = Field(ge=0, alias="need_IP_P", default=0)
     need_P: int = Field(ge=0, alias="need_P", default=0)
     need_M_P: int = Field(ge=0, alias="need_M_P", default=0)
@@ -369,6 +371,7 @@ class RosterData:
             "H": emp.skill_H,
             "CL": emp.skill_CL,
             "E": emp.skill_E,
+            "MS": emp.skill_MS,
             "IP+P": emp.skill_IP_P,
             "P": emp.skill_P,
             "M+P": emp.skill_M_P
@@ -378,7 +381,7 @@ class RosterData:
         """Get daily requirement for a date (only need_* fields, no holiday)."""
         dr = self.daily_requirements_dict.get(date)
         if not dr:
-            return {"M": 0, "IP": 0, "A": 0, "N": 0, "M3": 0, "M4": 0, "H": 0, "CL": 0, "E": 0, "IP+P": 0, "P": 0, "M+P": 0}
+            return {"M": 0, "IP": 0, "A": 0, "N": 0, "M3": 0, "M4": 0, "H": 0, "CL": 0, "E": 0, "MS": 0, "IP+P": 0, "P": 0, "M+P": 0}
         return {
             "M": dr.need_M,
             "IP": dr.need_IP,
@@ -389,6 +392,7 @@ class RosterData:
             "H": dr.need_H,
             "CL": dr.need_CL,
             "E": dr.need_E,
+            "MS": dr.need_MS,
             "IP+P": dr.need_IP_P,
             "P": dr.need_P,
             "M+P": dr.need_M_P

@@ -8,8 +8,8 @@ import numpy as np
 # Default standard working shifts (fallback when working_shift_codes not provided)
 # These should match what's in the database - updated when standard shifts change
 # In practice, working_shift_codes should always be provided from the backend
-_DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
-_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+_DEFAULT_STANDARD_SHIFTS = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"}
+_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
 
 
 def create_decision_variables(
@@ -193,7 +193,7 @@ def add_lock_constraints(
         working_shifts = set(working_shift_codes)
     else:
         # Fallback to default working shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"}
     
     # Group locks by (employee, day) to detect conflicts
     locks_by_employee_day = {}
@@ -488,7 +488,7 @@ def add_all_constraints(
     
     # Single skill employees work their shift Sun-Thu and rest Fri-Sat
     add_single_skill_employee_constraints(
-        model, x, employees, dates, shifts, skills, time_off, locks, working_shift_codes
+        model, x, employees, dates, shifts, skills, time_off, locks, working_shift_codes, demands
     )
 
 
@@ -501,7 +501,8 @@ def add_single_skill_employee_constraints(
     skills: Dict[str, Dict[str, bool]],
     time_off: Dict[Tuple[str, date], str],
     locks: Dict[Tuple[str, date, str], bool],
-    working_shift_codes: Optional[List[str]] = None
+    working_shift_codes: Optional[List[str]] = None,
+    demands: Optional[Dict[date, Dict[str, int]]] = None,
 ) -> None:
     """Force single-skill employees to work their skill Sun-Thu and rest Fri-Sat."""
     # Working shifts from database/config (standard shifts that can be optimized)
@@ -509,7 +510,7 @@ def add_single_skill_employee_constraints(
         working_shifts = set(working_shift_codes)
     else:
         # Fallback to standard shifts
-        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
+        working_shifts = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"}
     weekend_days = {4, 5}  # Friday=4, Saturday=5
     
     for employee in employees:
@@ -523,6 +524,12 @@ def add_single_skill_employee_constraints(
             continue
         
         single_shift = qualified_shifts[0]
+        if demands is not None:
+            total_shift_demand = sum(int((demands.get(day, {}) or {}).get(single_shift, 0) or 0) for day in dates)
+            if total_shift_demand <= 0:
+                # Avoid forcing impossible work for single-skill staff when a shift has zero
+                # demand across the entire period (e.g., MS default rollout).
+                continue
         
         for day in dates:
             key = (employee, day, single_shift)

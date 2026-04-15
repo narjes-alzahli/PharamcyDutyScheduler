@@ -61,6 +61,7 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
         emp.skill_H,
         emp.skill_CL,
         emp.skill_E,
+        emp.skill_MS,
         emp.skill_IP_P,
         emp.skill_P,
         emp.skill_M_P,

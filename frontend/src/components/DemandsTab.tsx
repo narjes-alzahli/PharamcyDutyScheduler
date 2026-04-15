@@ -36,7 +36,7 @@ const stripDayNames = (demands: any[]) =>
   demands.map(({ day_name, ...rest }) => rest);
 
 // Standard shift types that have dedicated columns in demands
-const STANDARD_SHIFT_CODES = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'IP+P', 'P', 'M+P'];
+const STANDARD_SHIFT_CODES = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'MS', 'IP+P', 'P', 'M+P'];
 
 // Helper function to convert shift code to column name (e.g., "IP+P" -> "IP_P")
 const shiftCodeToColumnName = (shiftCode: string): string => {
@@ -62,6 +62,7 @@ const DEFAULT_WEEKDAY_SHIFT_REQUIREMENTS: ShiftRequirementRow[] = [
   { Shift: 'M3', Count: 1 },
   { Shift: 'M4', Count: 1 },
   { Shift: 'CL', Count: 2 },
+  { Shift: 'MS', Count: 1 },
 ];
 const DEFAULT_WEEKEND_SHIFT_REQUIREMENTS: ShiftRequirementRow[] = [
   { Shift: 'A', Count: 1 },
@@ -80,6 +81,20 @@ const DEFAULT_FIXED_SHIFTS: FixedShiftConfigRow[] = [
 const cloneWeekdayRequirements = () => DEFAULT_WEEKDAY_SHIFT_REQUIREMENTS.map((r) => ({ ...r }));
 const cloneWeekendRequirements = () => DEFAULT_WEEKEND_SHIFT_REQUIREMENTS.map((r) => ({ ...r }));
 const cloneFixedShifts = () => DEFAULT_FIXED_SHIFTS.map((r) => ({ ...r }));
+const mergeShiftRequirementRows = (
+  savedRows: ShiftRequirementRow[] | undefined,
+  defaultRows: ShiftRequirementRow[],
+): ShiftRequirementRow[] => {
+  const saved = Array.isArray(savedRows) ? savedRows : [];
+  const byShift = new Map(saved.map((row) => [row.Shift, row]));
+  return defaultRows.map((row) => {
+    const existing = byShift.get(row.Shift);
+    return {
+      Shift: row.Shift,
+      Count: typeof existing?.Count === 'number' ? existing.Count : row.Count,
+    };
+  });
+};
 
 export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMonth, monthNames, selectedPeriod }) => {
   const [monthDemands, setMonthDemands] = useState<any[]>([]);
@@ -161,10 +176,10 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   /** Same weekday/weekend counts as the Shift Requirements tables; H only from fixed shifts unless you add H here. */
   const buildBaseAndWeekendDemands = useCallback(() => {
     const base_demand: any = {
-      'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
+      'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'MS': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
     };
     const weekend_demand: any = {
-      'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
+      'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'MS': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
     };
     weekdayConfig.forEach(item => {
       base_demand[item.Shift] = item.Count;
@@ -443,7 +458,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
       
       // Build default demands object
       const defaultDemands: Record<string, number> = {
-        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
+        'M': 0, 'IP': 0, 'A': 0, 'N': 0, 'M3': 0, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'MS': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
       };
       
       // Set values from config
@@ -483,6 +498,7 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
             need_H: defaultDemands['H'],
             need_CL: defaultDemands['CL'],
             need_E: defaultDemands['E'],
+            need_MS: defaultDemands['MS'],
           };
         }
         return demand;
@@ -579,8 +595,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
     if (saved) {
       try {
         const config = JSON.parse(saved);
-        if (config.weekday) setWeekdayConfig(config.weekday);
-        if (config.weekend) setWeekendConfig(config.weekend);
+        setWeekdayConfig(mergeShiftRequirementRows(config.weekday, DEFAULT_WEEKDAY_SHIFT_REQUIREMENTS));
+        setWeekendConfig(mergeShiftRequirementRows(config.weekend, DEFAULT_WEEKEND_SHIFT_REQUIREMENTS));
         if (config.fixedShifts) {
           // Ensure required automatic shifts are always in the config
           const hasMP = config.fixedShifts.some((f: any) => f.shift === 'M+P');

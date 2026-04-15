@@ -22,11 +22,11 @@ def get_standard_working_shifts(db: Session = None) -> Set[str]:
         db: Database session (optional, will create one if not provided)
     
     Returns:
-        Set of standard shift codes (e.g., {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E"})
+        Set of standard shift codes (e.g., {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS"})
     """
     # Standard shifts are determined by having dedicated columns in Demand model
     # This is the source of truth - shifts that have need_* columns
-    STANDARD_SHIFT_CODES = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"}
+    STANDARD_SHIFT_CODES = {"M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"}
     
     # Use provided session or create a new one
     if db is None:
@@ -80,6 +80,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
             'skill_H': emp.skill_H,
             'skill_CL': emp.skill_CL,
             'skill_E': emp.skill_E,
+            'skill_MS': emp.skill_MS,
             'skill_IP_P': emp.skill_IP_P,
             'skill_P': emp.skill_P,
             'skill_M_P': emp.skill_M_P,
@@ -92,7 +93,7 @@ def load_roster_data_from_db(db: Session, expand_ranges: bool = False) -> Dict[s
         # Create empty DataFrame with required columns
         employees_df = pd.DataFrame(columns=[
             'employee', 'user_id', 'staff_no', 'skill_M', 'skill_IP', 'skill_A', 'skill_N',
-            'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E',
+            'skill_M3', 'skill_M4', 'skill_H', 'skill_CL', 'skill_E', 'skill_MS',
             'skill_IP_P', 'skill_P', 'skill_M_P',
             'min_days_off', 'weight', 'pending_off'
         ])
@@ -326,6 +327,7 @@ def load_month_demands(year: int, month: int, db: Session = None) -> pd.DataFram
                     'need_H': demand.need_H,
                     'need_CL': demand.need_CL,
                     'need_E': demand.need_E,
+                    'need_MS': demand.need_MS,
                     'need_IP_P': demand.need_IP_P,
                     'need_P': demand.need_P,
                     'need_M_P': demand.need_M_P
@@ -340,7 +342,7 @@ def load_month_demands(year: int, month: int, db: Session = None) -> pd.DataFram
         # Return empty DataFrame if no demands found
         # Demands must exist in database - solver will fail if empty
         return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N',
-                                      'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E',
+                                      'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E', 'need_MS',
                                       'need_IP_P', 'need_P', 'need_M_P'])
     finally:
         if close_db:
@@ -389,6 +391,7 @@ def load_demands_by_date_range(start_date: date, end_date: date, db: Session = N
                     'need_H': demand.need_H,
                     'need_CL': demand.need_CL,
                     'need_E': demand.need_E,
+                    'need_MS': demand.need_MS,
                     'need_IP_P': demand.need_IP_P,
                     'need_P': demand.need_P,
                     'need_M_P': demand.need_M_P
@@ -402,7 +405,7 @@ def load_demands_by_date_range(start_date: date, end_date: date, db: Session = N
 
         # Return empty DataFrame if no demands found
         return pd.DataFrame(columns=['date', 'need_M', 'need_IP', 'need_A', 'need_N',
-                                      'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E',
+                                      'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E', 'need_MS',
                                       'need_IP_P', 'need_P', 'need_M_P'])
     finally:
         if close_db:
@@ -469,6 +472,7 @@ def save_month_demands(year: int, month: int, demands_df: pd.DataFrame, db: Sess
                 'need_H': int(row.get('need_H', 0)),
                 'need_CL': int(row.get('need_CL', 0)),
                 'need_E': int(row.get('need_E', 0)),
+                'need_MS': int(row.get('need_MS', 0)),
                 'need_IP_P': int(row.get('need_IP_P', 0)),
                 'need_P': int(row.get('need_P', 0)),
                 'need_M_P': int(row.get('need_M_P', 0))
@@ -732,7 +736,7 @@ def load_assignment_history(
             # Thursday shifts (excluding M and M3) - only for multi-skill employees
             if schedule_date.weekday() == 3:  # Thursday
                 qualified_shifts = [
-                    s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                    s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
                     if emp_skills.get(s, False)
                 ]
                 is_multi_skill = len(qualified_shifts) > 1
@@ -742,7 +746,7 @@ def load_assignment_history(
             # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
             if schedule_date.weekday() in [4, 5]:  # Friday or Saturday
                 qualified_shifts = [
-                    s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                    s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
                     if emp_skills.get(s, False)
                 ]
                 is_multi_skill = len(qualified_shifts) > 1
@@ -792,7 +796,7 @@ def load_assignment_history(
                 # Thursday shifts (excluding M and M3) - only for multi-skill employees
                 if schedule_date.weekday() == 3:  # Thursday
                     qualified_shifts = [
-                        s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                        s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
                         if emp_skills.get(s, False)
                     ]
                     is_multi_skill = len(qualified_shifts) > 1
@@ -801,7 +805,7 @@ def load_assignment_history(
                 # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
                 if schedule_date.weekday() in [4, 5]:  # Weekend
                     qualified_shifts = [
-                        s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+                        s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
                         if emp_skills.get(s, False)
                     ]
                     is_multi_skill = len(qualified_shifts) > 1
@@ -1002,7 +1006,8 @@ def get_holiday_demands() -> Dict[str, int]:
         'IP': 1,
         'CL': 2,
         'M4': 0,
-        'H': 0
+        'H': 0,
+        'MS': 0,
     }
 
 
@@ -1062,6 +1067,7 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
                 'need_H': holiday_demands.get('H', 0),
                 'need_CL': holiday_demands.get('CL', 0),
                 'need_E': 0,
+                'need_MS': 0,
                 'need_IP_P': 0,
                 'need_P': 0,
                 'need_M_P': 0
@@ -1087,6 +1093,7 @@ def generate_month_demands(year: int, month: int, base_demand: Dict[str, int],
                 'need_H': demand.get('H', 0),
                 'need_CL': demand.get('CL', 0),
                 'need_E': demand.get('E', 0),
+                'need_MS': demand.get('MS', 0),
                 'need_IP_P': demand.get('IP+P', 0),
                 'need_P': demand.get('P', 0),
                 'need_M_P': demand.get('M+P', 0)

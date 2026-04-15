@@ -234,7 +234,7 @@ def init_db():
             {"name": "Ghadeer", "username": "ghadeer", "skill_M": True, "skill_IP": True, "skill_A": True, "skill_N": True, "skill_M3": True, "skill_M4": True, "skill_H": True, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
             {"name": "Hawra", "username": "hawra", "skill_M": False, "skill_IP": False, "skill_A": False, "skill_N": False, "skill_M3": False, "skill_M4": False, "skill_H": False, "skill_CL": True, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
             {"name": "Huda", "username": "huda", "skill_M": True, "skill_IP": True, "skill_A": True, "skill_N": True, "skill_M3": True, "skill_M4": True, "skill_H": False, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
-            {"name": "Idris", "username": "idris", "skill_M": True, "skill_IP": False, "skill_A": False, "skill_N": False, "skill_M3": False, "skill_M4": False, "skill_H": False, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
+            {"name": "Idris", "username": "idris", "skill_M": False, "skill_IP": False, "skill_A": False, "skill_N": False, "skill_M3": False, "skill_M4": False, "skill_H": False, "skill_CL": False, "skill_E": False, "skill_MS": True, "skill_IP_P": False, "skill_P": False, "skill_M_P": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
             {"name": "Karima H", "username": "karima_h", "skill_M": True, "skill_IP": True, "skill_A": True, "skill_N": True, "skill_M3": True, "skill_M4": True, "skill_H": False, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
             {"name": "Karima W", "username": "karima_w", "skill_M": True, "skill_IP": True, "skill_A": True, "skill_N": True, "skill_M3": True, "skill_M4": True, "skill_H": False, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
             {"name": "Khawla", "username": "khawla", "skill_M": True, "skill_IP": True, "skill_A": True, "skill_N": True, "skill_M3": True, "skill_M4": True, "skill_H": False, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
@@ -251,6 +251,14 @@ def init_db():
             {"name": "Sumayia", "username": "sumayia", "skill_M": True, "skill_IP": True, "skill_A": True, "skill_N": True, "skill_M3": True, "skill_M4": True, "skill_H": True, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
             {"name": "Widad", "username": "widad", "skill_M": True, "skill_IP": True, "skill_A": True, "skill_N": True, "skill_M3": True, "skill_M4": True, "skill_H": False, "skill_CL": False, "min_days_off": 4, "weight": 1.0, "pending_off": 0.0},
         ]
+
+        # Normalize newer skill flags so every seeded employee has explicit values.
+        for emp_data in default_employees:
+            emp_data.setdefault("skill_E", False)
+            emp_data.setdefault("skill_MS", True)
+            emp_data.setdefault("skill_IP_P", False)
+            emp_data.setdefault("skill_P", False)
+            emp_data.setdefault("skill_M_P", False)
 
         # Create users and employee skills for each employee
         default_password = "password123"  # Default password for all staff users
@@ -277,6 +285,11 @@ def init_db():
                 skill_M4=emp_data["skill_M4"],
                 skill_H=emp_data["skill_H"],
                 skill_CL=emp_data["skill_CL"],
+                skill_E=emp_data["skill_E"],
+                skill_MS=emp_data["skill_MS"],
+                skill_IP_P=emp_data["skill_IP_P"],
+                skill_P=emp_data["skill_P"],
+                skill_M_P=emp_data["skill_M_P"],
                 min_days_off=emp_data["min_days_off"],
                 weight=emp_data["weight"],
                 pending_off=emp_data["pending_off"]

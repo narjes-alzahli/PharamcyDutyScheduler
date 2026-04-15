@@ -392,6 +392,7 @@ class DemandData(BaseModel):
     need_H: int = 0
     need_CL: int = 0
     need_E: int = 0
+    need_MS: int = 0
     need_IP_P: int = 0
     need_P: int = 0
     need_M_P: int = 0
@@ -495,6 +496,7 @@ async def update_employees(
         emp.skill_H = bool(emp_data.get('skill_H', False))
         emp.skill_CL = bool(emp_data.get('skill_CL', True))
         emp.skill_E = bool(emp_data.get('skill_E', True))
+        emp.skill_MS = bool(emp_data.get('skill_MS', True))
         emp.skill_IP_P = bool(emp_data.get('skill_IP_P', True))
         emp.skill_P = bool(emp_data.get('skill_P', True))
         emp.skill_M_P = bool(emp_data.get('skill_M_P', True))
@@ -597,6 +599,7 @@ async def update_employees(
                 skill_H=bool(emp_data.get('skill_H', False)),
                 skill_CL=bool(emp_data.get('skill_CL', True)),
                 skill_E=bool(emp_data.get('skill_E', True)),
+                skill_MS=bool(emp_data.get('skill_MS', True)),
                 skill_IP_P=bool(emp_data.get('skill_IP_P', True)),
                 skill_P=bool(emp_data.get('skill_P', True)),
                 skill_M_P=bool(emp_data.get('skill_M_P', True)),
@@ -1380,7 +1383,7 @@ async def save_month_demands(
         demands_df['date'] = demands_df['date'].dt.date
     
     # Ensure all required columns exist
-    required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E', 'need_IP_P', 'need_P', 'need_M_P']
+    required_columns = ['date', 'need_M', 'need_IP', 'need_A', 'need_N', 'need_M3', 'need_M4', 'need_H', 'need_CL', 'need_E', 'need_MS', 'need_IP_P', 'need_P', 'need_M_P']
     for col in required_columns:
         if col not in demands_df.columns:
             if col == 'date':
@@ -1416,6 +1419,7 @@ async def save_month_demands(
                 demands_df.at[idx, 'need_H'] = holiday_demands.get('H', 0)
                 demands_df.at[idx, 'need_CL'] = holiday_demands.get('CL', 0)
                 demands_df.at[idx, 'need_E'] = holiday_demands.get('E', 0)
+                demands_df.at[idx, 'need_MS'] = holiday_demands.get('MS', 0)
                 demands_df.at[idx, 'need_IP_P'] = holiday_demands.get('IP+P', 0)
                 demands_df.at[idx, 'need_P'] = holiday_demands.get('P', 0)
                 demands_df.at[idx, 'need_M_P'] = holiday_demands.get('M+P', 0)

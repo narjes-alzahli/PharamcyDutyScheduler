@@ -47,6 +47,7 @@ def ensure_staff_employee_skills(db: Session) -> None:
                     skill_H=False,
                     skill_CL=True,
                     skill_E=True,
+                    skill_MS=True,
                     skill_IP_P=True,
                     skill_P=True,
                     skill_M_P=True,

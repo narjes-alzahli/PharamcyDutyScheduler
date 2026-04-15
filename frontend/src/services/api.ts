@@ -209,6 +209,11 @@ export interface Demand {
   need_M4: number;
   need_H: number;
   need_CL: number;
+  need_E: number;
+  need_MS: number;
+  need_IP_P: number;
+  need_P: number;
+  need_M_P: number;
 }
 
 export interface TimeOffEntry {

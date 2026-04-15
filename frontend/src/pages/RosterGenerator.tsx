@@ -1455,7 +1455,7 @@ export const RosterGenerator: React.FC = () => {
                       <p className="text-sm text-gray-600 mb-1">Can Work All Shifts</p>
                       <p className="text-2xl font-bold text-gray-900">
                         {rosterData.employees.filter((e: any) => 
-                          e.skill_M && e.skill_IP && e.skill_A && e.skill_N && e.skill_M3 && e.skill_M4 && e.skill_H && e.skill_CL && e.skill_E && e.skill_IP_P && e.skill_P && e.skill_M_P
+                          e.skill_M && e.skill_IP && e.skill_A && e.skill_N && e.skill_M3 && e.skill_M4 && e.skill_H && e.skill_CL && e.skill_E && e.skill_MS && e.skill_IP_P && e.skill_P && e.skill_M_P
                         ).length}
                       </p>
                     </div>
@@ -1475,6 +1475,7 @@ export const RosterGenerator: React.FC = () => {
                         { key: 'skill_H', label: 'H', type: 'checkbox' },
                         { key: 'skill_CL', label: 'CL', type: 'checkbox' },
                         { key: 'skill_E', label: 'E', type: 'checkbox' },
+                        { key: 'skill_MS', label: 'MS', type: 'checkbox' },
                         { key: 'skill_IP_P', label: 'IP+P', type: 'checkbox' },
                         { key: 'skill_P', label: 'P', type: 'checkbox' },
                         { key: 'skill_M_P', label: 'M+P', type: 'checkbox' },
@@ -2392,6 +2393,7 @@ export const RosterGenerator: React.FC = () => {
                               skill_H: emp.skill_H,
                               skill_CL: emp.skill_CL,
                               skill_E: emp.skill_E,
+                              skill_MS: emp.skill_MS,
                               skill_IP_P: emp.skill_IP_P,
                               skill_P: emp.skill_P,
                               skill_M_P: emp.skill_M_P,
