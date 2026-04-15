@@ -511,6 +511,16 @@ export const RulesManagement: React.FC = () => {
               </ul>
             </section>
 
+            {/* Rest Requirements */}
+            <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Rest Requirements</h4>
+              <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
+                <li>Each person has a minimum number of rest days in the period (monthly minimum days off setting)</li>
+                <li>Each person must also have at least 1 rest day per week</li>
+                <li>Rest days use approved rest codes (for example O and leave types marked as rest)</li>
+              </ul>
+            </section>
+
             {/* Sequencing Rules */}
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
               <h4 className="text-lg font-semibold text-gray-900 mb-3">Shift Patterns</h4>
@@ -555,17 +565,13 @@ export const RulesManagement: React.FC = () => {
               </ul>
             </section>
 
-            {/* Rest Pattern Examples */}
+            {/* Rest Pattern Note */}
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-gray-900 mb-3">Rest Pattern Examples</h4>
-              <p className="text-sm text-gray-700 mb-2">
-                O means Off day (rest day). The scheduler tries the first pattern before backups.
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Rest Pattern Note</h4>
+              <p className="text-sm text-gray-700">
+                <strong>O</strong> means Off day (rest day). The A/N/M4 follow-up patterns are already listed in
+                <strong> Shift Patterns</strong> above, so they are not repeated here.
               </p>
-              <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>After A: usually <strong>A → O</strong>; if needed, backup is <strong>A → N → O → O</strong>.</li>
-                <li>After N: usually <strong>N → O → O</strong>; if needed, backup is <strong>N → O → M</strong>.</li>
-                <li>After M4: usually <strong>M4 → O</strong>; backups are <strong>M4 → A → O</strong> or <strong>M4 → A → N → O → O</strong>.</li>
-              </ul>
             </section>
           </div>
         </div>

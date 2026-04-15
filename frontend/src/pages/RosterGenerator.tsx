@@ -1325,7 +1325,7 @@ export const RosterGenerator: React.FC = () => {
     {
       id: 'assignments',
       name: 'Assignments',
-      description: 'Manage leave and shift assignments in a unified schedule view.',
+      description: 'Manage leave and shift assignments.',
     },
     {
       id: 'schedule',
@@ -1701,7 +1701,7 @@ export const RosterGenerator: React.FC = () => {
             <div>
               <div className="mb-4">
                 <h3 className="text-xl font-bold text-gray-900">Assignments</h3>
-                <p className="text-gray-600">Manage leave and shift requests in a unified schedule view. Click any cell to assign or change requests.</p>
+                <p className="text-gray-600">Manage leave and shift requests. Click any cell to assign or change requests.</p>
               </div>
               <RequestsSchedule
                 year={selectedYear || 2025}
