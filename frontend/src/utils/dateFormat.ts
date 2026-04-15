@@ -79,3 +79,44 @@ export const formatDateObject = (date: Date | null | undefined): string => {
   return `${day}-${month}-${year}`;
 };
 
+/**
+ * Parse a YYYY-MM-DD (or ISO with time) as a **local** calendar date.
+ * Avoids `new Date("YYYY-MM-DD")` UTC parsing, which shifts day-of-week and day number in many timezones.
+ */
+export const parseYMDToLocalDate = (isoDate: string | null | undefined): Date => {
+  if (!isoDate) return new Date(NaN);
+  const raw = isoDate.split('T')[0];
+  const parts = raw.split('-');
+  if (parts.length !== 3) return new Date(NaN);
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!y || !m || !d) return new Date(NaN);
+  return new Date(y, m - 1, d);
+};
+
+/**
+ * Inclusive list of YYYY-MM-DD strings along the **local** calendar between two ISO dates.
+ * Matches naive month-column keys used in schedule grids.
+ */
+export const enumerateLocalDatesInclusive = (fromIso: string, toIso: string): string[] => {
+  const from = fromIso.split('T')[0];
+  const to = toIso.split('T')[0];
+  const fp = from.split('-').map(Number);
+  const tp = to.split('-').map(Number);
+  if (fp.length !== 3 || tp.length !== 3) return [];
+  const [fy, fm, fd] = fp;
+  const [ty, tm, td] = tp;
+  let cur = new Date(fy, fm - 1, fd);
+  const end = new Date(ty, tm - 1, td);
+  if (cur > end) return [];
+  const out: string[] = [];
+  while (cur <= end) {
+    out.push(
+      `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+    );
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+};
+

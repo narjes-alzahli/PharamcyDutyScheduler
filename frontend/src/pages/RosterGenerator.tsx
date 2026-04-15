@@ -507,7 +507,7 @@ export const RosterGenerator: React.FC = () => {
       );
       showToast({
         message:
-          'Schedule committed. You can open it from the All Rosters page.',
+          'Schedule committed. Find it on All Rosters page.',
         type: 'success',
         durationMs: 4200,
       });
@@ -1426,7 +1426,7 @@ export const RosterGenerator: React.FC = () => {
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">Staff skills</h3>
                   <p className="text-gray-600">
-                    Edit skills and roster fields for each staff member. Add or remove people in User Management — rows cannot be deleted here.
+                    Edit skills and roster fields for each staff member. Add or remove people in User Managemente.
                   </p>
                 </div>
               </div>

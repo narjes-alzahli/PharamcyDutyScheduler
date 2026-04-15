@@ -533,11 +533,24 @@ export const RulesManagement: React.FC = () => {
             <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
               <h4 className="text-lg font-semibold text-gray-900 mb-3">Schedule Quality</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
-                <li>Coverage: M and IP filled as much as possible; all other shifts must be fully covered</li>
-                <li>A/N/M4 follow-up chains are optimized with weighted priorities (best pattern first, then fallbacks)</li>
-                <li>Distributes shifts fairly among staff</li>
-                <li>Cross-period boundary uses previous committed schedules: adjacency and weekend carry-over are hard rules; A/N/M4 chain carry-over is soft scoring (all with approved-request overrides)</li>
-                <li>Because boundary weekend carry-over is hard, the first in-period weekend can become more constrained when many staff worked the previous weekend</li>
+                <li>All required shifts must be covered. M and IP are filled as much as possible when staffing is tight.</li>
+                <li>After A, N, and M4 shifts, the scheduler first tries the best rest pattern, then uses backup patterns only if needed.</li>
+                <li>Shifts are shared as fairly as possible across the team.</li>
+                <li>When a new period starts, the scheduler checks the previous approved schedule so unsafe back-to-back patterns and weekend carry-over are still blocked.</li>
+                <li>Because weekend carry-over is strict, the first weekend in a new period can be harder to fill if many people worked the previous weekend.</li>
+              </ul>
+            </section>
+
+            {/* Rest Pattern Examples */}
+            <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
+              <h4 className="text-lg font-semibold text-gray-900 mb-3">Rest Pattern Examples</h4>
+              <p className="text-sm text-gray-700 mb-2">
+                O means Off day (rest day). The scheduler tries the first pattern before backups.
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
+                <li>After A: usually <strong>A → O</strong>; if needed, backup is <strong>A → N → O → O</strong>.</li>
+                <li>After N: usually <strong>N → O → O</strong>; if needed, backup is <strong>N → O → M</strong>.</li>
+                <li>After M4: usually <strong>M4 → O</strong>; backups are <strong>M4 → A → O</strong> or <strong>M4 → A → N → O → O</strong>.</li>
               </ul>
             </section>
           </div>

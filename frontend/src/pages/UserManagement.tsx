@@ -11,6 +11,11 @@ import { useResizableColumns } from '../hooks/useResizableColumns';
 import { useTableSort } from '../hooks/useTableSort';
 import { useTableSearch } from '../hooks/useTableSearch';
 import { SearchBar } from '../components/SearchBar';
+import {
+  collectOverlappingPendingOrApproved,
+  normalizeRequestYmd,
+  type OverlapRecord,
+} from '../utils/requestOverlaps';
 
 interface User {
   username: string;
@@ -793,6 +798,11 @@ export const UserManagement: React.FC = () => {
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+  const [pendingOverlapApprove, setPendingOverlapApprove] = useState<{
+    requestId: string;
+    type: 'leave' | 'shift';
+    overlaps: OverlapRecord[];
+  } | null>(null);
   const hasInitialDataLoaded = useRef(false);
   
   // Resizable columns for leave requests table
@@ -1339,22 +1349,87 @@ export const UserManagement: React.FC = () => {
     return employeeName.toLowerCase().replace(' ', '_');
   };
 
-  const handleApproveLeave = async (requestId: string) => {
+  const performApproveLeave = async (requestId: string, overlaps: OverlapRecord[]) => {
     try {
       setProcessingRequest(requestId);
-      // Optimistically update the UI immediately
-      setLeaveRequests(prev => prev.map(req => 
-        req.request_id === requestId ? { ...req, status: 'Approved' as const } : req
-      ));
+      for (const o of overlaps) {
+        if (o.type === 'leave') {
+          await requestsAPI.rejectLeaveRequest(o.request_id);
+        } else {
+          await requestsAPI.rejectShiftRequest(o.request_id);
+        }
+      }
+      setLeaveRequests((prev) =>
+        prev.map((r) => (r.request_id === requestId ? { ...r, status: 'Approved' as const } : r))
+      );
       await requestsAPI.approveLeaveRequest(requestId);
-      setNotification({ message: '✅ Leave request approved successfully! It has been added to the roster.', type: 'success' });
+      setNotification({
+        message: '✅ Leave request approved successfully! It has been added to the roster.',
+        type: 'success',
+      });
       setTimeout(() => setNotification(null), 3000);
-      // Use isRefresh=true to prevent clearing data during refresh
       await loadRequests(true);
     } catch (error: any) {
-      // Revert optimistic update on error
       await loadRequests(true);
-      setNotification({ message: error.response?.data?.detail || 'Failed to approve leave request', type: 'error' });
+      setNotification({
+        message: error.response?.data?.detail || 'Failed to approve leave request',
+        type: 'error',
+      });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setProcessingRequest(null);
+    }
+  };
+
+  const handleApproveLeave = async (requestId: string) => {
+    const req = leaveRequests.find((r) => r.request_id === requestId);
+    if (!req) return;
+
+    const overlaps = collectOverlappingPendingOrApproved(
+      req.employee,
+      requestId,
+      'leave',
+      req.from_date,
+      req.to_date,
+      leaveRequests,
+      shiftRequests
+    );
+
+    if (overlaps.length > 0) {
+      setSelectedCalendarEntryId(null);
+      setPendingOverlapApprove({ requestId, type: 'leave', overlaps });
+      return;
+    }
+
+    await performApproveLeave(requestId, []);
+  };
+
+  const performApproveShift = async (requestId: string, overlaps: OverlapRecord[]) => {
+    try {
+      setProcessingRequest(requestId);
+      for (const o of overlaps) {
+        if (o.type === 'leave') {
+          await requestsAPI.rejectLeaveRequest(o.request_id);
+        } else {
+          await requestsAPI.rejectShiftRequest(o.request_id);
+        }
+      }
+      setShiftRequests((prev) =>
+        prev.map((r) => (r.request_id === requestId ? { ...r, status: 'Approved' as const } : r))
+      );
+      await requestsAPI.approveShiftRequest(requestId);
+      setNotification({
+        message: '✅ Shift request approved successfully! It has been added to the roster.',
+        type: 'success',
+      });
+      setTimeout(() => setNotification(null), 3000);
+      await loadRequests(true);
+    } catch (error: any) {
+      await loadRequests(true);
+      setNotification({
+        message: error.response?.data?.detail || 'Failed to approve shift request',
+        type: 'error',
+      });
       setTimeout(() => setNotification(null), 4000);
     } finally {
       setProcessingRequest(null);
@@ -1387,24 +1462,37 @@ export const UserManagement: React.FC = () => {
   };
 
   const handleApproveShift = async (requestId: string) => {
-    try {
-      setProcessingRequest(requestId);
-      // Optimistically update the UI immediately
-      setShiftRequests(prev => prev.map(req => 
-        req.request_id === requestId ? { ...req, status: 'Approved' as const } : req
-      ));
-      await requestsAPI.approveShiftRequest(requestId);
-      setNotification({ message: '✅ Shift request approved successfully! It has been added to the roster.', type: 'success' });
-      setTimeout(() => setNotification(null), 3000);
-      // Use isRefresh=true to prevent clearing data during refresh
-      await loadRequests(true);
-    } catch (error: any) {
-      // Revert optimistic update on error
-      await loadRequests(true);
-      setNotification({ message: error.response?.data?.detail || 'Failed to approve shift request', type: 'error' });
-      setTimeout(() => setNotification(null), 4000);
-    } finally {
-      setProcessingRequest(null);
+    const req = shiftRequests.find((r) => r.request_id === requestId);
+    if (!req) return;
+
+    const overlaps = collectOverlappingPendingOrApproved(
+      req.employee,
+      requestId,
+      'shift',
+      req.from_date,
+      req.to_date,
+      leaveRequests,
+      shiftRequests
+    );
+
+    if (overlaps.length > 0) {
+      setSelectedCalendarEntryId(null);
+      setPendingOverlapApprove({ requestId, type: 'shift', overlaps });
+      return;
+    }
+
+    await performApproveShift(requestId, []);
+  };
+
+  const handleOverlapApproveConfirm = async () => {
+    if (!pendingOverlapApprove) return;
+    const { requestId, type, overlaps } = pendingOverlapApprove;
+    setPendingOverlapApprove(null);
+    setSelectedCalendarEntryId(null);
+    if (type === 'leave') {
+      await performApproveLeave(requestId, overlaps);
+    } else {
+      await performApproveShift(requestId, overlaps);
     }
   };
 
@@ -1507,55 +1595,53 @@ export const UserManagement: React.FC = () => {
     return `${day}-${month}-${year} ${hours}:${minutes}`;
   };
 
-  const handleRequestAction = useCallback(
-    (requestId: string, type: 'leave' | 'shift', action: 'approve' | 'reject' | 'delete') => {
+  const handleRequestAction = (
+    requestId: string,
+    type: 'leave' | 'shift',
+    action: 'approve' | 'reject' | 'delete'
+  ) => {
+    if (action === 'approve') {
+      if (type === 'leave') {
+        handleApproveLeave(requestId);
+      } else {
+        handleApproveShift(requestId);
+      }
+    } else if (action === 'reject') {
+      if (type === 'leave') {
+        handleRejectLeave(requestId);
+      } else {
+        handleRejectShift(requestId);
+      }
+    } else if (action === 'delete') {
+      if (type === 'leave') {
+        handleDeleteLeave(requestId);
+      } else {
+        handleDeleteShift(requestId);
+      }
+    }
+  };
+
+  const handleCalendarEntryAction = (entry: CalendarEntry, action: 'approve' | 'reject' | 'remove') => {
+    setSelectedCalendarEntryId(null);
+
+    if (entry.requestType === 'Leave') {
       if (action === 'approve') {
-        if (type === 'leave') {
-          handleApproveLeave(requestId);
-        } else {
-          handleApproveShift(requestId);
-        }
+        handleApproveLeave(entry.requestId);
       } else if (action === 'reject') {
-        if (type === 'leave') {
-          handleRejectLeave(requestId);
-        } else {
-          handleRejectShift(requestId);
-        }
-      } else if (action === 'delete') {
-        if (type === 'leave') {
-          handleDeleteLeave(requestId);
-        } else {
-          handleDeleteShift(requestId);
-        }
+        handleRejectLeave(entry.requestId);
+      } else if (action === 'remove') {
+        handleDeleteLeave(entry.requestId);
       }
-    },
-    []
-  );
-
-  const handleCalendarEntryAction = useCallback(
-    (entry: CalendarEntry, action: 'approve' | 'reject' | 'remove') => {
-      setSelectedCalendarEntryId(null);
-
-      if (entry.requestType === 'Leave') {
-        if (action === 'approve') {
-          handleApproveLeave(entry.requestId);
-        } else if (action === 'reject') {
-          handleRejectLeave(entry.requestId);
-        } else if (action === 'remove') {
-          handleDeleteLeave(entry.requestId);
-        }
-      } else if (entry.requestType === 'Shift') {
-        if (action === 'approve') {
-          handleApproveShift(entry.requestId);
-        } else if (action === 'reject') {
-          handleRejectShift(entry.requestId);
-        } else if (action === 'remove') {
-          handleDeleteShift(entry.requestId);
-        }
+    } else if (entry.requestType === 'Shift') {
+      if (action === 'approve') {
+        handleApproveShift(entry.requestId);
+      } else if (action === 'reject') {
+        handleRejectShift(entry.requestId);
+      } else if (action === 'remove') {
+        handleDeleteShift(entry.requestId);
       }
-    },
-    [handleApproveLeave, handleRejectLeave, handleDeleteLeave, handleApproveShift, handleRejectShift, handleDeleteShift]
-  );
+    }
+  };
 
   useEffect(() => {
     if (leaveRequests.length > 0) {
@@ -1669,6 +1755,66 @@ export const UserManagement: React.FC = () => {
           style={{ animation: 'slideIn 0.3s ease-out' }}
         >
           {notification.message}
+        </div>
+      )}
+
+      {pendingOverlapApprove && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50">
+          <div className="mx-4 w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">Overlapping requests</h3>
+            <p className="mb-3 text-sm text-gray-600">
+              {(() => {
+                const target =
+                  pendingOverlapApprove.type === 'leave'
+                    ? leaveRequests.find((r) => r.request_id === pendingOverlapApprove.requestId)
+                    : shiftRequests.find((r) => r.request_id === pendingOverlapApprove.requestId);
+                if (!target) {
+                  return 'This request could not be loaded.';
+                }
+                const kind = pendingOverlapApprove.type === 'leave' ? 'Leave' : 'Shift';
+                const code =
+                  pendingOverlapApprove.type === 'leave'
+                    ? (target as { leave_type?: string }).leave_type ?? '—'
+                    : (target as { shift?: string }).shift ?? '—';
+                const fromY = normalizeRequestYmd(target.from_date);
+                const toY = normalizeRequestYmd(target.to_date);
+                return (
+                  <>
+                    In order to approve this request, you must reject the approved overlapping requests first.
+                  </>
+                );
+              })()}
+            </p>
+            <ul className="mb-6 max-h-48 space-y-2 overflow-y-auto border border-gray-200 rounded-md p-3 text-sm text-gray-800">
+              {pendingOverlapApprove.overlaps.map((o) => (
+                <li key={`${o.type}-${o.request_id}`} className="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+                  <span className="font-medium text-gray-900">{o.employee}</span>
+                  {' · '}
+                  {o.code}
+                  {' · '}
+                  {o.from_ymd} → {o.to_ymd}
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingOverlapApprove(null)}
+                disabled={processingRequest !== null}
+                className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleOverlapApproveConfirm()}
+                disabled={processingRequest !== null}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Reject conflicting &amp; approve
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
