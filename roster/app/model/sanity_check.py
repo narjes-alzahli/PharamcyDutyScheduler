@@ -214,22 +214,39 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
         day_demand = demands[day]
 
         remaining: Dict[str, int] = {}
+        assigned_for_hard: Dict[str, List[Tuple[str, str]]] = {}
         for st in hard_shifts:
             need = int(day_demand.get(st, 0) or 0)
             if need > 0:
                 remaining[st] = need
+                assigned_for_hard[st] = []
 
         for emp in employees:
             fs = _forced_working_shift(emp, day, time_off, locks, standard)
-            if fs is not None and fs in hard_shifts:
-                if remaining.get(fs, 0) > 0:
-                    remaining[fs] -= 1
-                else:
-                    date_str = day.strftime("%d %B %Y")
-                    issues.append(
-                        f"❌ On {date_str}, more staff are fixed to **{fs}** than the hard demand "
-                        f"allows (over-subscribed)."
-                    )
+            if fs is None or fs not in hard_shifts or fs not in assigned_for_hard:
+                continue
+
+            source = "admin-assigned"
+            if (emp, day) in time_off and time_off[(emp, day)] == fs:
+                source = "approved by admin"
+            elif locks.get((emp, day, fs)) is True:
+                source = "assigned by admin"
+
+            assigned_for_hard[fs].append((emp, source))
+            if remaining.get(fs, 0) > 0:
+                remaining[fs] -= 1
+
+        date_str = day.strftime("%d %B %Y")
+        for st, assigned_entries in assigned_for_hard.items():
+            required_count = int(day_demand.get(st, 0) or 0)
+            assigned_count = len(assigned_entries)
+            if assigned_count <= required_count:
+                continue
+            assigned_details = ", ".join([f"{emp} ({src})" for emp, src in assigned_entries])
+            issues.append(
+                f"❌ On {date_str}, shift **{st}** needs {required_count} staff but {assigned_count} were assigned: "
+                f"{assigned_details}."
+            )
 
         pool: List[str] = [emp for emp in employees if _in_hard_matching_pool(emp, day, time_off, locks, standard)]
 

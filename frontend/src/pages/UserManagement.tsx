@@ -1713,7 +1713,7 @@ export const UserManagement: React.FC = () => {
   if (authLoading || !authReady) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
         <LoadingSkeleton type="list" rows={5} />
       </div>
     );
@@ -1723,7 +1723,7 @@ export const UserManagement: React.FC = () => {
   if (!isManager || !currentUser) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
           You don't have permission to access this page.
         </div>
@@ -1734,7 +1734,7 @@ export const UserManagement: React.FC = () => {
   if (loading) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
         <LoadingSkeleton type="list" rows={5} />
       </div>
     );
@@ -1742,7 +1742,7 @@ export const UserManagement: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
       
       {/* Auto-dismissing notification toast */}
       {notification && (
@@ -1780,7 +1780,7 @@ export const UserManagement: React.FC = () => {
                 const toY = normalizeRequestYmd(target.to_date);
                 return (
                   <>
-                    In order to approve this request, you must reject the approved overlapping requests first.
+                    In order to approve this request, you must reject the following overlapping requests first:
                   </>
                 );
               })()}

@@ -507,7 +507,7 @@ export const RosterGenerator: React.FC = () => {
       );
       showToast({
         message:
-          'Schedule committed. Find it on All Rosters page.',
+          'Schedule committed. Find it on Roster History.',
         type: 'success',
         durationMs: 4200,
       });
@@ -2483,7 +2483,7 @@ export const RosterGenerator: React.FC = () => {
                             Commit Schedule
                           </button>
                           <p className="text-sm text-gray-600">
-                            After committing, this schedule will be available to your staff in All Rosters page.
+                            After committing, this schedule will be available to your staff in Roster History.
                           </p>
                         </div>
                       </div>

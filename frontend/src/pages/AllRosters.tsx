@@ -1143,7 +1143,7 @@ export const AllRostersPage: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">All Rosters</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster History</h2>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">

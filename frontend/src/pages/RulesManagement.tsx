@@ -192,7 +192,7 @@ export const RulesManagement: React.FC = () => {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
-          <p className="text-gray-600">Only managers can access Rules Management.</p>
+          <p className="text-gray-600">Only managers can access Rules &amp; Shifts.</p>
         </div>
       </div>
     );
@@ -200,7 +200,7 @@ export const RulesManagement: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Rules Management</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Rules &amp; Shifts</h2>
 
       {notification && (
         <div className={`mb-4 p-4 rounded-lg ${
