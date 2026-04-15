@@ -476,6 +476,7 @@ export const RulesManagement: React.FC = () => {
                 <li>People only work shifts they're trained for</li>
                 <li>Most shift demands must be fully covered every day; M and IP are more flexible and can be under-filled if needed</li>
                 <li>Staff with only the Clinic (CL) skill only work clinic shifts</li>
+                <li>Clinic availability rule: at most one CL staff member can be on leave at the same time</li>
               </ul>
             </section>
 
@@ -565,14 +566,6 @@ export const RulesManagement: React.FC = () => {
               </ul>
             </section>
 
-            {/* Rest Pattern Note */}
-            <section className="border border-gray-200 rounded-lg bg-gray-50 px-5 py-4">
-              <h4 className="text-lg font-semibold text-gray-900 mb-3">Rest Pattern Note</h4>
-              <p className="text-sm text-gray-700">
-                <strong>O</strong> means Off day (rest day). The A/N/M4 follow-up patterns are already listed in
-                <strong> Shift Patterns</strong> above, so they are not repeated here.
-              </p>
-            </section>
           </div>
         </div>
       )}
