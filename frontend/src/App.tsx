@@ -8,10 +8,10 @@ import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { SchedulePage } from './pages/Schedule';
 import { RosterGenerator } from './pages/RosterGenerator';
-import { AllRostersPage } from './pages/AllRosters';
+import { AllRostersPage } from './pages/RosterHistory';
 import { RosterRequests } from './pages/RosterRequests';
-import { UserManagement } from './pages/UserManagement';
-import { RulesManagement } from './pages/RulesManagement';
+import { UserManagement } from './pages/UsersAndRequests';
+import { RulesManagement } from './pages/RosterRules';
 import { HomeRedirect } from './components/HomeRedirect';
 
 const AppRoutes: React.FC = () => {
