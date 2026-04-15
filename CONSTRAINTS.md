@@ -85,6 +85,7 @@ The system tries to make the schedule as fair as possible by:
    - Equal distribution of Thursday shifts (excluding M and M3, among multi-skill employees)
    - Equal weekend shifts (among multi-skill employees)
    - Equal total working days (among multi-skill employees only; single-skill employees have fixed schedules)
+   - **New-staff history bootstrap**: for each employee's first two schedule periods after their `start_date`, fairness history buckets are seeded using the average values from other multi-skill employees (so new joiners are not treated as zero-history)
 
 3. **Shift Sequence Preferences (A/N/M4 hierarchy)**:
    - **After A shift**:

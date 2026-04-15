@@ -561,6 +561,7 @@ export const RulesManagement: React.FC = () => {
               <h4 className="text-lg font-semibold text-gray-900 mb-3">History Awareness</h4>
               <ul className="list-disc pl-6 space-y-2 text-sm text-gray-700">
                 <li>The scheduler looks at recent approved schedules to keep fairness balanced over time (not just this month)</li>
+                <li>New-staff bootstrap: for each person's first two schedule periods after their start date, fairness history is seeded from the average of other multi-skill staff (so they are not treated as zero-history)</li>
                 <li>Boundary safety rules carry over from the previous committed period (for example, forbidden next-day combinations)</li>
                 <li>Weekend carry-over is also checked at period boundaries, so the first weekend can be tighter if many people worked the previous weekend</li>
               </ul>
