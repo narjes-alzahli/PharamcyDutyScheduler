@@ -10,7 +10,7 @@ Web app for pharmacy duty rosters: React UI, FastAPI API, SQL database, and an O
 
 - **Frontend** (`frontend/`) — React UI.
 - **Backend** (`backend/`) — FastAPI REST API (`/api/...`).
-- **Database** — Stores employees, demands, leave, saved rosters, and related data.
+- **Database** — PostgreSQL in development and production; stores employees, demands, leave, saved rosters, and related data.
 - **Roster logic** (`roster/app/model/`) — Turns inputs into assignments for a month or date range. How the solver works (sanity check, hard vs soft rules, main modules) is summarized at the top of [CONSTRAINTS.md](CONSTRAINTS.md).
 
 ## Environment files
@@ -56,16 +56,28 @@ For every terminal where you run the backend, activate first: `source .venv/bin/
 
 ### One-time setup
 
-1. Copy env files (table above).
-2. Create the Python venv and install dependencies (see **Python: virtual environment** above).
-3. Initialize the database:
+1. **PostgreSQL** — Install and start PostgreSQL locally, then create an empty database (name should match the path in `DATABASE_URL`, default `pharmacy_scheduler`):
+
+```bash
+createdb pharmacy_scheduler
+```
+
+If your OS user owns the server, you can use a URL like `postgresql+psycopg2://$(whoami)@127.0.0.1:5432/pharmacy_scheduler` (no password). Adjust user and password in `.env` to match your server.
+
+2. Copy env files (table above) and set **`DATABASE_URL`** in the repo root `.env` (see `.env.example`).
+
+3. Create the Python venv and install dependencies (see **Python: virtual environment** above).
+
+4. **Schema and seed data** — Apply migrations, then load default reference data:
 
 ```bash
 alembic upgrade head
 python backend/init_db.py
 ```
 
-1. Install frontend packages:
+After any `git pull` that adds migrations, run `alembic upgrade head` again before starting the backend.
+
+5. Install frontend packages:
 
 ```bash
 cd frontend && npm install && cd ..

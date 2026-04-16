@@ -102,8 +102,10 @@ def init_db():
             ),
         ]
 
+        existing_leave_codes = {lt.code for lt in db.query(LeaveType).all()}
         for leave_type in default_leave_types:
-            db.add(leave_type)
+            if leave_type.code not in existing_leave_codes:
+                db.add(leave_type)
 
         # Create default shift types (with updated colors)
         default_shift_types = [
@@ -221,8 +223,10 @@ def init_db():
             ),
         ]
 
+        existing_shift_codes = {st.code for st in db.query(ShiftType).all()}
         for shift_type in default_shift_types:
-            db.add(shift_type)
+            if shift_type.code not in existing_shift_codes:
+                db.add(shift_type)
 
         # Create default employees (Staff users with skills)
         # These match the employees currently in production database

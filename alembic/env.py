@@ -4,7 +4,6 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from alembic import context
-import os
 import sys
 from pathlib import Path
 
@@ -13,7 +12,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import database and models
-from backend.database import Base
+from backend.database import Base, DATABASE_URL
 from backend.models import (  # noqa: F401
     User, LeaveType, LeaveRequest, ShiftRequest, ShiftType,
     EmployeeSkills, Demand, CommittedSchedule, ScheduleMetrics, Holiday
@@ -30,8 +29,8 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    """Get database URL from environment or config."""
-    return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    """Same URL as the FastAPI app (env + .env + dev default from backend.database)."""
+    return DATABASE_URL
 
 
 def run_migrations_offline() -> None:

@@ -5,17 +5,16 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 import os
-from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Database URL - defaults to SQLite for development, can be overridden with DATABASE_URL env var
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///./roster.db"  # Default to SQLite for easy setup
+# Local dev defaults to PostgreSQL; override with DATABASE_URL in .env (see .env.example).
+_DEFAULT_DEV_DATABASE_URL = (
+    "postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/pharmacy_scheduler"
 )
+DATABASE_URL = os.getenv("DATABASE_URL", _DEFAULT_DEV_DATABASE_URL)
 
 # For SQLite, use StaticPool to allow multiple threads
 if DATABASE_URL.startswith("sqlite"):

@@ -17,7 +17,142 @@ branch_labels = None
 depends_on = None
 
 
+def _ensure_core_auth_tables() -> None:
+    """Create users / leave / shift tables if missing (fresh DB).
+
+    Historically these existed from SQLAlchemy create_all before Alembic; new
+    PostgreSQL installs need them before the rest of this revision runs.
+    """
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    if inspector.has_table("users"):
+        return
+
+    op.create_table(
+        "users",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("username", sa.String(), nullable=False),
+        sa.Column("password", sa.String(), nullable=False),
+        sa.Column("employee_name", sa.String(), nullable=False),
+        sa.Column(
+            "employee_type",
+            sa.String(length=32),
+            nullable=False,
+            server_default=sa.text("'Staff'"),
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
+            nullable=True,
+        ),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_users_id"), "users", ["id"], unique=False)
+    op.create_index(op.f("ix_users_username"), "users", ["username"], unique=True)
+
+    op.create_table(
+        "leave_types",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("code", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=False),
+        sa.Column("color_hex", sa.String(), nullable=True, server_default=sa.text("'#F5F5F5'")),
+        sa.Column("counts_as_rest", sa.Boolean(), nullable=True, server_default=sa.text("true")),
+        sa.Column("is_active", sa.Boolean(), nullable=True, server_default=sa.text("true")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
+            nullable=True,
+        ),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_leave_types_id"), "leave_types", ["id"], unique=False)
+
+    op.create_table(
+        "shift_types",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("code", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=False),
+        sa.Column("color_hex", sa.String(), nullable=True, server_default=sa.text("'#E5E7EB'")),
+        sa.Column("is_working_shift", sa.Boolean(), nullable=True, server_default=sa.text("true")),
+        sa.Column("is_active", sa.Boolean(), nullable=True, server_default=sa.text("true")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
+            nullable=True,
+        ),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_shift_types_id"), "shift_types", ["id"], unique=False)
+
+    op.create_table(
+        "leave_requests",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("leave_type_id", sa.Integer(), nullable=False),
+        sa.Column("from_date", sa.Date(), nullable=False),
+        sa.Column("to_date", sa.Date(), nullable=False),
+        sa.Column("reason", sa.Text(), nullable=True),
+        sa.Column(
+            "status",
+            sa.String(length=32),
+            nullable=False,
+            server_default=sa.text("'Pending'"),
+        ),
+        sa.Column(
+            "submitted_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
+            nullable=True,
+        ),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("approved_by", sa.String(), nullable=True),
+        sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(["leave_type_id"], ["leave_types.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_leave_requests_id"), "leave_requests", ["id"], unique=False)
+
+    op.create_table(
+        "shift_requests",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("shift_type_id", sa.Integer(), nullable=False),
+        sa.Column("from_date", sa.Date(), nullable=False),
+        sa.Column("to_date", sa.Date(), nullable=False),
+        sa.Column("force", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("reason", sa.Text(), nullable=True),
+        sa.Column(
+            "status",
+            sa.String(length=32),
+            nullable=False,
+            server_default=sa.text("'Pending'"),
+        ),
+        sa.Column(
+            "submitted_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
+            nullable=True,
+        ),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("approved_by", sa.String(), nullable=True),
+        sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(["shift_type_id"], ["shift_types.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_shift_requests_id"), "shift_requests", ["id"], unique=False)
+
+
 def upgrade() -> None:
+    _ensure_core_auth_tables()
+
     # ### commands auto generated by Alembic - please adjust! ###
     op.create_table('committed_schedules',
     sa.Column('id', sa.Integer(), nullable=False),
