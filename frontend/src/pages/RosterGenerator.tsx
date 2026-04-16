@@ -2572,10 +2572,15 @@ export const RosterGenerator: React.FC = () => {
                           selectedMonth,
                           pendingWindow,
                         );
+                        const recalculatedByEmployee = new Map(
+                          recalculated.map((e) => [e.employee, e]),
+                        );
                         
-                        // Create a map of employees with their skill information
+                        // Create a map of employees with their skill information.
+                        // IMPORTANT: use rosterData employees (source of truth for skills),
+                        // not generatedEmployees (which may not include skill flags).
                         const employeesWithSkillsMap = new Map(
-                          (generatedEmployees || rosterData?.employees || []).map((emp: any) => [
+                          ((rosterData?.employees || []) as any[]).map((emp: any) => [
                             emp.employee,
                             {
                               skill_M: emp.skill_M,
@@ -2595,17 +2600,26 @@ export const RosterGenerator: React.FC = () => {
                           ])
                         );
                         
-                        // Merge skill information into dynamicEmployees
-                        const dynamicEmployees = recalculated.map(e => {
-                          const skills = employeesWithSkillsMap.get(e.employee) || {};
+                        // Merge skill information into dynamicEmployees.
+                        // Single-skill employees must keep pending_off unchanged.
+                        const dynamicEmployees = (generatedEmployees || rosterData?.employees || []).map((emp: any) => {
+                          const calc = recalculatedByEmployee.get(emp.employee);
+                          const skills: any = employeesWithSkillsMap.get(emp.employee) || {};
+                          const skillFlags = [
+                            skills.skill_M, skills.skill_IP, skills.skill_A, skills.skill_N,
+                            skills.skill_M3, skills.skill_M4, skills.skill_H, skills.skill_CL,
+                            skills.skill_E, skills.skill_MS, skills.skill_IP_P, skills.skill_P, skills.skill_M_P,
+                          ];
+                          const isSingleSkill = skillFlags.filter(Boolean).length === 1;
+                          const frozenPendingOff = initialPendingOff[emp.employee] ?? (emp.pending_off || 0);
                           return {
-                            employee: e.employee,
-                            pending_off: e.pending_off,
-                            total_working_days: e.total_working_days,
-                            night_shifts: e.night_shifts,
+                            employee: emp.employee,
+                            pending_off: isSingleSkill ? frozenPendingOff : (calc?.pending_off ?? (emp.pending_off || 0)),
+                            total_working_days: calc?.total_working_days ?? 0,
+                            night_shifts: calc?.night_shifts ?? 0,
                             afternoon_shifts: 0, // Not used in display
-                            weekend_days_in_month: e.weekend_days_in_month,
-                            Os_given: e.Os_given,
+                            weekend_days_in_month: calc?.weekend_days_in_month ?? 0,
+                            Os_given: calc?.Os_given ?? 0,
                             ...skills, // Include all skill fields
                           };
                         });

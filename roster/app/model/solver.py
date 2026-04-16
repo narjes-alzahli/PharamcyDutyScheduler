@@ -256,9 +256,16 @@ class RosterSolver:
                     Os_given += 1
 
             previous_pending_off = initial_pending_off.get(emp, 0.0) if initial_pending_off else 0.0
-            pending_off = (
-                weekend_days_in_month + night_shifts + previous_pending_off - Os_given
-            )
+            pending_off = weekend_days_in_month + night_shifts + previous_pending_off - Os_given
+
+            # For single-skill employees, preserve previous month's value.
+            if roster_data and hasattr(roster_data, "get_employee_skills"):
+                emp_skills = roster_data.get_employee_skills(emp) or {}
+                # Count enabled skill flags directly from employee skills so non-default
+                # standard skills (e.g. MS) are also treated correctly.
+                enabled_skill_count = sum(1 for is_enabled in emp_skills.values() if bool(is_enabled))
+                if enabled_skill_count == 1:
+                    pending_off = previous_pending_off
 
             rows.append({
                 "employee": emp,

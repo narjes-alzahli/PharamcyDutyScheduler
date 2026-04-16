@@ -982,7 +982,7 @@ export const AllRostersPage: React.FC = () => {
       selectedMonth,
       currentPeriod,
     );
-    return calculatePendingOff(
+    const recalculated = calculatePendingOff(
       entriesForPending,
       initialPendingOff,
       {},
@@ -990,7 +990,25 @@ export const AllRostersPage: React.FC = () => {
       selectedMonth,
       pendingWindow,
     );
-  }, [monthSchedule, originalSchedule, selectedYear, selectedMonth, currentPeriod]);
+    const skillsByName = new Map(
+      employeesFromAPI.map((emp: any) => [
+        emp.employee,
+        [
+          emp.skill_M, emp.skill_IP, emp.skill_A, emp.skill_N, emp.skill_M3, emp.skill_M4,
+          emp.skill_H, emp.skill_CL, emp.skill_E, emp.skill_MS, emp.skill_IP_P, emp.skill_P, emp.skill_M_P,
+        ],
+      ]),
+    );
+    return recalculated.map((entry) => {
+      const flags = skillsByName.get(entry.employee) || [];
+      const isSingleSkill = flags.filter(Boolean).length === 1;
+      if (!isSingleSkill) return entry;
+      return {
+        ...entry,
+        pending_off: initialPendingOff[entry.employee] ?? entry.pending_off,
+      };
+    });
+  }, [monthSchedule, originalSchedule, selectedYear, selectedMonth, currentPeriod, employeesFromAPI]);
 
   /**
    * P/O column: only values from this viewed month’s committed snapshot (`employees` or `metrics.employees`).

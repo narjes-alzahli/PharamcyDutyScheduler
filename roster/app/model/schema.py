@@ -11,6 +11,7 @@ import yaml
 class Employee(BaseModel):
     """Employee data model."""
     employee: str
+    user_id: Optional[int] = Field(default=None, alias="user_id")
     staff_no: Optional[str] = Field(default=None, alias="staff_no")
     skill_M: bool = Field(alias="skill_M")
     skill_IP: bool = Field(alias="skill_IP")

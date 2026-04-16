@@ -1072,33 +1072,17 @@ def get_holiday_demands(is_weekend: bool = False) -> Dict[str, int]:
     """Get demand template for public holidays.
     
     Business rule:
-    - If holiday is on Fri/Sat (weekend), keep weekend-style requirements:
+    - All holidays (weekday or weekend) default to weekend-like staffing:
       1N, 1M3, 1A
-    - Otherwise, use weekday holiday requirements:
-      1N, 1M, 1M3, 1A, 1IP, 2CL
+    - ``is_weekend`` is kept for backward compatibility but no longer changes values.
     """
-    if is_weekend:
-        return {
-            'N': 1,
-            'M': 0,
-            'M3': 1,
-            'A': 1,
-            'IP': 0,
-            'CL': 0,
-            'M4': 0,
-            'H': 0,
-            'MS': 0,
-            'IP+P': 0,
-            'P': 0,
-            'M+P': 0,
-        }
     return {
         'N': 1,
-        'M': 1,
+        'M': 0,
         'M3': 1,
         'A': 1,
-        'IP': 1,
-        'CL': 2,
+        'IP': 0,
+        'CL': 0,
         'M4': 0,
         'H': 0,
         'MS': 0,

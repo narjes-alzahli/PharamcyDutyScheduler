@@ -24,8 +24,7 @@ from backend.roster_data_loader import (
     save_month_demands as save_month_demands_to_file, 
     generate_month_demands,
     save_month_holidays,
-    load_month_holidays,
-    get_holiday_demands
+    load_month_holidays
 )
 from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills, CommittedSchedule, ScheduleMetrics
 from sqlalchemy.orm import Session, joinedload
@@ -709,6 +708,23 @@ async def get_roster_data(
         
         # Replace NaN in employees and demands DataFrames
         employees_records = roster_data['employees'].replace({np.nan: None}).to_dict('records')
+        # Keep pending_off source consistent with GET /api/data/employees
+        latest_po, latest_po_uid = get_pending_off_from_most_recent_committed_month(db)
+        for row in employees_records:
+            po_set = False
+            uid = row.get("user_id")
+            if uid is not None:
+                try:
+                    i = int(uid)
+                    if i in latest_po_uid:
+                        row["pending_off"] = latest_po_uid[i]
+                        po_set = True
+                except (TypeError, ValueError):
+                    pass
+            if not po_set:
+                name = row.get("employee")
+                if name and name in latest_po:
+                    row["pending_off"] = latest_po[name]
         demands_records = demands_df.replace({np.nan: None}).to_dict('records') if not demands_df.empty else []
         
         return {
@@ -1391,40 +1407,6 @@ async def save_month_demands(
                 raise HTTPException(status_code=400, detail="Missing required 'date' column")
             else:
                 demands_df[col] = 0
-    
-    # Load holidays to check which days need holiday-specific demands
-    existing_holidays = load_month_holidays(year, month)
-    # Convert date strings to date objects for matching
-    existing_holidays_dates = {}
-    for date_str, holiday_name in existing_holidays.items():
-        try:
-            date_val = pd.to_datetime(date_str, errors='coerce').date()
-            if date_val:
-                existing_holidays_dates[date_val] = holiday_name
-        except:
-            continue
-    
-    # Override demands for holidays with holiday-specific values
-    if existing_holidays_dates:
-        for idx, row in demands_df.iterrows():
-            date_val = row['date']
-            if date_val in existing_holidays_dates:
-                # Override with holiday demands, with weekend holidays using weekend template
-                is_weekend = pd.Timestamp(date_val).weekday() in [4, 5]  # Friday/Saturday
-                holiday_demands = get_holiday_demands(is_weekend=is_weekend)
-                demands_df.at[idx, 'need_M'] = holiday_demands.get('M', 0)
-                demands_df.at[idx, 'need_IP'] = holiday_demands.get('IP', 0)
-                demands_df.at[idx, 'need_A'] = holiday_demands.get('A', 0)
-                demands_df.at[idx, 'need_N'] = holiday_demands.get('N', 0)
-                demands_df.at[idx, 'need_M3'] = holiday_demands.get('M3', 0)
-                demands_df.at[idx, 'need_M4'] = holiday_demands.get('M4', 0)
-                demands_df.at[idx, 'need_H'] = holiday_demands.get('H', 0)
-                demands_df.at[idx, 'need_CL'] = holiday_demands.get('CL', 0)
-                demands_df.at[idx, 'need_E'] = holiday_demands.get('E', 0)
-                demands_df.at[idx, 'need_MS'] = holiday_demands.get('MS', 0)
-                demands_df.at[idx, 'need_IP_P'] = holiday_demands.get('IP+P', 0)
-                demands_df.at[idx, 'need_P'] = holiday_demands.get('P', 0)
-                demands_df.at[idx, 'need_M_P'] = holiday_demands.get('M+P', 0)
     
     # Save demands to database (without holiday column)
     save_month_demands_to_file(year, month, demands_df, db)

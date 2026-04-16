@@ -29,6 +29,14 @@ from roster.app.model.schema import RosterConfig
 router = APIRouter()
 security = HTTPBearer()
 
+def _is_single_skill_employee(emp_skills: EmployeeSkills) -> bool:
+    """True when exactly one skill flag is enabled."""
+    skill_fields = [
+        "skill_M", "skill_IP", "skill_A", "skill_N", "skill_M3", "skill_M4",
+        "skill_H", "skill_CL", "skill_E", "skill_MS", "skill_IP_P", "skill_P", "skill_M_P"
+    ]
+    return sum(1 for field in skill_fields if bool(getattr(emp_skills, field, False))) == 1
+
 
 def _resolve_schedule_user_id(db: Session, display_name: str) -> int:
     """Map roster display name to users.id via EmployeeSkills (required for committed rows)."""
@@ -247,6 +255,18 @@ def recalculate_employee_report(
             initial_pending_off=initial_pending_off,
             roster_data=roster_data
         )
+
+        # For single-skill employees, keep previous month's pending_off unchanged.
+        if not employee_df.empty:
+            all_employee_skills = db.query(EmployeeSkills).all()
+            skills_by_name = {str(es.name).strip(): es for es in all_employee_skills}
+            for idx, row in employee_df.iterrows():
+                name = str(row.get("employee", "")).strip()
+                es = skills_by_name.get(name)
+                if not es:
+                    continue
+                if _is_single_skill_employee(es):
+                    employee_df.at[idx, "pending_off"] = float(initial_pending_off.get(name, 0.0))
         
         return employee_df
     finally:
@@ -496,6 +516,9 @@ async def commit_schedule(
                             EmployeeSkills.name == employee_name
                         ).first()
                 if employee_skills:
+                    # Single-skill staff pending_off must remain unchanged (not recalculated).
+                    if _is_single_skill_employee(employee_skills):
+                        continue
                     employee_skills.pending_off = float(pending_off)
         
         db.commit()
@@ -644,6 +667,9 @@ async def update_schedule(
                         EmployeeSkills.name == employee_name
                     ).first()
             if employee_skills:
+                # Single-skill staff pending_off must remain unchanged (not recalculated).
+                if _is_single_skill_employee(employee_skills):
+                    continue
                 employee_skills.pending_off = float(pending_off)
         
         db.commit()

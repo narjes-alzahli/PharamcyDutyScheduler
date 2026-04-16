@@ -504,12 +504,29 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         return demand;
       });
     } else {
-      // Just updating holiday name, not deleting
+      // Adding/updating holiday name: apply holiday default demands first.
+      const holidayDefaults: Record<string, number> = {
+        'M': 0, 'IP': 0, 'A': 1, 'N': 1, 'M3': 1, 'M4': 0, 'H': 0, 'CL': 0, 'E': 0, 'MS': 0, 'IP+P': 0, 'P': 0, 'M+P': 0
+      };
       updatedDemands = monthDemands.map(demand => {
         if (demand.date === date) {
+          const hadHolidayBefore = Boolean(demand.holiday && String(demand.holiday).trim());
           return {
             ...demand,
-            holiday: holiday
+            holiday: holiday,
+            need_M: hadHolidayBefore ? demand.need_M : holidayDefaults['M'],
+            need_IP: hadHolidayBefore ? demand.need_IP : holidayDefaults['IP'],
+            need_A: hadHolidayBefore ? demand.need_A : holidayDefaults['A'],
+            need_N: hadHolidayBefore ? demand.need_N : holidayDefaults['N'],
+            need_M3: hadHolidayBefore ? demand.need_M3 : holidayDefaults['M3'],
+            need_M4: hadHolidayBefore ? demand.need_M4 : holidayDefaults['M4'],
+            need_H: hadHolidayBefore ? demand.need_H : holidayDefaults['H'],
+            need_CL: hadHolidayBefore ? demand.need_CL : holidayDefaults['CL'],
+            need_E: hadHolidayBefore ? demand.need_E : holidayDefaults['E'],
+            need_MS: hadHolidayBefore ? demand.need_MS : holidayDefaults['MS'],
+            need_IP_P: hadHolidayBefore ? demand.need_IP_P : holidayDefaults['IP+P'],
+            need_P: hadHolidayBefore ? demand.need_P : holidayDefaults['P'],
+            need_M_P: hadHolidayBefore ? demand.need_M_P : holidayDefaults['M+P'],
           };
         }
         return demand;
