@@ -309,6 +309,8 @@ export interface Schedule {
   schedule: any[];
   employees?: any[];
   metrics?: any;
+  is_published?: boolean;
+  has_unpublished?: boolean;
 }
 
 export const schedulesAPI = {
@@ -343,6 +345,35 @@ export const schedulesAPI = {
       payload.selected_period = selectedPeriod;
     }
     await api.put(`/api/schedules/committed/${year}/${month}`, payload);
+  },
+  publishSchedule: async (
+    year: number,
+    month: number,
+    selectedPeriod?: string | null,
+  ): Promise<void> => {
+    const payload: Record<string, unknown> = { year, month };
+    if (selectedPeriod != null && selectedPeriod !== '') {
+      payload.selected_period = selectedPeriod;
+    }
+    await api.post('/api/schedules/publish', payload);
+  },
+  unpublishSchedule: async (
+    year: number,
+    month: number,
+    selectedPeriod?: string | null,
+  ): Promise<void> => {
+    const payload: Record<string, unknown> = { year, month };
+    if (selectedPeriod != null && selectedPeriod !== '') {
+      payload.selected_period = selectedPeriod;
+    }
+    await api.post('/api/schedules/unpublish', payload);
+  },
+  getUnpublishedSummary: async (): Promise<{
+    has_unpublished: boolean;
+    items: Array<{ year: number; month: number; periods: string[]; has_unpublished: boolean }>;
+  }> => {
+    const response = await api.get('/api/schedules/unpublished-summary');
+    return response.data;
   },
 };
 

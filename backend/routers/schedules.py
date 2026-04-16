@@ -276,14 +276,16 @@ def recalculate_employee_report(
             shutil.rmtree(temp_path, ignore_errors=True)
 
 
-def load_committed_schedules(db: Session) -> List[dict]:
+def load_committed_schedules(db: Session, include_unpublished: bool = False) -> List[dict]:
     """Load all committed schedules from database."""
-    # Get unique year-month combinations
-    from sqlalchemy import distinct, func
-    year_month_pairs = db.query(
+    # Get unique year-month combinations (respect visibility).
+    year_month_query = db.query(
         CommittedSchedule.year,
         CommittedSchedule.month
-    ).distinct().all()
+    )
+    if not include_unpublished:
+        year_month_query = year_month_query.filter(CommittedSchedule.is_published.is_(True))
+    year_month_pairs = year_month_query.distinct().all()
     
     schedules = []
     for year, month in year_month_pairs:
@@ -295,8 +297,11 @@ def load_committed_schedules(db: Session) -> List[dict]:
                 CommittedSchedule.year == year,
                 CommittedSchedule.month == month,
             )
+            .order_by(CommittedSchedule.date.asc(), CommittedSchedule.employee_name.asc())
             .all()
         )
+        if not include_unpublished:
+            schedule_entries = [e for e in schedule_entries if bool(e.is_published)]
         
         if not schedule_entries:
             continue
@@ -305,7 +310,8 @@ def load_committed_schedules(db: Session) -> List[dict]:
         schedule_data = [{
             'employee': committed_schedule_display_name(entry),
             'date': entry.date.isoformat(),
-            'shift': entry.shift
+            'shift': entry.shift,
+            'is_published': bool(entry.is_published),
         } for entry in schedule_entries]
         schedule_df = pd.DataFrame(schedule_data)
         schedule_df['date'] = pd.to_datetime(schedule_df['date'])
@@ -331,7 +337,9 @@ def load_committed_schedules(db: Session) -> List[dict]:
             'month': month,
             'schedule_df': schedule_df,
             'employee_df': employee_df,
-            'metrics': metrics
+            'metrics': metrics,
+            'is_published': all(bool(e.is_published) for e in schedule_entries),
+            'has_unpublished': any(not bool(e.is_published) for e in schedule_entries),
         })
     
     return schedules
@@ -343,14 +351,17 @@ async def get_committed_schedules(
     db: Session = Depends(get_db)
 ):
     """Get all committed schedules."""
-    schedules = load_committed_schedules(db)
+    is_manager = current_user.get("employee_type") == "Manager"
+    schedules = load_committed_schedules(db, include_unpublished=is_manager)
     
     return [
         sanitize_json_floats({
             "year": s['year'],
             "month": s['month'],
             "schedule": s['schedule_df'].to_dict('records'),
-            "metrics": s['metrics']
+            "metrics": s['metrics'],
+            "is_published": s['is_published'],
+            "has_unpublished": s['has_unpublished'],
         })
         for s in schedules
     ]
@@ -364,7 +375,8 @@ async def get_schedule(
     db: Session = Depends(get_db)
 ):
     """Get a specific committed schedule."""
-    schedules = load_committed_schedules(db)
+    is_manager = current_user.get("employee_type") == "Manager"
+    schedules = load_committed_schedules(db, include_unpublished=is_manager)
     
     schedule = next(
         (s for s in schedules if s['year'] == year and s['month'] == month),
@@ -379,7 +391,9 @@ async def get_schedule(
         "month": schedule['month'],
         "schedule": schedule['schedule_df'].to_dict('records'),
         "employees": schedule['employee_df'].to_dict('records') if schedule['employee_df'] is not None else None,
-        "metrics": schedule['metrics']
+        "metrics": schedule['metrics'],
+        "is_published": schedule['is_published'],
+        "has_unpublished": schedule['has_unpublished'],
     })
 
 
@@ -444,7 +458,8 @@ async def commit_schedule(
                 employee_name=entry['employee'],
                 user_id=uid,
                 date=date_val,
-                shift=entry['shift']
+                shift=entry['shift'],
+                is_published=False,
             )
             db.add(schedule_entry)
         
@@ -524,13 +539,145 @@ async def commit_schedule(
         db.commit()
         
         return {
-            "message": f"Schedule committed successfully for {year}-{month:02d}",
+            "message": f"Schedule draft saved successfully for {year}-{month:02d}",
             "year": year,
             "month": month
         }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to commit schedule: {str(e)}")
+
+
+@router.post("/publish")
+async def publish_schedule(
+    payload: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Publish committed schedule rows for a month or selected period."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can publish schedules")
+    try:
+        year = int(payload.get("year"))
+        month = int(payload.get("month"))
+        selected_period = payload.get("selected_period")
+        if selected_period is not None and not isinstance(selected_period, str):
+            selected_period = None
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid publish request payload")
+
+    q = db.query(CommittedSchedule)
+    window = get_pending_off_window_inclusive(year, month, selected_period)
+    if window:
+        start_d, end_d = window
+        q = q.filter(CommittedSchedule.date >= start_d, CommittedSchedule.date <= end_d)
+    else:
+        q = q.filter(CommittedSchedule.year == year, CommittedSchedule.month == month)
+
+    rows = q.all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No draft schedule found to publish")
+
+    changed = 0
+    for row in rows:
+        if not bool(row.is_published):
+            row.is_published = True
+            changed += 1
+    db.commit()
+
+    return {
+        "message": "Schedule published successfully",
+        "year": year,
+        "month": month,
+        "selected_period": selected_period,
+        "published_rows": changed,
+    }
+
+
+@router.post("/unpublish")
+async def unpublish_schedule(
+    payload: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Unpublish committed schedule rows for a month or selected period."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can unpublish schedules")
+    try:
+        year = int(payload.get("year"))
+        month = int(payload.get("month"))
+        selected_period = payload.get("selected_period")
+        if selected_period is not None and not isinstance(selected_period, str):
+            selected_period = None
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid unpublish request payload")
+
+    q = db.query(CommittedSchedule)
+    window = get_pending_off_window_inclusive(year, month, selected_period)
+    if window:
+        start_d, end_d = window
+        q = q.filter(CommittedSchedule.date >= start_d, CommittedSchedule.date <= end_d)
+    else:
+        q = q.filter(CommittedSchedule.year == year, CommittedSchedule.month == month)
+
+    rows = q.all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No published schedule found to unpublish")
+
+    changed = 0
+    for row in rows:
+        if bool(row.is_published):
+            row.is_published = False
+            changed += 1
+    db.commit()
+
+    return {
+        "message": "Schedule unpublished successfully",
+        "year": year,
+        "month": month,
+        "selected_period": selected_period,
+        "unpublished_rows": changed,
+    }
+
+
+@router.get("/unpublished-summary")
+async def get_unpublished_summary(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Manager-only summary for unpublished schedule indicators."""
+    if current_user['employee_type'] != 'Manager':
+        return {"has_unpublished": False, "items": []}
+
+    rows = (
+        db.query(CommittedSchedule.year, CommittedSchedule.month, CommittedSchedule.date)
+        .filter(CommittedSchedule.is_published.is_(False))
+        .order_by(CommittedSchedule.year.asc(), CommittedSchedule.month.asc(), CommittedSchedule.date.asc())
+        .all()
+    )
+
+    grouped: Dict[Tuple[int, int], List[date_type]] = {}
+    for year, month, day in rows:
+        grouped.setdefault((int(year), int(month)), []).append(day)
+
+    items: List[dict] = []
+    for (year, month), dates in grouped.items():
+        periods: List[str] = []
+        if year == 2026 and month in (2, 3):
+            if any(date_type(2026, 2, 1) <= d <= date_type(2026, 2, 18) for d in dates):
+                periods.append("pre-ramadan")
+            if any(date_type(2026, 2, 19) <= d <= date_type(2026, 3, 18) for d in dates):
+                periods.append("ramadan")
+            if any(date_type(2026, 3, 19) <= d <= date_type(2026, 3, 31) for d in dates):
+                periods.append("post-ramadan")
+        items.append({
+            "year": year,
+            "month": month,
+            "periods": periods,
+            "has_unpublished": True,
+        })
+
+    return {"has_unpublished": bool(items), "items": items}
 
 
 @router.put("/committed/{year}/{month}")
@@ -560,6 +707,23 @@ async def update_schedule(
         if selected_period is not None and not isinstance(selected_period, str):
             selected_period = None
 
+        # Preserve publication state when editing existing schedules.
+        publish_scope = db.query(CommittedSchedule)
+        window = get_pending_off_window_inclusive(year, month, selected_period)
+        if window:
+            start_d, end_d = window
+            publish_scope = publish_scope.filter(
+                CommittedSchedule.date >= start_d,
+                CommittedSchedule.date <= end_d,
+            )
+        else:
+            publish_scope = publish_scope.filter(
+                CommittedSchedule.year == year,
+                CommittedSchedule.month == month,
+            )
+        scope_rows = publish_scope.all()
+        is_published_for_updated_rows = all(bool(r.is_published) for r in scope_rows) if scope_rows else True
+
         # Delete existing schedule entries
         db.query(CommittedSchedule).filter(
             CommittedSchedule.year == year,
@@ -579,7 +743,8 @@ async def update_schedule(
                 employee_name=entry['employee'],
                 user_id=uid,
                 date=date_val,
-                shift=entry['shift']
+                shift=entry['shift'],
+                is_published=is_published_for_updated_rows,
             )
             db.add(schedule_entry)
         

@@ -48,7 +48,12 @@ export const AllRostersPage: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalSchedule, setOriginalSchedule] = useState<Schedule | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   const [employeesFromAPI, setEmployeesFromAPI] = useState<any[]>([]);
+  const [unpublishedSummary, setUnpublishedSummary] = useState<{
+    has_unpublished: boolean;
+    items: Array<{ year: number; month: number; periods: string[]; has_unpublished: boolean }>;
+  }>({ has_unpublished: false, items: [] });
   const scheduleCardRef = useRef<HTMLDivElement>(null);
   const scheduleImageRef = useRef<HTMLDivElement>(null);
   const isManager = user?.employee_type === 'Manager';
@@ -164,6 +169,12 @@ export const AllRostersPage: React.FC = () => {
       setSchedulesLoaded(false);
       // FIX: Pass abort signal to axios request (axios supports AbortSignal)
       const data = await schedulesAPI.getCommittedSchedules(signal);
+      if (isManager) {
+        const summary = await schedulesAPI.getUnpublishedSummary();
+        setUnpublishedSummary(summary);
+      } else {
+        setUnpublishedSummary({ has_unpublished: false, items: [] });
+      }
       
       // FIX: Check if request was cancelled after API call
       if (signal?.aborted) {
@@ -194,7 +205,32 @@ export const AllRostersPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isManager]);
+
+  const hasUnpublishedForOption = useCallback((year: number, month: number, period?: string | null): boolean => {
+    if (!isManager || !unpublishedSummary?.items?.length) return false;
+    const match = unpublishedSummary.items.find((i) => i.year === year && i.month === month);
+    if (!match) return false;
+    if (!period) return true;
+    return (match.periods || []).includes(period);
+  }, [isManager, unpublishedSummary]);
+
+  const hasUnpublishedForYear = useCallback((year: number): boolean => {
+    if (!isManager || !unpublishedSummary?.items?.length) return false;
+    return unpublishedSummary.items.some((i) => i.year === year && i.has_unpublished);
+  }, [isManager, unpublishedSummary]);
+
+  const currentSelectionHasDraft = useMemo(() => {
+    if (!isManager || !selectedYear || !selectedMonth || !currentSchedule) return false;
+    const period = selectedPeriod;
+    if (period && hasUnpublishedForOption(selectedYear, selectedMonth, period)) return true;
+    return (currentSchedule.schedule || []).some((e: any) => e?.is_published === false);
+  }, [isManager, selectedYear, selectedMonth, currentSchedule, selectedPeriod, hasUnpublishedForOption]);
+
+  const currentSelectionIsPublished = useMemo(() => {
+    if (!isManager || !currentSchedule || !(currentSchedule.schedule || []).length) return false;
+    return (currentSchedule.schedule || []).every((e: any) => e?.is_published !== false);
+  }, [isManager, currentSchedule]);
 
   // Load employees from API to get the correct order (from EmployeeSkills table)
   const loadEmployees = useCallback(async () => {
@@ -230,9 +266,6 @@ export const AllRostersPage: React.FC = () => {
     };
   }, [authReady, loadSchedules, loadEmployees]);
 
-  // Store the selected period to help identify which schedule to load
-  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
-  
   // Load specific schedule ONLY after schedules list is loaded
   useEffect(() => {
     if (!schedulesLoaded) return; // Wait for schedules list to be loaded first
@@ -813,6 +846,36 @@ export const AllRostersPage: React.FC = () => {
     }
   };
 
+  const handlePublishSchedule = async () => {
+    if (!isManager || !selectedYear || !selectedMonth) return;
+    try {
+      setSaving(true);
+      await schedulesAPI.publishSchedule(selectedYear, selectedMonth, currentPeriod);
+      await loadSchedules();
+      await loadSchedule(selectedYear, selectedMonth, currentPeriod);
+      setError(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to publish schedule');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUnpublishSchedule = async () => {
+    if (!isManager || !selectedYear || !selectedMonth) return;
+    try {
+      setSaving(true);
+      await schedulesAPI.unpublishSchedule(selectedYear, selectedMonth, currentPeriod);
+      await loadSchedules();
+      await loadSchedule(selectedYear, selectedMonth, currentPeriod);
+      setError(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to unpublish schedule');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Schedule entries for the current view. For single-month schedules filter by selected year/month.
   // For period schedules that span two months (e.g. Ramadan Feb 19–Mar 18), use the full schedule
   // so fairness analysis and metrics count all entries correctly (same as Roster Generator).
@@ -1199,7 +1262,9 @@ export const AllRostersPage: React.FC = () => {
                 >
                   <option value="">Select Year...</option>
                   {availableYears.map(year => (
-                    <option key={year} value={year}>{year}</option>
+                    <option key={year} value={year}>
+                      {hasUnpublishedForYear(year) ? `${year} •` : year}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1256,7 +1321,7 @@ export const AllRostersPage: React.FC = () => {
                   <option value="">Select Month...</option>
                   {availableMonthOptions.map(option => (
                     <option key={option.value} value={option.value}>
-                      {option.label}
+                      {selectedYear && hasUnpublishedForOption(selectedYear, option.month, option.period) ? `${option.label} •` : option.label}
                     </option>
                   ))}
                 </select>
@@ -1292,6 +1357,9 @@ export const AllRostersPage: React.FC = () => {
                     </h3>
                     {isManager && !hasUnsavedChanges && !saveSuccess && (
                       <span className="text-sm text-gray-500 italic">Click any cell to edit</span>
+                    )}
+                    {isManager && currentSelectionHasDraft && (
+                      <span className="ml-2 text-sm text-amber-600 font-medium">Draft (unpublished)</span>
                     )}
                     {isManager && hasUnsavedChanges && (
                       <span className="text-sm text-amber-600 font-medium">Unsaved changes</span>
@@ -1351,6 +1419,26 @@ export const AllRostersPage: React.FC = () => {
                             className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition-colors hover:bg-emerald-700 disabled:opacity-70 disabled:cursor-not-allowed"
                           >
                             {calendarExporting ? 'Preparing...' : 'Add to my calendar'}
+                          </button>
+                        )}
+                        {isManager && !hasUnsavedChanges && currentSelectionHasDraft && (
+                          <button
+                            type="button"
+                            onClick={handlePublishSchedule}
+                            disabled={saving}
+                            className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors hover:bg-green-700 disabled:opacity-70 disabled:cursor-not-allowed"
+                          >
+                            {saving ? 'Publishing...' : 'Publish'}
+                          </button>
+                        )}
+                        {isManager && !hasUnsavedChanges && !currentSelectionHasDraft && currentSelectionIsPublished && (
+                          <button
+                            type="button"
+                            onClick={handleUnpublishSchedule}
+                            disabled={saving}
+                            className="px-4 py-2 bg-gray-500 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors hover:bg-gray-600 disabled:opacity-70 disabled:cursor-not-allowed"
+                          >
+                            {saving ? 'Unpublishing...' : 'Unpublish'}
                           </button>
                         )}
                       </div>

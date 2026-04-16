@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAuthGuard } from '../hooks/useAuthGuard';
-import { authAPI, requestsAPI } from '../services/api';
+import { authAPI, requestsAPI, schedulesAPI } from '../services/api';
 import { isTokenExpired } from '../utils/tokenUtils';
 
 interface LayoutProps {
@@ -22,6 +22,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [hasUnpublishedSchedules, setHasUnpublishedSchedules] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -52,6 +53,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     if (!managerAuthReady || !isManager) {
       // Auth not ready or user not confirmed Manager - don't make any calls
       setPendingRequestCount(0);
+      setHasUnpublishedSchedules(false);
       return;
     }
 
@@ -87,9 +89,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         }
         
         try {
-          const [leaveRes, shiftRes] = await Promise.all([
+          const [leaveRes, shiftRes, unpublishedRes] = await Promise.all([
             requestsAPI.getAllLeaveRequests(),
             requestsAPI.getAllShiftRequests(),
+            schedulesAPI.getUnpublishedSummary(),
           ]);
 
           if (cancelled) return;
@@ -97,6 +100,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           const leavePending = leaveRes.filter((req: any) => req.status === 'Pending').length;
           const shiftPending = shiftRes.filter((req: any) => req.status === 'Pending').length;
           setPendingRequestCount(leavePending + shiftPending);
+          setHasUnpublishedSchedules(Boolean(unpublishedRes?.has_unpublished));
         } catch (error: any) {
           if (cancelled) return;
           
@@ -105,12 +109,14 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           if (error.response?.status === 403 || error.response?.status === 401) {
             console.warn('⚠️ Unexpected auth error in Layout - auth guard should have prevented this');
             setPendingRequestCount(0);
+            setHasUnpublishedSchedules(false);
             return;
           }
           
           // Log other errors
           console.error('Failed to fetch pending requests:', error);
           setPendingRequestCount(0);
+          setHasUnpublishedSchedules(false);
         }
       };
 
@@ -190,8 +196,23 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 >
                   <span>{item.name}</span>
                   {item.path === '/generator' && pendingRequestCount > 0 && (
-                    <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
-                      {pendingRequestCount}
+                    <span className="relative inline-flex group">
+                      <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
+                        {pendingRequestCount}
+                      </span>
+                      <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
+                        There are pending requests
+                      </span>
+                    </span>
+                  )}
+                  {item.path === '/rosters' && isManager && hasUnpublishedSchedules && (
+                    <span className="relative inline-flex group">
+                      <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-yellow-500 px-1.5 text-[10px] font-bold text-white">
+                        !
+                      </span>
+                      <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
+                        There is an unpublished schedule
+                      </span>
                     </span>
                   )}
                 </Link>
@@ -291,8 +312,23 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                     >
                       <span>{item.name}</span>
                       {item.path === '/generator' && pendingRequestCount > 0 && (
-                        <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
-                          {pendingRequestCount}
+                        <span className="relative inline-flex group">
+                          <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
+                            {pendingRequestCount}
+                          </span>
+                          <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
+                            There are pending requests
+                          </span>
+                        </span>
+                      )}
+                      {item.path === '/rosters' && isManager && hasUnpublishedSchedules && (
+                        <span className="relative inline-flex group">
+                          <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-yellow-500 px-1.5 text-[10px] font-bold text-white">
+                            !
+                          </span>
+                          <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
+                            There is an unpublished schedule
+                          </span>
                         </span>
                       )}
                     </Link>

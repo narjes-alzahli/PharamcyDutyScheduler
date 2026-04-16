@@ -192,6 +192,7 @@ class CommittedSchedule(Base):
     month = Column(Integer, nullable=False, index=True)
     employee_name = Column(String, nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_published = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
     date = Column(Date, nullable=False, index=True)
     shift = Column(String, nullable=False)  # Shift code (M, IP, A, N, etc.)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
