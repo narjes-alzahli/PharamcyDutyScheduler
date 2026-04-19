@@ -228,7 +228,7 @@ def recalculate_employee_report(
     # Create a temporary config (we only need it for create_employee_report)
     temp_path = Path(tempfile.mkdtemp())
     try:
-        leave_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "O"]
+        leave_codes = ["DO", "ML", "AL", "W", "UL", "APP", "STL", "L", "PH", "O"]
         working_shift_codes = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
         all_shift_codes = sorted(set(leave_codes) | set(working_shift_codes))
         config_data = {

@@ -137,10 +137,11 @@ app.include_router(shift_types.router, prefix="/api/shift-types", tags=["shift-t
 async def _sync_staff_employee_skills_on_startup():
     """Ensure every STAFF user has a linked EmployeeSkills row (and names match)."""
     from backend.database import SessionLocal
-    from backend.user_employee_sync import ensure_staff_employee_skills
+    from backend.user_employee_sync import ensure_staff_employee_skills, ensure_public_holiday_leave_type
 
     db = SessionLocal()
     try:
+        ensure_public_holiday_leave_type(db)
         ensure_staff_employee_skills(db)
         db.commit()
     except Exception:

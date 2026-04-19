@@ -8,7 +8,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from backend.models import User, EmployeeSkills, EmployeeType, CommittedSchedule, ScheduleMetrics
+from backend.models import User, EmployeeSkills, EmployeeType, CommittedSchedule, ScheduleMetrics, LeaveType
 
 
 def slug_username(employee_name: str) -> str:
@@ -115,3 +115,18 @@ def apply_display_name_change_cascade(db: Session, old_name: str, new_name: str)
             # In-place edits to a JSON column are not detected unless flagged (SQLAlchemy).
             if changed:
                 flag_modified(metrics_record, "metrics")
+
+
+def ensure_public_holiday_leave_type(db: Session) -> None:
+    """Ensure ``PH`` (Public Holiday) exists for solver post-processing (O→PH on holidays). Does not commit."""
+    if db.query(LeaveType).filter(LeaveType.code == "PH").first() is not None:
+        return
+    db.add(
+        LeaveType(
+            code="PH",
+            description="Public Holiday",
+            color_hex="#a8d5e2",
+            counts_as_rest=True,
+            is_active=True,
+        )
+    )

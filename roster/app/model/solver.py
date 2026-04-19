@@ -16,6 +16,28 @@ from .sanity_check import check_roster_feasibility
 _DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
 
 
+def replace_holiday_rest_o_with_ph(
+    assignments: Dict[Tuple[str, date, str], int],
+    employees: List[str],
+    dates: List[date],
+    data: RosterData,
+) -> None:
+    """After solve: on calendar holidays, rest day ``O`` becomes ``PH`` (public holiday off).
+
+    Mutates ``assignments`` in place. The CP model still assigns ``O``; this is display/storage
+    normalization only.
+    """
+    for emp in employees:
+        for day in dates:
+            if not data.get_holiday(day):
+                continue
+            key_o = (emp, day, "O")
+            if assignments.get(key_o) != 1:
+                continue
+            del assignments[key_o]
+            assignments[(emp, day, "PH")] = 1
+
+
 class RosterSolver:
     """Main solver for staff rostering optimization."""
     
@@ -82,8 +104,7 @@ class RosterSolver:
             if data.get_special_requirement_force(emp, day, shift) is not None
         }
         
-        # Prepare min days off (max N/A caps removed)
-        caps = {}
+        # Prepare min days off
         min_days_off = {}
         for emp_data in data.employees:
             min_days_off[emp_data.employee] = emp_data.min_days_off
@@ -91,7 +112,7 @@ class RosterSolver:
         # Add all constraints
         add_all_constraints(
             model, x, employees, dates, shifts,
-            demands, skills, time_off, locks, caps, min_days_off,
+            demands, skills, time_off, locks, min_days_off,
             self.config.rest_codes, self.config.forbidden_adjacencies,
             self.config.weekly_rest_minimum,
             leave_codes_set,  # Pass leave_codes to check for existing leave types in sequencing constraints
@@ -110,6 +131,8 @@ class RosterSolver:
         working_shift_codes = getattr(self.config, "working_shift_codes", None)
         self.scoring.add_objective(
             model, x, employees, dates, demands, skills, history_counts,
+            time_off=time_off,
+            initial_pending_off={emp.employee: float(emp.pending_off or 0.0) for emp in data.employees},
             required_rest_after_shifts=required_rest,
             leave_codes=leave_codes_set,
             locks=locks,
@@ -132,6 +155,8 @@ class RosterSolver:
             for (emp, day, shift), var in x.items():
                 if solver.Value(var) == 1:
                     assignments[(emp, day, shift)] = 1
+
+            replace_holiday_rest_o_with_ph(assignments, employees, dates, data)
                     
             # Calculate metrics
             metrics = calculate_roster_metrics(assignments, employees, dates, demands)
@@ -221,22 +246,30 @@ class RosterSolver:
         """Create employee workload report with pending_off calculation.
 
         pending_off = (
-            weekend_days_in_scope
+            weekend_days_in_scope_not_on_leave
             + (1 per N shift on a normal weekday, 2 per N on Fri/Sat or holiday)
             + previous_pending_off
-        ) - (count of O rest shifts in the period)
+        ) - (count of DO + non-holiday O shifts in the period)
 
         Weekend days are Fri/Sat (weekday() 4,5). ``dates`` should cover the roster period
         (typically full month) so weekend_days matches calendar Fri/Sat in that range.
         """
         rows = []
-        weekend_days_in_month = sum(1 for d in dates if d.weekday() in (4, 5))
+        weekend_dates = [d for d in dates if d.weekday() in (4, 5)]
+
+        leave_codes = set()
+        rest_codes = {"O"}
+        if roster_data and hasattr(roster_data, "config") and roster_data.config:
+            leave_codes = set(getattr(roster_data.config, "leave_codes", None) or [])
+            rest_codes = set(getattr(roster_data.config, "rest_codes", None) or ["O"])
+        off_deduction_codes = {"O", "DO"}
 
         for emp in employees:
             total_working_days = 0
             night_shifts = 0  # weighted N credit: +1 normal weekday, +2 Fri/Sat or holiday
             afternoon_shifts = 0
-            Os_given = 0  # rest day "O" only (not DO)
+            Os_given = 0  # "DO" and non-holiday "O" reduce pending off
+            weekend_days_in_month = 0
 
             for day in dates:
                 # Count working shifts
@@ -252,8 +285,26 @@ class RosterSolver:
                         elif shift == "A":
                             afternoon_shifts += 1
 
-                if assignments.get((emp, day, "O"), 0) == 1:
+                is_holiday = bool(roster_data.get_holiday(day)) if roster_data else False
+                for off_code in off_deduction_codes:
+                    if assignments.get((emp, day, off_code), 0) != 1:
+                        continue
+                    if off_code == "O" and is_holiday:
+                        continue
                     Os_given += 1
+
+            # Leave weekends do not add pending-off weekend credit.
+            for weekend_day in weekend_dates:
+                assigned_leave = any(
+                    assignments.get((emp, weekend_day, leave_code), 0) == 1
+                    for leave_code in leave_codes
+                    if leave_code not in rest_codes
+                )
+                # PH is typically in rest_codes; still treat assigned PH as "not a working weekend" for P/O.
+                if assignments.get((emp, weekend_day, "PH"), 0) == 1:
+                    assigned_leave = True
+                if not assigned_leave:
+                    weekend_days_in_month += 1
 
             previous_pending_off_raw = initial_pending_off.get(emp, 0.0) if initial_pending_off else 0.0
             previous_pending_off_numeric = (

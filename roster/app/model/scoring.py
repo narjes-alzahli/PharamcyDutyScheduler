@@ -6,7 +6,7 @@ from ortools.sat.python import cp_model
 
 # Default standard working shifts (fallback when demands don't include all shifts)
 # These should match what's in the database - updated when standard shifts change
-_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "IP+P", "P", "M+P"]
+_DEFAULT_STANDARD_SHIFTS_LIST = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
 _AS_RANGE_SHIFTS = {"A", "N", "M4", "E"}
 _AS_OUTSIDE_RANGE_SHIFTS = {"M", "M3", "IP"}
 
@@ -27,6 +27,8 @@ class RosterScoring:
         demands: Dict[date, Dict[str, int]],
         skills: Dict[str, Dict[str, bool]],
         history_counts: Dict[str, Dict[str, int]] = None,  # [HISTORY_AWARE_FAIRNESS] Added parameter
+        time_off: Optional[Dict[Tuple[str, date], str]] = None,
+        initial_pending_off: Optional[Dict[str, float]] = None,
         required_rest_after_shifts: Optional[List[Dict[str, Any]]] = None,
         leave_codes: Optional[Set[str]] = None,
         locks: Optional[Dict[Tuple[str, date, str], bool]] = None,
@@ -94,11 +96,27 @@ class RosterScoring:
             objectives.append(
                 sum(boundary_allowed_vars) * self.weights.get("sequence_fallback_miss", 4000.0)
             )
+
+        weekend_spacing_vars = self._add_weekend_spacing_variables(
+            model, x, employees, dates, previous_period_shifts, locks, working_shift_codes
+        )
+        if weekend_spacing_vars:
+            objectives.append(
+                sum(weekend_spacing_vars) * self.weights.get("weekend_spacing", 1500.0)
+            )
+
+        pending_off_negative_vars = self._add_pending_off_negative_variables(
+            model, x, employees, dates, skills, initial_pending_off
+        )
+        if pending_off_negative_vars:
+            objectives.append(
+                sum(pending_off_negative_vars) * self.weights.get("pending_off_negative", 500.0)
+            )
         
         # 4. Fairness penalty (with history awareness)
         # [HISTORY_AWARE_FAIRNESS] Pass history_counts to fairness calculation
         fairness_vars = self._add_fairness_variables(
-            model, x, employees, dates, skills, history_counts
+            model, x, employees, dates, demands, skills, history_counts, time_off
         )
         if fairness_vars:
             objectives.append(sum(fairness_vars) * self.weights.get("fairness", 5.0))
@@ -330,6 +348,127 @@ class RosterScoring:
             model.Add(and_var <= lit)
         model.Add(and_var >= sum(literals) - (len(literals) - 1))
         return and_var
+
+    def _add_weekend_spacing_variables(
+        self,
+        model: cp_model.CpModel,
+        x: Dict[Tuple[str, date, str], cp_model.IntVar],
+        employees: List[str],
+        dates: List[date],
+        previous_period_shifts: Optional[Dict[Tuple[str, date], str]] = None,
+        locks: Optional[Dict[Tuple[str, date, str], bool]] = None,
+        working_shift_codes: Optional[List[str]] = None,
+    ) -> List[cp_model.IntVar]:
+        """Penalize back-to-back weekends softly, including across the period boundary."""
+        if not dates:
+            return []
+
+        penalties: List[cp_model.IntVar] = []
+        working_shifts = set(working_shift_codes) if working_shift_codes else set(_DEFAULT_STANDARD_SHIFTS_LIST)
+        date_set = set(dates)
+        sorted_dates = sorted(dates)
+        friday_dates = [d for d in sorted_dates if d.weekday() == 4]
+
+        for emp in employees:
+            weekend_work_vars: Dict[date, cp_model.IntVar] = {}
+            for friday in friday_dates:
+                saturday = friday + timedelta(days=1)
+                if saturday not in date_set:
+                    continue
+
+                fri_work_vars = [x[(emp, friday, shift)] for shift in working_shifts if (emp, friday, shift) in x]
+                sat_work_vars = [x[(emp, saturday, shift)] for shift in working_shifts if (emp, saturday, shift) in x]
+                if not fri_work_vars and not sat_work_vars:
+                    continue
+
+                works_this_weekend = model.NewBoolVar(f"weekend_spacing_work_{emp}_{friday}")
+                weekend_work_sum = sum(fri_work_vars) + sum(sat_work_vars)
+                model.Add(weekend_work_sum >= works_this_weekend)
+                model.Add(weekend_work_sum <= 2 * works_this_weekend)
+                weekend_work_vars[friday] = works_this_weekend
+
+            for friday in friday_dates:
+                next_friday = friday + timedelta(days=7)
+                if friday in weekend_work_vars and next_friday in weekend_work_vars:
+                    consecutive = self._link_and_var(
+                        model,
+                        [weekend_work_vars[friday], weekend_work_vars[next_friday]],
+                        f"consecutive_weekend_{emp}_{friday}"
+                    )
+                    penalties.append(consecutive)
+
+            if previous_period_shifts:
+                prev_dates = sorted({d for (prev_emp, d) in previous_period_shifts.keys() if prev_emp == emp})
+                if prev_dates and friday_dates:
+                    first_friday = friday_dates[0]
+                    prev_saturday = None
+                    for delta in range(1, 8):
+                        candidate = first_friday - timedelta(days=delta)
+                        if candidate.weekday() == 5:
+                            prev_saturday = candidate
+                            break
+                    if prev_saturday is not None:
+                        prev_friday = prev_saturday - timedelta(days=1)
+                        worked_prev_weekend = (
+                            previous_period_shifts.get((emp, prev_friday)) in working_shifts
+                            or previous_period_shifts.get((emp, prev_saturday)) in working_shifts
+                        )
+                        if worked_prev_weekend and first_friday in weekend_work_vars:
+                            forced_first_weekend = False
+                            if locks:
+                                for target_day in (first_friday, first_friday + timedelta(days=1)):
+                                    forced_first_weekend = forced_first_weekend or any(
+                                        locks.get((emp, target_day, shift)) is True
+                                        for shift in working_shifts
+                                    )
+                            if not forced_first_weekend:
+                                penalties.append(weekend_work_vars[first_friday])
+
+        return penalties
+
+    def _add_pending_off_negative_variables(
+        self,
+        model: cp_model.CpModel,
+        x: Dict[Tuple[str, date, str], cp_model.IntVar],
+        employees: List[str],
+        dates: List[date],
+        skills: Dict[str, Dict[str, bool]],
+        initial_pending_off: Optional[Dict[str, float]] = None,
+    ) -> List[cp_model.IntVar]:
+        """Penalize negative pending_off without incentivizing extra N shifts.
+
+        We use a baseline pending_off that ignores N-credit, so the optimizer is pushed to
+        reduce excess O assignments for people with low balances, instead of increasing N
+        purely to raise pending_off.
+        """
+        if not dates:
+            return []
+
+        penalties: List[cp_model.IntVar] = []
+        initial_pending_off = initial_pending_off or {}
+        weekend_days_in_month = sum(1 for d in dates if d.weekday() in (4, 5))
+
+        for emp in employees:
+            emp_skills = skills.get(emp, {})
+            enabled_skill_count = sum(1 for is_enabled in emp_skills.values() if bool(is_enabled))
+            if enabled_skill_count == 1:
+                continue
+
+            o_vars = [x[(emp, day, "O")] for day in dates if (emp, day, "O") in x]
+            os_given = model.NewIntVar(0, len(dates), f"po_os_{emp}")
+            model.Add(os_given == sum(o_vars) if o_vars else 0)
+
+            initial_po = int(round(float(initial_pending_off.get(emp, 0.0))))
+            lower_bound = initial_po - len(dates)
+            upper_bound = initial_po + weekend_days_in_month
+            baseline_po = model.NewIntVar(lower_bound, upper_bound, f"po_baseline_{emp}")
+            model.Add(baseline_po == initial_po + weekend_days_in_month - os_given)
+
+            negative_po = model.NewIntVar(0, max(0, -lower_bound), f"po_negative_{emp}")
+            model.AddMaxEquality(negative_po, [-baseline_po, 0])
+            penalties.append(negative_po)
+
+        return penalties
 
     def _add_sequence_hierarchy_variables(
         self,
@@ -583,8 +722,10 @@ class RosterScoring:
         x: Dict[Tuple[str, date, str], cp_model.IntVar],
         employees: List[str],
         dates: List[date],
+        demands: Dict[date, Dict[str, int]],
         skills: Dict[str, Dict[str, bool]],
-        history_counts: Dict[str, Dict[str, int]] = None  # [HISTORY_AWARE_FAIRNESS] Added parameter
+        history_counts: Dict[str, Dict[str, int]] = None,  # [HISTORY_AWARE_FAIRNESS] Added parameter
+        time_off: Optional[Dict[Tuple[str, date], str]] = None,
     ) -> List[cp_model.IntVar]:
         """Add variables to penalize unfair distribution of shifts.
         
@@ -595,6 +736,28 @@ class RosterScoring:
                           [HISTORY_AWARE_FAIRNESS] This enables history-aware fairness across months
         """
         fairness_vars = []
+        time_off = time_off or {}
+        base_fairness_weight = max(float(self.weights.get("fairness", 5.0)), 1.0)
+        quota_missing_weight = 200
+        quota_excess_weight = 200
+        quota_history_weight = 1
+        a_m4_missing_weight = max(1, int(round(self.weights.get("a_m4_zero_priority", 3000.0) / base_fairness_weight)))
+        a_m4_excess_weight = max(1, int(round(self.weights.get("a_m4_cap_priority", 5000.0) / base_fairness_weight)))
+        a_m4_flip_weight = max(1, int(round(self.weights.get("a_m4_flip_priority", 300.0) / base_fairness_weight)))
+        priority_weights = {
+            "night": (
+                max(1, int(round(self.weights.get("night_zero_priority", 2500.0) / base_fairness_weight))),
+                max(1, int(round(self.weights.get("night_cap_priority", 4000.0) / base_fairness_weight))),
+            ),
+            "thursday": (
+                max(1, int(round(self.weights.get("thursday_zero_priority", 2500.0) / base_fairness_weight))),
+                max(1, int(round(self.weights.get("thursday_cap_priority", 4000.0) / base_fairness_weight))),
+            ),
+            "weekend": (
+                max(1, int(round(self.weights.get("weekend_zero_priority", 2500.0) / base_fairness_weight))),
+                max(1, int(round(self.weights.get("weekend_cap_priority", 4000.0) / base_fairness_weight))),
+            ),
+        }
         
         # [HISTORY_AWARE_FAIRNESS] Default to empty history if not provided
         if history_counts is None:
@@ -623,16 +786,246 @@ class RosterScoring:
         if len(non_clinicians) < 2:
             return fairness_vars  # Need at least 2 non-clinicians for fairness
         
-        # Count shifts per non-clinician employee (filtered by specific skills)
-        night_total_loads = []
-        afternoon_total_loads = []
-        m4_total_loads = []
+        # Fairness model:
+        # - A/M4 are handled as one interacting family with a month-to-month flip preference.
+        # - N / Thursday / Weekend are independent history-aware burden-sharing buckets.
+        # - IP and M+M3 keep quota-style current-period balancing.
+        # Leave handling is included by excluding leave days from category opportunity counts.
         e_total_loads = []
-        thursday_total_loads = []
-        weekend_total_loads = []
         m_plus_p_total_loads = []
         p_total_loads = []
         total_working_counts = []
+        history_bias_terms = []
+
+        def is_single_skill_employee(emp: str) -> bool:
+            emp_skills = skills.get(emp, {})
+            qualified_shifts = [
+                shift for shift in _DEFAULT_STANDARD_SHIFTS_LIST
+                if emp_skills.get(shift, False)
+            ]
+            return len(qualified_shifts) == 1
+
+        def employee_on_leave(emp: str, day: date) -> bool:
+            return (emp, day) in time_off
+
+        def employee_has_any_skill(emp: str, shift_codes: List[str]) -> bool:
+            emp_skills = skills.get(emp, {})
+            return any(emp_skills.get(code, False) for code in shift_codes)
+
+        def count_opportunities(emp: str, category_days: List[date], shift_codes: List[str]) -> int:
+            if not employee_has_any_skill(emp, shift_codes):
+                return 0
+            opportunities = 0
+            for day in category_days:
+                if employee_on_leave(emp, day):
+                    continue
+                if any((emp, day, shift) in x for shift in shift_codes):
+                    opportunities += 1
+            return opportunities
+
+        def sum_assignments(emp: str, category_days: List[date], shift_codes: List[str], var_name: str, upper_bound: int) -> Optional[cp_model.IntVar]:
+            vars_for_category = [
+                x[(emp, day, shift)]
+                for day in category_days
+                for shift in shift_codes
+                if (emp, day, shift) in x
+            ]
+            if not vars_for_category:
+                return None
+            count_var = model.NewIntVar(0, upper_bound, var_name)
+            model.Add(count_var == sum(vars_for_category))
+            return count_var
+
+        def add_quota_category(
+            category_name: str,
+            category_days: List[date],
+            shift_codes: List[str],
+            total_required: int,
+            history_key: Optional[str] = None,
+            exclude_shifts: Optional[Set[str]] = None,
+        ) -> None:
+            if total_required <= 0 or not category_days:
+                return
+
+            eligible_counts: Dict[str, cp_model.IntVar] = {}
+            opportunity_counts: Dict[str, int] = {}
+            active_employees: List[str] = []
+
+            for emp in non_clinicians:
+                if is_single_skill_employee(emp):
+                    continue
+
+                if exclude_shifts:
+                    allowed_codes = [
+                        code for code in _DEFAULT_STANDARD_SHIFTS_LIST
+                        if code not in exclude_shifts and skills.get(emp, {}).get(code, False)
+                    ]
+                else:
+                    allowed_codes = [code for code in shift_codes if skills.get(emp, {}).get(code, False)]
+
+                if not allowed_codes:
+                    continue
+
+                opportunities = count_opportunities(emp, category_days, allowed_codes)
+                if opportunities <= 0:
+                    continue
+
+                upper_bound = len(category_days) * max(1, len(allowed_codes))
+                count_var = sum_assignments(
+                    emp,
+                    category_days,
+                    allowed_codes,
+                    f"{category_name}_count_{emp}",
+                    upper_bound,
+                )
+                if count_var is None:
+                    continue
+
+                eligible_counts[emp] = count_var
+                opportunity_counts[emp] = opportunities
+                active_employees.append(emp)
+
+            if len(active_employees) < 2:
+                return
+
+            missing_weight, excess_weight = priority_weights.get(
+                category_name,
+                (quota_missing_weight, quota_excess_weight),
+            )
+            max_opportunity = max(opportunity_counts.values()) if opportunity_counts else 0
+            fair_max = max_opportunity
+            for candidate in range(max_opportunity + 1):
+                capped_capacity = sum(min(opportunity_counts[emp], candidate) for emp in active_employees)
+                if capped_capacity >= total_required:
+                    fair_max = candidate
+                    break
+
+            for emp in active_employees:
+                count_var = eligible_counts[emp]
+
+                has_assignment = model.NewBoolVar(f"{category_name}_has_assignment_{emp}")
+                missing_assignment = model.NewBoolVar(f"{category_name}_missing_assignment_{emp}")
+                model.Add(count_var >= 1).OnlyEnforceIf(has_assignment)
+                model.Add(count_var == 0).OnlyEnforceIf(has_assignment.Not())
+                model.Add(has_assignment + missing_assignment == 1)
+                fairness_vars.append(missing_assignment * missing_weight)
+
+                excess_upper = max(0, opportunity_counts[emp] - fair_max)
+                if excess_upper > 0:
+                    excess_var = model.NewIntVar(0, excess_upper, f"{category_name}_excess_{emp}")
+                    model.Add(excess_var >= count_var - fair_max)
+                    fairness_vars.append(excess_var * excess_weight)
+
+                if history_key:
+                    history_value = history_counts.get(history_key, {}).get(emp, 0)
+                    history_bias_terms.append(count_var * history_value * quota_history_weight)
+
+        def compute_fair_cap(active_employees: List[str], opportunity_counts: Dict[str, int], total_required: int) -> int:
+            max_opportunity = max(opportunity_counts.values()) if opportunity_counts else 0
+            fair_max = max_opportunity
+            for candidate in range(max_opportunity + 1):
+                capped_capacity = sum(min(opportunity_counts[emp], candidate) for emp in active_employees)
+                if capped_capacity >= total_required:
+                    fair_max = candidate
+                    break
+            return fair_max
+
+        def add_a_m4_family() -> None:
+            a_days = dates
+            m4_days = dates
+            total_a_required = sum((demands.get(day, {}) or {}).get("A", 0) for day in a_days)
+            total_m4_required = sum((demands.get(day, {}) or {}).get("M4", 0) for day in m4_days)
+            if total_a_required <= 0 and total_m4_required <= 0:
+                return
+
+            a_counts: Dict[str, cp_model.IntVar] = {}
+            m4_counts: Dict[str, cp_model.IntVar] = {}
+            a_opportunities: Dict[str, int] = {}
+            m4_opportunities: Dict[str, int] = {}
+            active_employees: List[str] = []
+
+            for emp in non_clinicians:
+                if is_single_skill_employee(emp):
+                    continue
+                emp_skills = skills.get(emp, {})
+                can_a = bool(emp_skills.get("A", False))
+                can_m4 = bool(emp_skills.get("M4", False))
+                if not can_a and not can_m4:
+                    continue
+
+                opp_a = count_opportunities(emp, a_days, ["A"]) if can_a else 0
+                opp_m4 = count_opportunities(emp, m4_days, ["M4"]) if can_m4 else 0
+                if opp_a <= 0 and opp_m4 <= 0:
+                    continue
+
+                active_employees.append(emp)
+                a_opportunities[emp] = opp_a
+                m4_opportunities[emp] = opp_m4
+
+                if opp_a > 0:
+                    a_count = sum_assignments(emp, a_days, ["A"], f"a_family_count_{emp}", len(a_days))
+                    if a_count is not None:
+                        a_counts[emp] = a_count
+                        has_a = model.NewBoolVar(f"a_family_has_{emp}")
+                        missing_a = model.NewBoolVar(f"a_family_missing_{emp}")
+                        model.Add(a_count >= 1).OnlyEnforceIf(has_a)
+                        model.Add(a_count == 0).OnlyEnforceIf(has_a.Not())
+                        model.Add(has_a + missing_a == 1)
+                        fairness_vars.append(missing_a * a_m4_missing_weight)
+
+                if opp_m4 > 0:
+                    m4_count = sum_assignments(emp, m4_days, ["M4"], f"m4_family_count_{emp}", len(m4_days))
+                    if m4_count is not None:
+                        m4_counts[emp] = m4_count
+                        has_m4 = model.NewBoolVar(f"m4_family_has_{emp}")
+                        missing_m4 = model.NewBoolVar(f"m4_family_missing_{emp}")
+                        model.Add(m4_count >= 1).OnlyEnforceIf(has_m4)
+                        model.Add(m4_count == 0).OnlyEnforceIf(has_m4.Not())
+                        model.Add(has_m4 + missing_m4 == 1)
+                        fairness_vars.append(missing_m4 * a_m4_missing_weight)
+
+            if len(active_employees) < 2:
+                return
+
+            a_active = [emp for emp in active_employees if a_opportunities.get(emp, 0) > 0 and emp in a_counts]
+            m4_active = [emp for emp in active_employees if m4_opportunities.get(emp, 0) > 0 and emp in m4_counts]
+            a_fair_cap = compute_fair_cap(a_active, a_opportunities, total_a_required) if a_active and total_a_required > 0 else 0
+            m4_fair_cap = compute_fair_cap(m4_active, m4_opportunities, total_m4_required) if m4_active and total_m4_required > 0 else 0
+
+            for emp in a_active:
+                a_count = a_counts[emp]
+                excess_upper = max(0, a_opportunities[emp] - a_fair_cap)
+                if excess_upper > 0:
+                    a_excess = model.NewIntVar(0, excess_upper, f"a_family_excess_{emp}")
+                    model.Add(a_excess >= a_count - a_fair_cap)
+                    fairness_vars.append(a_excess * a_m4_excess_weight)
+
+            for emp in m4_active:
+                m4_count = m4_counts[emp]
+                excess_upper = max(0, m4_opportunities[emp] - m4_fair_cap)
+                if excess_upper > 0:
+                    m4_excess = model.NewIntVar(0, excess_upper, f"m4_family_excess_{emp}")
+                    model.Add(m4_excess >= m4_count - m4_fair_cap)
+                    fairness_vars.append(m4_excess * a_m4_excess_weight)
+
+            # Flip effect: if someone had more A last period, prefer more M4 now, and vice versa.
+            for emp in active_employees:
+                if emp not in a_counts and emp not in m4_counts:
+                    continue
+                a_count = a_counts.get(emp)
+                m4_count = m4_counts.get(emp)
+                current_a = a_count if a_count is not None else 0
+                current_m4 = m4_count if m4_count is not None else 0
+                prev_a = history_counts.get("afternoons", {}).get(emp, 0)
+                prev_m4 = history_counts.get("m4", {}).get(emp, 0)
+                prev_balance = prev_a - prev_m4
+
+                delta_bound = len(dates) + abs(prev_balance)
+                balance_delta = model.NewIntVar(-delta_bound, delta_bound, f"a_m4_balance_delta_{emp}")
+                model.Add(balance_delta == current_a - current_m4 + prev_balance)
+                flip_penalty = model.NewIntVar(0, delta_bound, f"a_m4_flip_penalty_{emp}")
+                model.AddAbsEquality(flip_penalty, balance_delta)
+                fairness_vars.append(flip_penalty * a_m4_flip_weight)
         
         for emp in non_clinicians:
             emp_skills = skills.get(emp, {})
@@ -648,42 +1041,6 @@ class RosterScoring:
             # (they have fixed schedules: work Sun-Thu, rest Fri-Sat)
             if is_single_skill:
                 continue
-            
-            # Night shifts - only for employees with skill_N
-            if emp_skills.get("N", False):
-                night_vars = [x[(emp, day, "N")] for day in dates]
-                new_night_count = model.NewIntVar(0, len(dates), f"new_night_count_{emp}")
-                model.Add(new_night_count == sum(night_vars))
-                
-                # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
-                history_nights = history_counts.get("nights", {}).get(emp, 0)
-                total_night_load = model.NewIntVar(history_nights, history_nights + len(dates), f"total_night_load_{emp}")
-                model.Add(total_night_load == history_nights + new_night_count)
-                night_total_loads.append(total_night_load)
-            
-            # Afternoon shifts - only for employees with skill_A
-            if emp_skills.get("A", False):
-                afternoon_vars = [x[(emp, day, "A")] for day in dates]
-                new_afternoon_count = model.NewIntVar(0, len(dates), f"new_afternoon_count_{emp}")
-                model.Add(new_afternoon_count == sum(afternoon_vars))
-                
-                # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
-                history_afternoons = history_counts.get("afternoons", {}).get(emp, 0)
-                total_afternoon_load = model.NewIntVar(history_afternoons, history_afternoons + len(dates), f"total_afternoon_load_{emp}")
-                model.Add(total_afternoon_load == history_afternoons + new_afternoon_count)
-                afternoon_total_loads.append(total_afternoon_load)
-            
-            # M4 shifts - only for employees with skill_M4
-            if emp_skills.get("M4", False):
-                m4_vars = [x[(emp, day, "M4")] for day in dates]
-                new_m4_count = model.NewIntVar(0, len(dates), f"new_m4_count_{emp}")
-                model.Add(new_m4_count == sum(m4_vars))
-                
-                # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
-                history_m4 = history_counts.get("m4", {}).get(emp, 0)
-                total_m4_load = model.NewIntVar(history_m4, history_m4 + len(dates), f"total_m4_load_{emp}")
-                model.Add(total_m4_load == history_m4 + new_m4_count)
-                m4_total_loads.append(total_m4_load)
             
             # E shifts - only for employees with skill_E (fairness when E is assigned)
             if emp_skills.get("E", False):
@@ -713,40 +1070,6 @@ class RosterScoring:
                 model.Add(total_p_load == history_p + new_p_count)
                 p_total_loads.append(total_p_load)
             
-            # Thursday shifts (excluding M and M3) - only for multi-skill employees
-            # Note: is_single_skill check above ensures we only process multi-skill employees here
-            thursday_vars = []
-            for day in dates:
-                if day.weekday() == 3:  # Thursday
-                    for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
-                        if shift not in ["M", "M3"]:  # Exclude M and M3
-                            thursday_vars.append(x[(emp, day, shift)])
-            new_thursday_count = model.NewIntVar(0, len(dates), f"new_thursday_count_{emp}")
-            model.Add(new_thursday_count == sum(thursday_vars))
-            
-            # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
-            history_thursdays = history_counts.get("thursdays", {}).get(emp, 0)
-            total_thursday_load = model.NewIntVar(history_thursdays, history_thursdays + len(dates), f"total_thursday_load_{emp}")
-            model.Add(total_thursday_load == history_thursdays + new_thursday_count)
-            thursday_total_loads.append(total_thursday_load)
-            
-            # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
-            # Note: is_single_skill check above ensures we only process multi-skill employees here
-            weekend_vars = []
-            for day in dates:
-                if day.weekday() in [4, 5]:  # Friday or Saturday
-                    for shift in _DEFAULT_STANDARD_SHIFTS_LIST:
-                        weekend_vars.append(x[(emp, day, shift)])
-            new_weekend_count = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), f"new_weekend_count_{emp}")
-            model.Add(new_weekend_count == sum(weekend_vars))
-            
-            # [HISTORY_AWARE_FAIRNESS] Total load = history + new assignments
-            history_weekends = history_counts.get("weekends", {}).get(emp, 0)
-            max_weekend_possible = len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST)
-            total_weekend_load = model.NewIntVar(history_weekends, history_weekends + max_weekend_possible, f"total_weekend_load_{emp}")
-            model.Add(total_weekend_load == history_weekends + new_weekend_count)
-            weekend_total_loads.append(total_weekend_load)
-            
             # Total working days (all shifts) - only for multi-skill employees
             # Note: This category doesn't use history (as per requirements)
             working_vars = []
@@ -757,37 +1080,56 @@ class RosterScoring:
             model.Add(total_working == sum(working_vars))
             total_working_counts.append(total_working)
         
-        # [HISTORY_AWARE_FAIRNESS] Fairness penalties (minimize variance between non-clinicians)
-        # Use total_load (history + new) for history-aware categories
-        if night_total_loads:
-            max_nights = model.NewIntVar(0, len(dates) * 10, "max_nights")  # Increased upper bound to account for history
-            min_nights = model.NewIntVar(0, len(dates) * 10, "min_nights")
-            for load in night_total_loads:
-                model.Add(max_nights >= load)
-                model.Add(min_nights <= load)
-            night_fairness = model.NewIntVar(0, len(dates) * 10, "night_fairness")
-            model.Add(night_fairness == max_nights - min_nights)
-            fairness_vars.append(night_fairness)
-            
-        if afternoon_total_loads:
-            max_afternoons = model.NewIntVar(0, len(dates) * 10, "max_afternoons")
-            min_afternoons = model.NewIntVar(0, len(dates) * 10, "min_afternoons")
-            for load in afternoon_total_loads:
-                model.Add(max_afternoons >= load)
-                model.Add(min_afternoons <= load)
-            afternoon_fairness = model.NewIntVar(0, len(dates) * 10, "afternoon_fairness")
-            model.Add(afternoon_fairness == max_afternoons - min_afternoons)
-            fairness_vars.append(afternoon_fairness)
-            
-        if m4_total_loads:
-            max_m4 = model.NewIntVar(0, len(dates) * 10, "max_m4")
-            min_m4 = model.NewIntVar(0, len(dates) * 10, "min_m4")
-            for load in m4_total_loads:
-                model.Add(max_m4 >= load)
-                model.Add(min_m4 <= load)
-            m4_fairness = model.NewIntVar(0, len(dates) * 10, "m4_fairness")
-            model.Add(m4_fairness == max_m4 - min_m4)
-            fairness_vars.append(m4_fairness)
+        thursday_days = [day for day in dates if day.weekday() == 3]
+        weekend_days = [day for day in dates if day.weekday() in [4, 5]]
+
+        add_quota_category(
+            "night",
+            dates,
+            ["N"],
+            sum((demands.get(day, {}) or {}).get("N", 0) for day in dates),
+            history_key="nights",
+        )
+        add_quota_category(
+            "ip",
+            dates,
+            ["IP"],
+            sum((demands.get(day, {}) or {}).get("IP", 0) for day in dates),
+            history_key=None,
+        )
+        add_quota_category(
+            "m_m3",
+            dates,
+            ["M", "M3"],
+            sum(((demands.get(day, {}) or {}).get("M", 0) + (demands.get(day, {}) or {}).get("M3", 0)) for day in dates),
+            history_key=None,
+        )
+        add_a_m4_family()
+        add_quota_category(
+            "thursday",
+            thursday_days,
+            ["A", "M4", "N", "E"],
+            sum(
+                (demands.get(day, {}) or {}).get(shift, 0)
+                for day in thursday_days
+                for shift in ["A", "M4", "N", "E"]
+            ),
+            history_key="thursdays",
+        )
+        add_quota_category(
+            "weekend",
+            weekend_days,
+            ["A", "M3", "N", "E"],
+            sum(
+                (demands.get(day, {}) or {}).get(shift, 0)
+                for day in weekend_days
+                for shift in ["A", "M3", "N", "E"]
+            ),
+            history_key="weekends",
+        )
+
+        if history_bias_terms:
+            fairness_vars.append(sum(history_bias_terms))
         
         if e_total_loads:
             max_e = model.NewIntVar(0, len(dates) * 10, "max_e")
@@ -819,16 +1161,6 @@ class RosterScoring:
             model.Add(p_fairness == max_p - min_p)
             fairness_vars.append(p_fairness)
             
-        if thursday_total_loads:
-            max_thursday = model.NewIntVar(0, len(dates) * 10, "max_thursday")
-            min_thursday = model.NewIntVar(0, len(dates) * 10, "min_thursday")
-            for load in thursday_total_loads:
-                model.Add(max_thursday >= load)
-                model.Add(min_thursday <= load)
-            thursday_fairness = model.NewIntVar(0, len(dates) * 10, "thursday_fairness")
-            model.Add(thursday_fairness == max_thursday - min_thursday)
-            fairness_vars.append(thursday_fairness)
-            
         if total_working_counts:
             max_working = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), "max_working")
             min_working = model.NewIntVar(0, len(dates) * len(_DEFAULT_STANDARD_SHIFTS_LIST), "min_working")
@@ -839,16 +1171,6 @@ class RosterScoring:
             model.Add(working_fairness == max_working - min_working)
             fairness_vars.append(working_fairness)
             
-        if weekend_total_loads:
-            max_weekends = model.NewIntVar(0, len(dates) * 20, "max_weekends")  # Increased upper bound
-            min_weekends = model.NewIntVar(0, len(dates) * 20, "min_weekends")
-            for load in weekend_total_loads:
-                model.Add(max_weekends >= load)
-                model.Add(min_weekends <= load)
-            weekend_fairness = model.NewIntVar(0, len(dates) * 20, "weekend_fairness")
-            model.Add(weekend_fairness == max_weekends - min_weekends)
-            fairness_vars.append(weekend_fairness)
-        
         return fairness_vars
     
     def _add_do_after_n_variables(

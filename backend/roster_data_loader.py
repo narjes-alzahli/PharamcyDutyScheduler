@@ -621,7 +621,7 @@ def load_assignment_history(
     employees: List[str],
     skills: Dict[str, Dict[str, bool]],
     db: Session = None,
-    method: str = "rolling_window",
+    method: str = "previous_period",
     window_months: int = 3,
     alpha: float = 0.7,
     period_start_date: date = None,
@@ -637,13 +637,21 @@ def load_assignment_history(
         employees: List of employee names
         skills: Dict mapping employee name to their skills dict
         db: Database session (optional)
-        method: "rolling_window" or "decayed_carryover"
+        method: "previous_period", "rolling_window" or "decayed_carryover"
         window_months: Number of months to look back for rolling window (default: 3)
         alpha: Decay factor for carryover method (default: 0.7, range: 0.6-0.8)
     
     Returns:
         Dict mapping category name to dict mapping employee name to history count.
         Categories: "nights", "afternoons", "m4", "thursdays", "weekends"
+        
+    Notes:
+        - Current default is "previous_period" to support anti-carryover balancing
+          (if someone had more last period, they should tend to get less this period).
+        - Legacy behavior is preserved for rollback via:
+            * "rolling_window" (multi-month sum)
+            * "decayed_carryover" (multi-month decay)
+          See branch below marked "LEGACY HISTORY METHODS".
     """
     from backend.models import CommittedSchedule
     from backend.database import SessionLocal
@@ -673,6 +681,18 @@ def load_assignment_history(
         if period_start.month == 12:
             return date(period_start.year + 1, 1, 1)
         return date(period_start.year, period_start.month + 1, 1)
+    
+    def _previous_period_start(period_start: date) -> date:
+        """Return start date of previous scheduling period."""
+        if period_start == date(2026, 2, 19):
+            return date(2026, 2, 1)
+        if period_start == date(2026, 3, 19):
+            return date(2026, 2, 19)
+        if period_start == date(2026, 4, 1):
+            return date(2026, 3, 19)
+        if period_start.month == 1:
+            return date(period_start.year - 1, 12, 1)
+        return date(period_start.year, period_start.month - 1, 1)
 
     def _is_single_skill(emp: str) -> bool:
         emp_skills = skills.get(emp, {})
@@ -687,27 +707,30 @@ def load_assignment_history(
         close_db = False
     
     try:
-        # Calculate start date for history extraction
+        # Calculate date range for history extraction
         first_day_current_month = date(year, month, 1)
         current_period_start = _period_start_for_date(period_start_date or first_day_current_month)
-        
-        if method == "rolling_window":
-            # Calculate start date: window_months months before current month
+        history_end_date = current_period_start
+
+        if method == "previous_period":
+            start_date = _previous_period_start(current_period_start)
+        # LEGACY HISTORY METHODS (kept for rollback/testing)
+        elif method == "rolling_window":
             start_date = first_day_current_month
             for _ in range(window_months):
                 if start_date.month == 1:
                     start_date = date(start_date.year - 1, 12, 1)
                 else:
                     start_date = date(start_date.year, start_date.month - 1, 1)
+            history_end_date = first_day_current_month
         else:  # decayed_carryover
-            # For decayed carryover, we need to look back further to compute the decay
-            # We'll use a longer window (e.g., 6 months) to compute the decayed value
             start_date = first_day_current_month
-            for _ in range(6):  # Look back 6 months for decay calculation
+            for _ in range(6):
                 if start_date.month == 1:
                     start_date = date(start_date.year - 1, 12, 1)
                 else:
                     start_date = date(start_date.year, start_date.month - 1, 1)
+            history_end_date = first_day_current_month
         
         # Load all committed schedules in the history window
         schedules = (
@@ -715,7 +738,7 @@ def load_assignment_history(
             .options(joinedload(CommittedSchedule.user))
             .filter(
                 CommittedSchedule.date >= start_date,
-                CommittedSchedule.date < first_day_current_month,
+                CommittedSchedule.date < history_end_date,
             )
             .all()
         )
@@ -764,14 +787,14 @@ def load_assignment_history(
             if shift == "P" and emp_skills.get("P", False):
                 history["P"][emp] += 1
             
-            # Thursday shifts (excluding M and M3) - only for multi-skill employees
+            # Thursday shifts (excluding M, M3 and IP) - only for multi-skill employees
             if schedule_date.weekday() == 3:  # Thursday
                 qualified_shifts = [
                     s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
                     if emp_skills.get(s, False)
                 ]
                 is_multi_skill = len(qualified_shifts) > 1
-                if is_multi_skill and shift not in ["M", "M3"]:
+                if is_multi_skill and shift not in ["M", "M3", "IP"]:
                     history["thursdays"][emp] += 1
             
             # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
@@ -824,14 +847,14 @@ def load_assignment_history(
                     monthly_counts[month_key]["M+P"][emp] += 1
                 if shift == "P" and emp_skills.get("P", False):
                     monthly_counts[month_key]["P"][emp] += 1
-                # Thursday shifts (excluding M and M3) - only for multi-skill employees
+                # Thursday shifts (excluding M, M3 and IP) - only for multi-skill employees
                 if schedule_date.weekday() == 3:  # Thursday
                     qualified_shifts = [
                         s for s in ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
                         if emp_skills.get(s, False)
                     ]
                     is_multi_skill = len(qualified_shifts) > 1
-                    if is_multi_skill and shift not in ["M", "M3"]:
+                    if is_multi_skill and shift not in ["M", "M3", "IP"]:
                         monthly_counts[month_key]["thursdays"][emp] += 1
                 # Weekend shifts (Friday=4, Saturday=5) - only for multi-skill employees
                 if schedule_date.weekday() in [4, 5]:  # Weekend

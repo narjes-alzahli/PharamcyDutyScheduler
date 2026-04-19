@@ -27,6 +27,54 @@ function getEmployeeRowsFromSchedule(schedule: Schedule | null | undefined): any
   return [];
 }
 
+/**
+ * Same name order as the committed ScheduleTable branch: GET /employees order (EmployeeSkills.id),
+ * then snapshot-only names from the roster. Not alphabetical.
+ */
+function buildPreferredScheduleEmployeeOrder(
+  employeesFromAPI: any[],
+  snapshotRows: any[],
+): string[] {
+  if (employeesFromAPI.length > 0) {
+    if (snapshotRows.length > 0) {
+      const apiNames = new Set(employeesFromAPI.map((e: any) => e.employee));
+      const order: string[] = employeesFromAPI.map((e: any) => e.employee);
+      snapshotRows.forEach((row: any) => {
+        if (!apiNames.has(row.employee)) {
+          order.push(row.employee);
+        }
+      });
+      return order;
+    }
+    return employeesFromAPI.map((e: any) => e.employee);
+  }
+  if (snapshotRows.length > 0) {
+    return snapshotRows.map((e: any) => e.employee);
+  }
+  return [];
+}
+
+function orderTableRowsByPreferredEmployees<T extends { employee: string }>(
+  rows: T[],
+  preferredOrder: string[],
+): T[] {
+  if (!preferredOrder.length) return rows;
+  const byName = new Map(rows.map((r) => [r.employee, r]));
+  const out: T[] = [];
+  const seen = new Set<string>();
+  for (const name of preferredOrder) {
+    const row = byName.get(name);
+    if (row) {
+      out.push(row);
+      seen.add(name);
+    }
+  }
+  for (const row of rows) {
+    if (!seen.has(row.employee)) out.push(row);
+  }
+  return out;
+}
+
 export const AllRostersPage: React.FC = () => {
   const { selectedYear, selectedMonth, setSelectedYear, setSelectedMonth } = useDate();
   // FIX: Use auth guard to prevent API calls until auth is confirmed
@@ -646,15 +694,39 @@ export const AllRostersPage: React.FC = () => {
       `;
       document.body.appendChild(wrapper);
 
-      // Add title
+      // Add title (download / view image — department header + period)
       const title = document.createElement('h2');
-      title.textContent = `${monthNames[selectedMonth - 1]} ${selectedYear} Schedule`;
-      title.style.cssText = 'font-size: 28px; font-weight: bold; color: #111827; margin: 0 0 30px 0; text-align: center;';
+      title.textContent = `PHARMACY DEPARTMENT DUTY ROSTER ${selectedYear}`;
+      title.style.cssText =
+        'font-size: 28px; font-weight: bold; color: #111827; margin: 0 0 8px 0; text-align: center;';
+
+      const periodSubtitle =
+        currentPeriod === 'pre-ramadan'
+          ? `February ${selectedYear} (Pre-Ramadan)`
+          : currentPeriod === 'ramadan'
+            ? `Ramadan ${selectedYear}`
+            : currentPeriod === 'post-ramadan'
+              ? `March ${selectedYear} (Post-Ramadan)`
+              : `${monthNames[selectedMonth - 1]} ${selectedYear}`;
+
+      const subtitle = document.createElement('div');
+      subtitle.textContent = periodSubtitle;
+      subtitle.style.cssText =
+        'font-size: 18px; font-weight: 600; color: #4b5563; margin: 0 0 24px 0; text-align: center;';
+
       wrapper.appendChild(title);
+      wrapper.appendChild(subtitle);
 
       // Move rootDiv temporarily to wrapper
       const parent = rootDiv.parentElement;
       wrapper.appendChild(rootDiv);
+
+      const footer = document.createElement('div');
+      footer.textContent =
+        'NB: DUTY ROSTER COULD BE CHANGED ACCORDING TO PHARMACY NEEDS';
+      footer.style.cssText =
+        'font-size: 14px; font-weight: 700; color: #374151; margin: 28px 0 0 0; text-align: center; line-height: 1.4;';
+      wrapper.appendChild(footer);
 
       // Wait for layout to settle and table to expand
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -984,6 +1056,16 @@ export const AllRostersPage: React.FC = () => {
     return undefined;
   }, [employeesFromAPI, currentSchedule]);
 
+  /** Stable row order for ScheduleTable: API + snapshot-only rows (matches non-edit branch). Uses original snapshot so edits don’t reshuffle. */
+  const preferredScheduleEmployeeOrder = useMemo(
+    () =>
+      buildPreferredScheduleEmployeeOrder(
+        employeesFromAPI,
+        getEmployeeRowsFromSchedule(originalSchedule),
+      ),
+    [employeesFromAPI, originalSchedule],
+  );
+
   const fairnessData: FairnessData | null = useMemo(() => {
     if (!monthSchedule.length) return null;
     return calculateFairnessData(monthSchedule, employeeOrder);
@@ -1079,10 +1161,11 @@ export const AllRostersPage: React.FC = () => {
    */
   const scheduleEmployeesForTable = useMemo(() => {
     if (hasUnsavedChanges && dynamicEmployees && dynamicEmployees.length > 0) {
-      return dynamicEmployees.map((e: PendingOffData) => ({
+      const mapped = dynamicEmployees.map((e: PendingOffData) => ({
         employee: e.employee,
         pending_off: e.pending_off,
       }));
+      return orderTableRowsByPreferredEmployees(mapped, preferredScheduleEmployeeOrder);
     }
     const committedRows = getEmployeeRowsFromSchedule(currentSchedule);
     const poByName = new Map<string, number | null | undefined>(
@@ -1156,6 +1239,7 @@ export const AllRostersPage: React.FC = () => {
     dynamicEmployees,
     employeesFromAPI,
     currentSchedule,
+    preferredScheduleEmployeeOrder,
   ]);
   
   const metrics = calculateMetrics();
@@ -1556,8 +1640,14 @@ export const AllRostersPage: React.FC = () => {
                         
                         {(() => {
                           // Use dynamic employees if we have unsaved changes, otherwise use committed employees
-                          const displayEmployees = (dynamicEmployees && hasUnsavedChanges) 
-                            ? dynamicEmployees.map(e => ({ employee: e.employee, pending_off: e.pending_off }))
+                          const displayEmployees = (dynamicEmployees && hasUnsavedChanges)
+                            ? orderTableRowsByPreferredEmployees(
+                                dynamicEmployees.map((e) => ({
+                                  employee: e.employee,
+                                  pending_off: e.pending_off,
+                                })),
+                                preferredScheduleEmployeeOrder,
+                              )
                             : getEmployeeRowsFromSchedule(currentSchedule);
                           
                           if (!displayEmployees || displayEmployees.length === 0) {

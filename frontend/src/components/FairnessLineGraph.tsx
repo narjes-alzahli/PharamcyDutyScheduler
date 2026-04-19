@@ -9,13 +9,15 @@ interface FairnessLineGraphProps {
   className?: string;
 }
 
-type MetricType = 'night' | 'afternoon' | 'm4' | 'e' | 'weekend' | 'thursday' | 'working';
+type MetricType = 'night' | 'afternoon' | 'm4' | 'ipCombined' | 'mainCombined' | 'e' | 'weekend' | 'thursday' | 'working';
 
 // Color palette for better visibility
 const METRIC_COLORS: Record<MetricType, string> = {
   night: '#1f77b4',        // Blue
   afternoon: '#ff7f0e',   // Orange
   m4: '#2ca02c',          // Green
+  ipCombined: '#e377c2',  // Pink
+  mainCombined: '#7f7f7f', // Gray
   e: '#17becf',           // Cyan (E shift)
   weekend: '#d62728',     // Red
   thursday: '#9467bd',     // Purple
@@ -29,6 +31,8 @@ const METRIC_CONFIG: Record<MetricType, { label: string; dataKey: keyof Fairness
   e: { label: 'E Shifts', dataKey: 'eData' },
   weekend: { label: 'Weekend Shifts', dataKey: 'weekendData' },
   thursday: { label: 'Thursday Shifts', dataKey: 'thursdayData' },
+  ipCombined: { label: 'IP + IP+P', dataKey: 'ipCombinedData' },
+  mainCombined: { label: 'M + M3 + M+P', dataKey: 'mainCombinedData' },
   working: { label: 'Total Working Days', dataKey: 'workingData' },
 };
 
@@ -39,7 +43,7 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
   className = '',
 }) => {
   const [visibleMetrics, setVisibleMetrics] = useState<Set<MetricType>>(
-    new Set<MetricType>(['night', 'afternoon', 'm4'] as MetricType[]) // Default to night, afternoon, m4
+    new Set<MetricType>(['night', 'afternoon', 'm4'] as MetricType[])
   );
 
   // Identify single skill employees (employees with only one skill)

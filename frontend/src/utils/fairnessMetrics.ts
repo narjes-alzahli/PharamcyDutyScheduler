@@ -15,17 +15,23 @@ export interface FairnessData {
   nightData: DistributionEntry[];
   afternoonData: DistributionEntry[];
   m4Data: DistributionEntry[];
+  ipCombinedData: DistributionEntry[];
+  mainCombinedData: DistributionEntry[];
   eData: DistributionEntry[];
   weekendData: DistributionEntry[];
   thursdayData: DistributionEntry[];
   workingData: DistributionEntry[];
 }
 
-const WORKING_SHIFTS = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
+const WORKING_SHIFTS = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL', 'E', 'MS', 'IP+P', 'P', 'M+P'];
 const NIGHT_SHIFTS = ['N'];
 const AFTERNOON_SHIFTS = ['A'];
 const M4_SHIFTS = ['M4'];
+const IP_COMBINED_SHIFTS = ['IP', 'IP+P'];
+const MAIN_COMBINED_SHIFTS = ['M', 'M3', 'M+P'];
 const E_SHIFTS = ['E'];
+const THURSDAY_FAIRNESS_SHIFTS = ['A', 'M4', 'N', 'E'];
+const WEEKEND_FAIRNESS_SHIFTS = ['A', 'M3', 'N', 'E'];
 
 const isWeekend = (dateStr: string) => {
   const date = new Date(dateStr);
@@ -64,6 +70,8 @@ export const calculateFairnessData = (
   const nightCounts: Record<string, number> = {};
   const afternoonCounts: Record<string, number> = {};
   const m4Counts: Record<string, number> = {};
+  const ipCombinedCounts: Record<string, number> = {};
+  const mainCombinedCounts: Record<string, number> = {};
   const eCounts: Record<string, number> = {};
   const weekendCounts: Record<string, number> = {};
   const thursdayCounts: Record<string, number> = {};
@@ -86,6 +94,14 @@ export const calculateFairnessData = (
       m4Counts[employee] = (m4Counts[employee] || 0) + 1;
     }
 
+    if (IP_COMBINED_SHIFTS.includes(shift)) {
+      ipCombinedCounts[employee] = (ipCombinedCounts[employee] || 0) + 1;
+    }
+
+    if (MAIN_COMBINED_SHIFTS.includes(shift)) {
+      mainCombinedCounts[employee] = (mainCombinedCounts[employee] || 0) + 1;
+    }
+
     if (E_SHIFTS.includes(shift)) {
       eCounts[employee] = (eCounts[employee] || 0) + 1;
     }
@@ -93,12 +109,12 @@ export const calculateFairnessData = (
     if (WORKING_SHIFTS.includes(shift)) {
       workingCounts[employee] = (workingCounts[employee] || 0) + 1;
 
-      if (isWeekend(date)) {
+      if (isWeekend(date) && WEEKEND_FAIRNESS_SHIFTS.includes(shift)) {
         weekendCounts[employee] = (weekendCounts[employee] || 0) + 1;
       }
       
       // Count Thursday shifts (day 4)
-      if (dayOfWeek === 4) {
+      if (dayOfWeek === 4 && THURSDAY_FAIRNESS_SHIFTS.includes(shift)) {
         thursdayCounts[employee] = (thursdayCounts[employee] || 0) + 1;
       }
     }
@@ -136,6 +152,8 @@ export const calculateFairnessData = (
     nightData: toDistribution(nightCounts, false, employeeOrder),
     afternoonData: toDistribution(afternoonCounts, false, employeeOrder),
     m4Data: toDistribution(m4Counts, false, employeeOrder),
+    ipCombinedData: toDistribution(ipCombinedCounts, false, employeeOrder),
+    mainCombinedData: toDistribution(mainCombinedCounts, false, employeeOrder),
     eData: toDistribution(eCounts, false, employeeOrder),
     weekendData: toDistribution(weekendCounts, false, employeeOrder),
     thursdayData: toDistribution(thursdayCounts, false, employeeOrder),

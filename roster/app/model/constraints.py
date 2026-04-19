@@ -147,8 +147,6 @@ def add_coverage_constraints(
         for shift_type in working_shifts:
             if shift_type not in day_demand:
                 continue
-            if shift_type in _SOFT_COVERAGE_SHIFTS:
-                continue
             demand = day_demand[shift_type]
             assigned_vars = [
                 x[(emp, day, shift_type)] for emp in employees
@@ -157,6 +155,12 @@ def add_coverage_constraints(
             if not assigned_vars:
                 continue
             assigned_count = sum(assigned_vars)
+            # Soft coverage shifts (M/IP): allow under-coverage, but never assign when demand is 0.
+            if shift_type in _SOFT_COVERAGE_SHIFTS:
+                if demand == 0:
+                    model.Add(assigned_count == 0)
+                continue
+
             model.Add(assigned_count == demand)
 
 
@@ -227,17 +231,6 @@ def add_lock_constraints(
                 # Cannot work this shift
                 if (employee, day, shift) in x:
                     model.Add(x[(employee, day, shift)] == 0)
-
-
-def add_cap_constraints(
-    model: cp_model.CpModel,
-    x: Dict[Tuple[str, date, str], cp_model.IntVar],
-    employees: List[str],
-    dates: List[date],
-    caps: Dict[str, Dict[str, int]]
-) -> None:
-    """Add cap constraints: limit maximum shifts per employee. (maxN/maxA removed; kept for API compatibility.)"""
-    pass
 
 
 def add_minimum_days_off_constraints(
@@ -374,7 +367,7 @@ def add_weekend_workload_constraints(
 ) -> None:
     """Weekend rules for Fri/Sat:
     1) In each weekend, employee can work only one of Fri/Sat, unless both days are explicitly requested.
-    2) If employee works Fri/Sat in a weekend, next weekend should be O/O unless that next weekend day is explicitly requested.
+    2) Consecutive weekends are handled as a soft penalty in scoring.py.
     """
     if working_shift_codes:
         working_shifts = set(working_shift_codes)
@@ -417,24 +410,7 @@ def add_weekend_workload_constraints(
             model.Add(weekend_work_sum >= works_this_weekend)
             model.Add(weekend_work_sum <= 2 * works_this_weekend)
 
-            next_friday = friday + timedelta(days=7)
-            next_saturday = friday + timedelta(days=8)
-
-            # If they worked this weekend, next Fri/Sat should be O unless explicit request forces work.
-            for target_day in (next_friday, next_saturday):
-                if target_day not in date_set:
-                    continue
-                if (employee, target_day, "O") not in x:
-                    continue
-
-                forced_work_next_day = any(
-                    locks.get((employee, target_day, shift)) is True
-                    for shift in working_shifts
-                )
-                if forced_work_next_day:
-                    continue
-
-                model.Add(x[(employee, target_day, "O")] == 1).OnlyEnforceIf(works_this_weekend)
+            # No hard consecutive-weekend restriction here; that rule is now soft.
 
 
 def add_all_constraints(
@@ -447,7 +423,6 @@ def add_all_constraints(
     skills: Dict[str, Dict[str, bool]],
     time_off: Dict[Tuple[str, date], str],
     locks: Dict[Tuple[str, date, str], bool],
-    caps: Dict[str, Dict[str, int]],
     min_days_off: Dict[str, int],
     rest_codes: Set[str],
     forbidden_pairs: List[Tuple[str, str]],
@@ -467,8 +442,7 @@ def add_all_constraints(
     add_time_off_constraints(model, x, employees, dates, time_off)
     add_lock_constraints(model, x, employees, dates, locks, working_shift_codes)
     
-    # Caps and rest
-    add_cap_constraints(model, x, employees, dates, caps)
+    # Rest constraints
     add_minimum_days_off_constraints(model, x, employees, dates, min_days_off, rest_codes)
     add_weekly_rest_constraints(model, x, employees, dates, rest_codes, weekly_rest_minimum)
     
@@ -480,7 +454,7 @@ def add_all_constraints(
 
     # Weekend rules:
     # - Fri/Sat at-most-one workday unless both are explicitly requested
-    # - If worked this weekend, next weekend should be O/O unless explicitly requested otherwise
+    # - Consecutive weekends are penalized softly in scoring.py
     add_weekend_workload_constraints(model, x, employees, dates, shifts, locks, working_shift_codes)
     
     # CL availability constraint

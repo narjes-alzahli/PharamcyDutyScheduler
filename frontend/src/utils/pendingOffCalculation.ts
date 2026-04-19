@@ -2,10 +2,10 @@
  * Pending off (matches roster/app/model/solver.py create_employee_report):
  *
  * pending_off = (
- *   weekend_days_in_scope
+ *   weekend_days_in_scope_not_on_leave
  *   + (1 per N on normal weekday + 2 per N on Fri/Sat or holiday)
  *   + initial_pending_off
- * ) - (count of O shifts for that person in the period)
+ * ) - (count of DO + non-holiday O shifts for that person in the period)
  */
 
 export interface PendingOffData {
@@ -13,7 +13,7 @@ export interface PendingOffData {
   pending_off: number;
   /** Weighted N credit: +1 per weekday N, +2 per Fri/Sat N */
   night_shifts: number;
-  /** Fri+Sat days in the pending scope (full month, partial window, or fallback range) */
+  /** Fri+Sat days in scope, excluding leave weekends for that employee */
   weekend_days_in_month: number;
   Os_given: number;
   total_working_days: number;
@@ -36,16 +36,6 @@ export function countFridaySaturdayBetween(minIso: string, maxIso: string): numb
     const dow = d.getDay();
     if (dow === 5 || dow === 6) n++;
     d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-  }
-  return n;
-}
-
-function countFridaySaturdayInCalendarMonth(year: number, month: number): number {
-  const last = new Date(year, month, 0).getDate();
-  let n = 0;
-  for (let day = 1; day <= last; day++) {
-    const dow = new Date(year, month - 1, day).getDay();
-    if (dow === 5 || dow === 6) n++;
   }
   return n;
 }
@@ -92,24 +82,16 @@ export function filterEntriesToPendingWindow<T extends { date: string }>(
   });
 }
 
-/**
- * Fri/Sat days in scope: optional partial window, else full calendar month, else min–max in schedule.
- */
-function weekendDaysInScope(
-  schedule: Array<{ date: string }>,
-  year: number | undefined,
-  month: number | undefined,
-  window: { from: string; to: string } | null | undefined,
-): number {
-  if (window) {
-    return countFridaySaturdayBetween(window.from, window.to);
-  }
-  if (year !== undefined && month !== undefined) {
-    return countFridaySaturdayInCalendarMonth(year, month);
-  }
-  const all = Array.from(new Set(schedule.map((e) => e.date.split('T')[0]))).sort();
-  if (all.length === 0) return 0;
-  return countFridaySaturdayBetween(all[0], all[all.length - 1]);
+const WORKING_SHIFTS = new Set(['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL']);
+const REST_SHIFTS = new Set(['O']);
+const OFF_DEDUCTION_SHIFTS = new Set(['O', 'DO']);
+
+function isLeaveShift(shift: string): boolean {
+  const normalized = (shift || '').trim();
+  if (!normalized) return false;
+  if (WORKING_SHIFTS.has(normalized)) return false;
+  if (REST_SHIFTS.has(normalized)) return false;
+  return true;
 }
 
 export const calculatePendingOff = (
@@ -121,8 +103,6 @@ export const calculatePendingOff = (
   /** When set (e.g. Ramadan slice), only Fri/Sat inside [from,to] count toward the weekend term. */
   pendingWindow?: { from: string; to: string } | null,
 ): PendingOffData[] => {
-  const wkndDays = weekendDaysInScope(schedule, year, month, pendingWindow);
-
   const employeeData: Record<
     string,
     {
@@ -142,6 +122,56 @@ export const calculatePendingOff = (
     }
   });
 
+  const uniqueWeekendDays = (() => {
+    const window = pendingWindow ?? null;
+    if (window) {
+      const days: string[] = [];
+      const start = new Date(window.from);
+      const end = new Date(window.to);
+      for (
+        let d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        d <= end;
+        d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
+      ) {
+        const dayOfWeek = d.getDay();
+        if (dayOfWeek === 5 || dayOfWeek === 6) {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          days.push(`${y}-${m}-${day}`);
+        }
+      }
+      return days;
+    }
+
+    const all = Array.from(new Set(schedule.map((e) => e.date.split('T')[0]))).sort();
+    if (all.length === 0) return [] as string[];
+    const start = year !== undefined && month !== undefined ? `${year}-${String(month).padStart(2, '0')}-01` : all[0];
+    const end =
+      year !== undefined && month !== undefined
+        ? `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`
+        : all[all.length - 1];
+    const days: string[] = [];
+    const s = new Date(start);
+    const e = new Date(end);
+    for (
+      let d = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+      d <= e;
+      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
+    ) {
+      const dayOfWeek = d.getDay();
+      if (dayOfWeek === 5 || dayOfWeek === 6) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        days.push(`${y}-${m}-${day}`);
+      }
+    }
+    return days;
+  })();
+
+  const employeeShiftByDate: Record<string, Record<string, string>> = {};
+
   schedule.forEach((entry) => {
     const { employee, date: dateStr, shift } = entry;
 
@@ -152,17 +182,18 @@ export const calculatePendingOff = (
         total_working_days: 0,
       };
     }
+    if (!employeeShiftByDate[employee]) employeeShiftByDate[employee] = {};
 
     const empData = employeeData[employee];
 
     const dateKey = dateStr.split('T')[0];
+    employeeShiftByDate[employee][dateKey] = shift;
     const date = new Date(dateStr);
     const dayOfWeek = date.getDay();
     const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
     const isHoliday = Boolean(holidays[dateKey]);
 
-    const workingShifts = ['M', 'IP', 'A', 'N', 'M3', 'M4', 'H', 'CL'];
-    if (workingShifts.includes(shift)) {
+    if (WORKING_SHIFTS.has(shift)) {
       empData.total_working_days += 1;
 
       if (shift === 'N') {
@@ -170,7 +201,9 @@ export const calculatePendingOff = (
       }
     }
 
-    if (shift === 'O') {
+    // Holiday O should not reduce pending off (treated like PH behavior).
+    const isDeductibleOff = shift === 'DO' || (shift === 'O' && !isHoliday);
+    if (OFF_DEDUCTION_SHIFTS.has(shift) && isDeductibleOff) {
       empData.Os_given += 1;
     }
   });
@@ -178,14 +211,19 @@ export const calculatePendingOff = (
   const result: PendingOffData[] = Object.keys(employeeData).map((employee) => {
     const data = employeeData[employee];
     const initial = initialPendingOff[employee] || 0;
+    const shiftByDate = employeeShiftByDate[employee] || {};
+    const weekendDaysForEmployee = uniqueWeekendDays.reduce((acc, dateKey) => {
+      const shift = shiftByDate[dateKey];
+      return isLeaveShift(shift) ? acc : acc + 1;
+    }, 0);
 
-    const pending_off = wkndDays + data.night_shifts + initial - data.Os_given;
+    const pending_off = weekendDaysForEmployee + data.night_shifts + initial - data.Os_given;
 
     return {
       employee,
       pending_off: Math.round(pending_off),
       night_shifts: data.night_shifts,
-      weekend_days_in_month: wkndDays,
+      weekend_days_in_month: weekendDaysForEmployee,
       Os_given: data.Os_given,
       total_working_days: data.total_working_days,
     };

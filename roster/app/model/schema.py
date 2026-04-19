@@ -462,6 +462,17 @@ class RosterConfig:
             "unfilled_coverage": 1000.0,
             "overstaffing": 10.0,
             "fairness": 5.0,
+            "a_m4_zero_priority": 3000.0,
+            "a_m4_cap_priority": 5000.0,
+            "a_m4_flip_priority": 300.0,
+            "night_zero_priority": 2500.0,
+            "night_cap_priority": 4000.0,
+            "thursday_zero_priority": 2500.0,
+            "thursday_cap_priority": 4000.0,
+            "weekend_zero_priority": 2500.0,
+            "weekend_cap_priority": 4000.0,
+            "pending_off_negative": 4000.0,
+            "weekend_spacing": 8000.0,
             "rest_after_shift": 4000.0,  # for non A/N/M4 rest rules only
             "sequence_preference_miss": 1500.0,  # A/N/M4 preferred follow-up not used
             "sequence_fallback_miss": 4000.0,  # A/N/M4 acceptable fallback also not met

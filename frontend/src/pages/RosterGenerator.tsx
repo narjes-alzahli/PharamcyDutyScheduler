@@ -577,13 +577,13 @@ export const RosterGenerator: React.FC = () => {
       );
       showToast({
         message:
-          'Schedule committed. Find it on Roster History.',
+          'Draft saved. Find it on Roster History.',
         type: 'success',
         durationMs: 4200,
       });
     } catch (error: any) {
       showToast({
-        message: error.response?.data?.detail || 'Failed to commit schedule',
+        message: error.response?.data?.detail || 'Failed to save draft',
         type: 'error',
         durationMs: 5000,
       });
@@ -1330,7 +1330,7 @@ export const RosterGenerator: React.FC = () => {
     {
       id: 'schedule',
       name: 'Generate Schedule',
-      description: 'Run the solver and review results before committing.',
+      description: 'Run the solver and review results before saving draft.',
     },
   ];
 
@@ -2690,10 +2690,10 @@ export const RosterGenerator: React.FC = () => {
                             onClick={handleCommitSchedule}
                             className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700"
                           >
-                            Commit Schedule
+                            Save Draft
                           </button>
                           <p className="text-sm text-gray-600">
-                            After committing, this schedule will be available to your staff in Roster History.
+                            Save draft first. Publish from Roster History when ready.
                           </p>
                         </div>
                       </div>

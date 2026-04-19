@@ -217,59 +217,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                             if s1 == shift:
                                 forbidden_shifts[(emp, first_day, s2)] = True
 
-                # Weekend carry-over across period boundary:
-                # if an employee worked Fri/Sat in the previous weekend, force O on next Fri/Sat
-                # unless there is an explicit in-range forced working lock on those days.
-                from datetime import timedelta
-                boundary_weekend_locks = []
-
-                # Identify the nearest previous Saturday (within one week before period start).
-                prev_saturday = None
-                for delta in range(1, 8):
-                    candidate = period_start - timedelta(days=delta)
-                    if candidate.weekday() == 5:  # Saturday
-                        prev_saturday = candidate
-                        break
-
-                if prev_saturday is not None:
-                    prev_friday = prev_saturday - timedelta(days=1)
-                    next_friday = prev_friday + timedelta(days=7)
-                    next_saturday = prev_saturday + timedelta(days=7)
-
-                    # Build quick lookup for existing forced working locks on boundary weekend days.
-                    forced_work_days = set()
-                    if not locks_df.empty:
-                        for _, row in locks_df.iterrows():
-                            if row.get('force') is True:
-                                day_val = pd.to_datetime(row.get('from_date', ''), errors='coerce')
-                                shift_val = row.get('shift')
-                                emp_val = row.get('employee')
-                                if pd.notna(day_val) and emp_val and shift_val in STANDARD_WORKING_SHIFTS and shift_val != "O":
-                                    forced_work_days.add((emp_val, day_val.date()))
-
-                    prev_shift_map = {(e, d): s for (e, d), s in prev_period_shifts.items()}
-                    employees_in_prev = set(emp for (emp, _), _shift in prev_period_shifts.items())
-                    for emp in employees_in_prev:
-                        worked_prev_weekend = (
-                            prev_shift_map.get((emp, prev_friday)) in STANDARD_WORKING_SHIFTS - {"O"} or
-                            prev_shift_map.get((emp, prev_saturday)) in STANDARD_WORKING_SHIFTS - {"O"}
-                        )
-                        if not worked_prev_weekend:
-                            continue
-
-                        for target_day in (next_friday, next_saturday):
-                            if not (start_date <= target_day <= end_date):
-                                continue
-                            if (emp, target_day) in forced_work_days:
-                                continue
-                            boundary_weekend_locks.append({
-                                'employee': emp,
-                                'from_date': target_day,
-                                'to_date': target_day,
-                                'shift': 'O',
-                                'force': True,
-                                'reason': 'Weekend carry-over from previous period'
-                            })
+                # Weekend carry-over is intentionally no longer converted into hard O locks.
+                # We keep previous_period_shifts for a soft scoring penalty instead.
                 
                 # Add locks to forbid specific shifts (forbidden adjacencies)
                 forbidden_locks = []
@@ -284,7 +233,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                     })
                 
                 # Merge all locks
-                all_new_locks = boundary_weekend_locks + forbidden_locks
+                all_new_locks = forbidden_locks
                 if all_new_locks:
                     new_locks_df = pd.DataFrame(all_new_locks)
                     # Merge with existing locks (avoid duplicates)
@@ -353,6 +302,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 # Use set to avoid duplicates, then convert back to list
                 leave_codes_set = set(leave_codes)
                 leave_codes_set.update(non_standard_shift_codes)
+                # Solver post-process rewrites rest O→PH on calendar holidays; domain must include PH.
+                leave_codes_set.add("PH")
                 leave_codes = list(leave_codes_set)
 
                 if not all_shift_codes:
@@ -432,8 +383,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
             for emp_data in data.employees:
                 skills_dict[emp_data.employee] = data.get_employee_skills(emp_data.employee)
             
-            # Extract history using rolling window method (default: 3 months)
-            # Use the start date for history calculation (or first day of month if no custom range)
+            # Extract history using previous-period method.
+            # Legacy methods remain available in load_assignment_history for rollback/testing.
             from backend.roster_data_loader import load_assignment_history
             history_year = start_date.year
             history_month = start_date.month
@@ -443,7 +394,7 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 data.get_employee_names(),
                 skills_dict,
                 db=db,
-                method="rolling_window",
+                method="previous_period",
                 window_months=3,
                 period_start_date=start_date,
             )

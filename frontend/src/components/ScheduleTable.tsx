@@ -568,10 +568,9 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                   const shift = pivotData[employee][dateStr] || '';
                   const baseColor = getShiftColor(shift);
                   const weekend = isWeekend(dateStr);
-                  // Apply weekend color for empty cells or 'O' (Off Duty) on weekends
-                  // But keep shift colors for actual shifts on weekends
+                  // Weekend header color for empty, O, or PH on Fri/Sat (PH on weekdays keeps leave color)
                   const backgroundColor =
-                    weekend && (!shift || shift === 'O' || shift === '')
+                    weekend && (!shift || shift === 'O' || shift === 'PH' || shift === '')
                       ? weekendColor
                       : baseColor;
                   const isDark = shift === 'M' || shift === 'M3' || shift === 'M4';

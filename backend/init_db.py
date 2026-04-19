@@ -94,6 +94,13 @@ def init_db():
                 is_active=True
             ),
             LeaveType(
+                code="PH",
+                description="Public Holiday",
+                color_hex="#a8d5e2",
+                counts_as_rest=True,
+                is_active=True
+            ),
+            LeaveType(
                 code="O",
                 description="Off Duty",
                 color_hex="#ffffff",
@@ -195,7 +202,7 @@ def init_db():
             ),
             ShiftType(
                 code="M+P",
-                description="Main+Preparation",
+                description="Morning+Preparation",
                 color_hex="#ec7c13",
                 is_working_shift=True,
                 is_active=True

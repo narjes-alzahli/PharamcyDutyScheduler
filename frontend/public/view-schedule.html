@@ -113,7 +113,10 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1 id="title">Schedule</h1>
+      <div>
+        <h1 id="title">Schedule</h1>
+        <p id="subtitle" style="margin: 6px 0 0 0; font-size: 18px; font-weight: 600; color: #4b5563;"></p>
+      </div>
       <div class="buttons">
         <button class="btn-back" onclick="window.close()">Close</button>
         <button class="btn-download" id="downloadBtn" onclick="downloadImage()" style="display: none;">Download</button>
@@ -134,7 +137,7 @@
     const urlParams = new URLSearchParams(window.location.search);
     const year = urlParams.get('year');
     const month = urlParams.get('month');
-    
+
     const monthNames = [
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
@@ -173,8 +176,10 @@
 
     // Initialize
       if (year && month) {
-        document.getElementById('title').textContent = 
-          `${monthNames[parseInt(month) - 1]} ${year} Schedule`;
+        document.getElementById('title').textContent =
+          `PHARMACY DEPARTMENT DUTY ROSTER ${year}`;
+        document.getElementById('subtitle').textContent =
+          `${monthNames[parseInt(month, 10) - 1]} ${year}`;
       }
       
     if (!imageData) {

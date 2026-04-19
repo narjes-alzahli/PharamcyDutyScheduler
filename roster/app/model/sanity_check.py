@@ -207,6 +207,45 @@ def check_roster_feasibility(data: RosterData) -> Tuple[bool, List[str]]:
         if getattr(cfg, "weekly_rest_minimum", None) is not None:
             weekly_rest_minimum = int(cfg.weekly_rest_minimum)
 
+    # --- Issue 0: forced working shift on a zero-demand day (blocking) ---
+    # If a shift is not needed on a day (demand=0) but a Must lock exists, the model is infeasible
+    # (this includes soft-coverage shifts like M/IP).
+    zero_demand_conflicts: List[str] = []
+    for (emp, day, shift), force in locks.items():
+        if force is not True:
+            continue
+        if shift not in standard:
+            continue
+        if day not in demands:
+            continue
+        required = int((demands.get(day, {}) or {}).get(shift, 0) or 0)
+        if required != 0:
+            continue
+        date_str = day.strftime("%d %B %Y")
+        zero_demand_conflicts.append(f"{emp} — {date_str} — {shift}")
+
+    if zero_demand_conflicts:
+        preview = "\n".join(f"- {row}" for row in zero_demand_conflicts[:25])
+        more = ""
+        if len(zero_demand_conflicts) > 25:
+            more = f"\n- ... and {len(zero_demand_conflicts) - 25} more"
+        def _format_conflict(raw: str) -> str:
+            # raw format: "Emp — 01 January 2026 — M"
+            parts = [p.strip() for p in raw.split("—")]
+            if len(parts) != 3:
+                return f"- {raw}"
+            emp, date_human, shift = parts
+            return f"- {emp} • {date_human} • {shift} (required {shift} shifts on that day = 0)"
+
+        issues.append(
+            "❌ Someone was assigned a shift on a day where the shift isn’t needed.\n"
+            "Fix: increase demand for that shift on that day, OR remove the approved request.\n"
+            "\n"
+            "Details:\n"
+            + "\n".join(_format_conflict(row) for row in zero_demand_conflicts[:25])
+            + (f"\n- ... and {len(zero_demand_conflicts) - 25} more" if len(zero_demand_conflicts) > 25 else "")
+        )
+
     # --- Issue 1A: per-shift hard coverage diagnostics (specific reason per shift/day) ---
     for day in dates:
         if day not in demands:
