@@ -1063,7 +1063,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                     />
                   )}
                   <div
-                    className={`flex min-h-[30px] min-w-[30px] max-w-[4.5rem] shrink-0 items-center justify-center rounded border border-gray-300 px-0.5 outline-none ring-0 transition-colors sm:min-h-[32px] sm:min-w-[32px] print:min-h-[24px] print:min-w-[24px] ${
+                    className={`flex min-h-[26px] min-w-[26px] max-w-[3.5rem] shrink-0 items-center justify-center rounded border border-gray-300 px-0.5 outline-none ring-0 transition-colors sm:min-h-[28px] sm:min-w-[28px] print:min-h-[22px] print:min-w-[22px] ${
                       canChangeColors
                         ? 'cursor-pointer hover:border-gray-400 focus:outline-none focus-visible:outline-none active:border-gray-500'
                         : 'cursor-default'
@@ -1110,7 +1110,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                     </span>
                   </div>
                   {isEditing && (
-                    <div className="absolute left-0 top-8 z-50 flex gap-1.5 rounded border border-gray-300 bg-white p-1.5 shadow-lg color-picker-container">
+                    <div className="absolute left-0 top-7 z-50 flex gap-1.5 rounded border border-gray-300 bg-white p-1.5 shadow-lg color-picker-container">
                       <button
                         type="button"
                         onClick={(e) => {
