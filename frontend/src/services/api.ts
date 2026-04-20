@@ -49,9 +49,10 @@ api.interceptors.response.use(
     const isAuthMeRequest = originalRequest?.url?.includes('/auth/me');
     const isOnLoginPage = window.location.pathname === '/login';
     
-    // Handle 401 Unauthorized or 403 Forbidden - both could indicate expired token
-    // Some backends return 403 for expired tokens, so we check both
-    const isAuthError = error.response?.status === 401 || error.response?.status === 403;
+    // Handle only 401 Unauthorized as an auth-expiry signal.
+    // In this app, 403 is commonly used for role-based access control
+    // (e.g. staff calling manager-only endpoints) and should not clear tokens.
+    const isAuthError = error.response?.status === 401;
     
     if (isAuthError && originalRequest && !isLoginRequest && !isRefreshRequest && !isAuthMeRequest) {
       // Don't retry if we've already tried once
@@ -129,8 +130,7 @@ api.interceptors.response.use(
       sessionStorage.removeItem('auth_redirect');
     }
     
-    // For 403 errors that aren't token-related, just reject
-    // (e.g., non-manager trying to access manager-only endpoint)
+    // For 403 errors (e.g. non-manager hitting manager-only endpoint), just reject.
     return Promise.reject(error);
   }
 );

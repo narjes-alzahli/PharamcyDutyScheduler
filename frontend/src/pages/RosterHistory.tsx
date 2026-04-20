@@ -302,6 +302,13 @@ export const AllRostersPage: React.FC = () => {
   }, []);
 
   const loadFairnessRequestSources = useCallback(async () => {
+    // Staff users should not call manager-only endpoints used for fairness overlays.
+    if (!isManager) {
+      setFairnessShiftRequests([]);
+      setFairnessRosterLocks([]);
+      return;
+    }
+
     try {
       const shiftReq = await requestsAPI.getAllShiftRequests();
       setFairnessShiftRequests(Array.isArray(shiftReq) ? shiftReq : []);
@@ -317,7 +324,7 @@ export const AllRostersPage: React.FC = () => {
       console.error('Failed to load roster locks for fairness:', err);
       setFairnessRosterLocks([]);
     }
-  }, []);
+  }, [isManager]);
 
   // FIX: Load schedules list ONLY after auth guard confirms we're ready
   // This ensures user is authenticated AND token is valid before making API calls
