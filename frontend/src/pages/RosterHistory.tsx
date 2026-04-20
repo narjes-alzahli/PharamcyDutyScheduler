@@ -652,9 +652,10 @@ export const AllRostersPage: React.FC = () => {
     const container = scheduleImageRef.current;
     if (!container) return null;
 
-    // Get the root div from ScheduleTable
-    const rootDiv = container.firstElementChild as HTMLElement;
-    if (!rootDiv) return null;
+    // Clone ScheduleTable root so capture never mutates visible UI
+    const sourceRootDiv = container.firstElementChild as HTMLElement;
+    if (!sourceRootDiv) return null;
+    const rootDiv = sourceRootDiv.cloneNode(true) as HTMLElement;
 
     // Store original states to restore later
     const buttonsToHide: HTMLElement[] = [];
@@ -722,6 +723,11 @@ export const AllRostersPage: React.FC = () => {
         font-family: system-ui, -apple-system, sans-serif;
         width: max-content;
         max-width: none;
+        position: fixed;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+        z-index: -1;
       `;
       document.body.appendChild(wrapper);
 
@@ -747,8 +753,7 @@ export const AllRostersPage: React.FC = () => {
       wrapper.appendChild(title);
       wrapper.appendChild(subtitle);
 
-      // Move rootDiv temporarily to wrapper
-      const parent = rootDiv.parentElement;
+      // Render cloned table inside off-screen wrapper
       wrapper.appendChild(rootDiv);
 
       // Omit "Display" (Weekend / Totals) from exported image only
@@ -808,10 +813,6 @@ export const AllRostersPage: React.FC = () => {
         displayLegendSection = null;
       }
 
-      // Move rootDiv back to original parent
-      if (parent) {
-        parent.appendChild(rootDiv);
-      }
       
       // Remove wrapper
       document.body.removeChild(wrapper);
@@ -836,12 +837,6 @@ export const AllRostersPage: React.FC = () => {
       inputsToHide.forEach(input => input.style.display = '');
       originalOverflows.forEach((value, el) => el.style.overflow = value || '');
       originalWidths.forEach((value, el) => el.style.width = value || '');
-      
-      // Ensure rootDiv is back in original position
-      const parent = container;
-      if (parent && !parent.contains(rootDiv)) {
-        parent.appendChild(rootDiv);
-      }
       
       return null;
     }
