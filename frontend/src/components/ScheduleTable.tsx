@@ -1,6 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { shiftColors as defaultShiftColors } from '../utils/shiftColors';
 import { leaveTypesAPI, shiftTypesAPI, LeaveType, ShiftType } from '../services/api';
+
+/** `<input type="color">` only accepts #rrggbb. */
+function colorToHexForColorInput(c: string): string {
+  const s = (c || '').trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s;
+  if (/^#[0-9A-Fa-f]{3}$/.test(s)) {
+    const r = s[1];
+    const g = s[2];
+    const b = s[3];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  const m = s.match(/^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (m) {
+    const x = (n: string) => Number(n).toString(16).padStart(2, '0');
+    return `#${x(m[1])}${x(m[2])}${x(m[3])}`;
+  }
+  return '#ffffff';
+}
+
+/** Pick dark or light text on top of a solid swatch color. */
+function textOnLegendSwatch(bgHex: string): string {
+  try {
+    const hex = colorToHexForColorInput(bgHex).slice(1);
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return L > 0.62 ? '#111827' : '#ffffff';
+  } catch {
+    return '#111827';
+  }
+}
+
+/** Strip trailing/standalone "Leave" from DB descriptions (e.g. Annual Leave → Annual). */
+function stripLeaveWordFromDescription(s: string): string {
+  const t = s
+    .replace(/\s+leave$/i, '')
+    .replace(/^\s*leave\s+/i, '')
+    .replace(/\s+leave\s+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return t;
+}
 
 interface ScheduleEntry {
   employee: string;
@@ -38,6 +82,121 @@ interface EmployeeMobileSummary {
   pendingOff: number;
   daysWithAssignments: MobileAssignment[];
   shiftCount: number;
+}
+
+interface LegendItem {
+  key: string;
+  defaultColor: string;
+  /** Text shown beside the swatch (not inside the colored box). */
+  description: string;
+  /** Full line for tooltip / a11y. */
+  label: string;
+  /** Short text drawn inside the swatch; defaults to shift `key` when omitted. */
+  swatchCode?: string;
+}
+
+interface LegendSection {
+  id: string;
+  title: string;
+  items: LegendItem[];
+}
+
+/** Legend order under "Shifts" (subset shown = codes present in month schedule). */
+const SHIFT_LEGEND_ORDER = [
+  'A',
+  'IP',
+  'M',
+  'M3',
+  'M4',
+  'N',
+  'H',
+  'MS',
+  'P',
+  'M+P',
+  'IP+P',
+  'C',
+  'CL',
+  'E',
+  'AS',
+] as const;
+
+/** Legend order under "Leaves". */
+const LEAVE_LEGEND_ORDER = [
+  'O',
+  'DO',
+  'APP',
+  'W',
+  'L',
+  'AL',
+  'SL',
+  'STL',
+  'ML',
+  'UL',
+  'PH',
+] as const;
+
+/** Preferred legend descriptions (overrides DB casing/wording where needed). */
+const LEGEND_CODE_DESCRIPTION: Record<string, string> = {
+  A: 'Afternoon',
+  IP: 'Inpatient',
+  M: 'Morning',
+  M3: '7am-2pm',
+  M4: '12pm-7pm',
+  N: 'Night',
+  H: 'Harat',
+  MS: 'Medical Store',
+  P: 'Preparation',
+  'M+P': 'Main+Prep',
+  'IP+P': 'Inpatient+Prep',
+  C: 'Course',
+  CL: 'Clinic',
+  E: 'Evening',
+  AS: 'All Shifts',
+  O: 'Off Duty',
+  DO: 'Day Off',
+  APP: 'Appointment',
+  W: 'Workshop',
+  L: 'Other',
+  AL: 'Annual',
+  SL: 'Sick',
+  STL: 'Study',
+  ML: 'Maternity',
+  UL: 'Unpaid',
+  PH: 'Public Holiday',
+};
+
+function orderLegendItemsByCode(items: LegendItem[], order: readonly string[]): LegendItem[] {
+  const picked = new Set<string>();
+  const ordered: LegendItem[] = [];
+  for (const code of order) {
+    const found = items.find((x) => x.key === code);
+    if (found) {
+      ordered.push(found);
+      picked.add(code);
+    }
+  }
+  const rest = items.filter((x) => !picked.has(x.key)).sort((a, b) => a.key.localeCompare(b.key));
+  return [...ordered, ...rest];
+}
+
+function classifyLegendBucket(
+  code: string,
+  leaveTypeCodes: Set<string>,
+  shiftTypeCodes: Set<string>,
+): 'shift' | 'leave' {
+  const inLeaveOrder = (LEAVE_LEGEND_ORDER as readonly string[]).includes(code);
+  const inShiftOrder = (SHIFT_LEGEND_ORDER as readonly string[]).includes(code);
+  const isLeaveType = leaveTypeCodes.has(code);
+  const isShiftType = shiftTypeCodes.has(code);
+  // Prefer explicit roster lists so e.g. O / PH stay under Leaves even if also a shift row in DB
+  if (inLeaveOrder && !inShiftOrder) return 'leave';
+  if (inShiftOrder && !inLeaveOrder) return 'shift';
+  if (inLeaveOrder) return 'leave';
+  if (inShiftOrder) return 'shift';
+  if (isLeaveType && !isShiftType) return 'leave';
+  if (isShiftType && !isLeaveType) return 'shift';
+  if (isLeaveType) return 'leave';
+  return 'shift';
 }
 
 const SPECIAL_COLOR_KEYS = {
@@ -180,6 +339,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
 
   const [customColors, setCustomColors] = useState<Record<string, string>>(loadCustomColors);
   const [editingColor, setEditingColor] = useState<string | null>(null);
+  const legendColorInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
   
   // Update colors when leave types or shift types load
   useEffect(() => {
@@ -428,6 +588,89 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
       });
     }
   }, [filteredSchedule, dateRange, dates, month, year]);
+
+  /** Legend: only codes in the selected month/period schedule; fixed Shifts / Leaves order; Display = Weekend + Totals. */
+  const legendSections = React.useMemo((): LegendSection[] => {
+    const shiftTypeCodes = new Set(shiftTypes.map((st) => st.code));
+    const leaveTypeCodes = new Set(leaveTypes.map((lt) => lt.code));
+
+    const codesInMonth = new Set(
+      monthData
+        .map((e) => e.shift)
+        .filter((s) => s && s !== '0' && s !== '' && !s.startsWith('__')),
+    );
+
+    const allColors = { ...defaultShiftColors, ...getDynamicShiftColors() };
+
+    const labelFromDb = (shift: string): string => {
+      const leaveType = leaveTypes.find((lt) => lt.code === shift);
+      if (leaveType) return leaveType.description || shift;
+      const shiftType = shiftTypes.find((st) => st.code === shift);
+      if (shiftType) return shiftType.description || shift;
+      return shift;
+    };
+
+    const describe = (code: string): string => {
+      if (Object.prototype.hasOwnProperty.call(LEGEND_CODE_DESCRIPTION, code)) {
+        return LEGEND_CODE_DESCRIPTION[code];
+      }
+      const raw = labelFromDb(code);
+      const stripped = stripLeaveWordFromDescription(raw);
+      return stripped || raw;
+    };
+
+    const rawItems: LegendItem[] = Array.from(codesInMonth).map((code) => {
+      const description = describe(code);
+      return {
+        key: code,
+        defaultColor: allColors[code] || '#F5F5F5',
+        description,
+        label: `${code}: ${description}`,
+      };
+    });
+
+    const shiftItems: LegendItem[] = [];
+    const leaveItems: LegendItem[] = [];
+    for (const item of rawItems) {
+      if (classifyLegendBucket(item.key, leaveTypeCodes, shiftTypeCodes) === 'leave') {
+        leaveItems.push(item);
+      } else {
+        shiftItems.push(item);
+      }
+    }
+
+    const sections: LegendSection[] = [];
+    const orderedShifts = orderLegendItemsByCode(shiftItems, SHIFT_LEGEND_ORDER);
+    if (orderedShifts.length > 0) {
+      sections.push({ id: 'shifts', title: 'Shifts', items: orderedShifts });
+    }
+    const orderedLeaves = orderLegendItemsByCode(leaveItems, LEAVE_LEGEND_ORDER);
+    if (orderedLeaves.length > 0) {
+      sections.push({ id: 'leaves', title: 'Leaves', items: orderedLeaves });
+    }
+    sections.push({
+      id: 'display',
+      title: 'Display',
+      items: [
+        {
+          key: SPECIAL_COLOR_KEYS.weekend,
+          defaultColor: defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend],
+          description: 'Weekend',
+          swatchCode: 'Wk',
+          label: 'Weekend',
+        },
+        {
+          key: SPECIAL_COLOR_KEYS.totals,
+          defaultColor: defaultSpecialColors[SPECIAL_COLOR_KEYS.totals],
+          description: 'Totals',
+          swatchCode: 'Tot',
+          label: 'Totals',
+        },
+      ],
+    });
+
+    return sections;
+  }, [monthData, shiftTypes, leaveTypes]);
 
   if (monthData.length === 0) {
     return (
@@ -745,9 +988,9 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
       </div>
 
       {/* Legend with Color Pickers */}
-      <div className="mt-6 bg-white p-4 rounded-lg shadow">
+      <div className="mt-3 bg-white p-2 sm:p-2.5 rounded-lg shadow" data-schedule-legend>
         {canChangeColors && (
-        <div className="flex justify-between items-center mb-3">
+        <div className="mb-1 flex items-center justify-end">
           <button
             onClick={() => {
               if (window.confirm('Reset all colors to database defaults?')) {
@@ -767,127 +1010,143 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                 localStorage.removeItem('shiftColors');
               }
             }}
-            className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+            className="rounded bg-gray-200 px-2 py-0.5 text-[11px] text-gray-700 hover:bg-gray-300"
           >
             Reset Colors
           </button>
         </div>
         )}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
-          {[
-            // Only show shifts that are: 1) in shiftTypes, 2) in leaveTypes, or 3) actually used in schedule
-            ...(() => {
-              // Get all unique shifts from the schedule
-              const shiftsInSchedule = new Set(schedule.map(entry => entry.shift).filter(Boolean));
-              
-              // Get shift codes from database shift types
-              const shiftTypeCodes = new Set(shiftTypes.map(st => st.code));
-              
-              // Get leave codes from database leave types
-              const leaveTypeCodes = new Set(leaveTypes.map(lt => lt.code));
-              
-              // Get dynamic colors
-              const allColors = getDynamicShiftColors();
-              
-              // Build set of allowed shifts: shift types + leave types + shifts actually used in schedule
-              const allowedShifts = new Set<string>();
-              
-              // Add all shift types
-              shiftTypeCodes.forEach(code => allowedShifts.add(code));
-              
-              // Add all leave types
-              leaveTypeCodes.forEach(code => allowedShifts.add(code));
-              
-              // Add shifts actually used in schedule (non-standard combinations like M+P, IP+P, etc.)
-              shiftsInSchedule.forEach(shift => {
-                if (shift && shift !== '0' && shift !== '') {
-                  // Only add if it's not already a shift type or leave type (i.e., it's a non-standard combination)
-                  if (!shiftTypeCodes.has(shift) && !leaveTypeCodes.has(shift)) {
-                    allowedShifts.add(shift);
-                  }
-                }
-              });
-              
-              // Filter to only show allowed shifts
-              return Array.from(allowedShifts)
-                .filter(shift => shift && shift !== '0' && shift !== '' && !shift.startsWith('__'))
-                .map(shift => ({
-                  key: shift,
-                  defaultColor: allColors[shift] || '#F5F5F5',
-                  label: `${shift}: ${getDynamicShiftLabel(shift)}`,
-                }))
-                .sort((a, b) => a.key.localeCompare(b.key)); // Sort alphabetically
-            })(),
-            {
-              key: SPECIAL_COLOR_KEYS.weekend,
-              defaultColor: defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend],
-              label: 'Weekend',
-            },
-            {
-              key: SPECIAL_COLOR_KEYS.totals,
-              defaultColor: defaultSpecialColors[SPECIAL_COLOR_KEYS.totals],
-              label: 'Totals',
-            },
-          ].map(({ key, defaultColor, label }) => {
-            // Use getShiftColor to ensure legend colors match schedule colors exactly
-            // This ensures both use the same priority: user customizations > database > defaults
+        <div className="space-y-0">
+          {legendSections.map((section, sectionIdx) => (
+            <div
+              key={section.id}
+              data-legend-section={section.id}
+              className={`min-w-0 ${sectionIdx > 0 ? 'mt-1 border-t border-gray-100 pt-1' : ''}`}
+            >
+              <h4 className="mb-0.5 border-b border-gray-100 pb-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-gray-600">
+                {section.title}
+              </h4>
+              <div className="grid min-w-0 grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-x-1.5 gap-y-0.5 print:grid-cols-10 print:gap-x-1 print:gap-y-0.5">
+                {section.items.map((item) => {
+            const { key, defaultColor, description, label, swatchCode } = item;
+            const codeInSwatch = swatchCode ?? key;
             const currentColor = getShiftColor(key);
             const isEditing = editingColor === key;
-            
+            const swLen = codeInSwatch.length;
+            const swatchTextClass =
+              swLen > 4
+                ? 'text-[8px] sm:text-[9px]'
+                : swLen === 4
+                  ? 'text-[9px] sm:text-[11px]'
+                  : swLen > 2
+                    ? 'text-[10px] sm:text-[12px]'
+                    : 'text-xs sm:text-[13px]';
+
             return (
-              <div key={key} className="flex items-center space-x-2 group">
-                <div className="relative color-picker-container">
+              <div key={key} className="group flex min-w-0 max-w-full items-center gap-1 overflow-hidden py-px">
+                <div className="relative color-picker-container flex-shrink-0">
+                  {canChangeColors && (
+                    <input
+                      ref={(el) => {
+                        const m = legendColorInputRefs.current;
+                        if (el) m.set(key, el);
+                        else m.delete(key);
+                      }}
+                      type="color"
+                      value={colorToHexForColorInput(currentColor)}
+                      onChange={(e) => {
+                        setCustomColors({ ...customColors, [key]: e.target.value });
+                      }}
+                      className="sr-only"
+                      tabIndex={-1}
+                      aria-hidden
+                    />
+                  )}
                   <div
-                    className={`w-6 h-6 border border-gray-300 rounded transition-all ${
-                      canChangeColors 
-                        ? 'cursor-pointer hover:ring-2 hover:ring-primary-500' 
+                    className={`flex min-h-[30px] min-w-[30px] max-w-[4.5rem] shrink-0 items-center justify-center rounded border border-gray-300 px-0.5 outline-none ring-0 transition-colors sm:min-h-[32px] sm:min-w-[32px] print:min-h-[24px] print:min-w-[24px] ${
+                      canChangeColors
+                        ? 'cursor-pointer hover:border-gray-400 focus:outline-none focus-visible:outline-none active:border-gray-500'
                         : 'cursor-default'
                     }`}
                     style={{ backgroundColor: currentColor }}
-                    onClick={() => canChangeColors && setEditingColor(isEditing ? null : key)}
-                    title={canChangeColors ? "Click to change color" : ""}
-                  />
+                    tabIndex={canChangeColors ? -1 : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!canChangeColors) return;
+                      if (isEditing) {
+                        setEditingColor(null);
+                        return;
+                      }
+                      const input = legendColorInputRefs.current.get(key);
+                      if (input) {
+                        try {
+                          if (typeof input.showPicker === 'function') {
+                            const r = input.showPicker();
+                            if (r !== undefined && typeof (r as Promise<void>).catch === 'function') {
+                              (r as Promise<void>).catch(() => input.click());
+                            }
+                          } else {
+                            input.click();
+                          }
+                        } catch {
+                          input.click();
+                        }
+                      }
+                      setEditingColor(key);
+                    }}
+                    title={canChangeColors ? `${label} — click to change color` : label}
+                  >
+                    <span
+                      className={`select-none font-bold leading-none tracking-tight ${swatchTextClass}`}
+                      style={{
+                        color: textOnLegendSwatch(currentColor),
+                        textShadow:
+                          textOnLegendSwatch(currentColor) === '#ffffff'
+                            ? '0 0 2px rgba(0,0,0,0.75)'
+                            : 'none',
+                      }}
+                    >
+                      {codeInSwatch}
+                    </span>
+                  </div>
                   {isEditing && (
-                    <div className="absolute top-8 left-0 z-50 bg-white border border-gray-300 rounded-lg shadow-lg p-2 color-picker-container">
-                      <input
-                        type="color"
-                        value={currentColor}
-                        onChange={(e) => {
-                          setCustomColors({ ...customColors, [key]: e.target.value });
+                    <div className="absolute left-0 top-8 z-50 flex gap-1.5 rounded border border-gray-300 bg-white p-1.5 shadow-lg color-picker-container">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCustomColors({ ...customColors, [key]: defaultColor });
+                          setEditingColor(null);
                         }}
-                        className="w-full h-8 cursor-pointer"
-                        autoFocus
-                      />
-                      <div className="mt-2 flex space-x-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCustomColors({ ...customColors, [key]: defaultColor });
-                            setEditingColor(null);
-                          }}
-                          className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                        >
-                          Reset
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingColor(null);
-                          }}
-                          className="text-xs px-2 py-1 bg-primary-600 text-white rounded hover:bg-primary-700"
-                        >
-                          Done
-                        </button>
-                      </div>
+                        className="rounded bg-gray-200 px-2 py-1 text-xs hover:bg-gray-300"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingColor(null);
+                        }}
+                        className="rounded bg-primary-600 px-2 py-1 text-xs text-white hover:bg-primary-700"
+                      >
+                        Done
+                      </button>
                     </div>
                   )}
                 </div>
-                <span className="text-xs">
-                  {label}
+                <span
+                  className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-800 sm:text-xs print:text-[9px]"
+                  title={label}
+                >
+                  {description}
                 </span>
               </div>
             );
-          })}
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

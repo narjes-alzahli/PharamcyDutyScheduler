@@ -66,23 +66,11 @@ function employeeHasSkillForMetric(emp: any | undefined, metric: MetricType): bo
     case 'weekend':
       return !!(emp.skill_A || emp.skill_M3 || emp.skill_N || emp.skill_E);
     case 'thursday':
+      // Matches THURSDAY_FAIRNESS shifts (A, M4, N, E) — anyone who can work any Thursday slot
       return !!(emp.skill_A || emp.skill_M4 || emp.skill_N || emp.skill_E);
     case 'working':
-      return !!(
-        emp.skill_M ||
-        emp.skill_IP ||
-        emp.skill_A ||
-        emp.skill_N ||
-        emp.skill_M3 ||
-        emp.skill_M4 ||
-        emp.skill_H ||
-        emp.skill_CL ||
-        emp.skill_E ||
-        emp.skill_MS ||
-        emp.skill_IP_P ||
-        emp.skill_P ||
-        emp.skill_M_P
-      );
+      // Total = all working-shift counts; axis should list every staff member in the roster
+      return true;
     default:
       return true;
   }
@@ -204,7 +192,7 @@ export const FairnessLineGraph: React.FC<FairnessLineGraphProps> = ({
     [visibleMetricsArray, metricDataMap],
   );
 
-  /** X-axis staff: union of people who have at least one skill matching any visible metric. */
+  /** X-axis staff: union across selected metrics (Total includes all staff; others filter by skill). */
   const axisEmployees = useMemo(() => {
     if (!employees?.length || visibleMetricsArray.length === 0) return allEmployees;
 

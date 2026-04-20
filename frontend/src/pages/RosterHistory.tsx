@@ -661,6 +661,8 @@ export const AllRostersPage: React.FC = () => {
     const inputsToHide: HTMLElement[] = [];
     const originalOverflows: Map<HTMLElement, string> = new Map();
     const originalWidths: Map<HTMLElement, string> = new Map();
+    let displayLegendSection: HTMLElement | null = null;
+    let displayLegendDisplayPrev = '';
 
     try {
       // Temporarily hide buttons and color pickers
@@ -716,18 +718,12 @@ export const AllRostersPage: React.FC = () => {
       const wrapper = document.createElement('div');
       wrapper.style.cssText = `
         background: white;
-        padding: 40px;
+        padding: 16px 20px 20px;
         font-family: system-ui, -apple-system, sans-serif;
         width: max-content;
         max-width: none;
       `;
       document.body.appendChild(wrapper);
-
-      // Add title (download / view image — department header + period)
-      const title = document.createElement('h2');
-      title.textContent = `PHARMACY DEPARTMENT DUTY ROSTER ${selectedYear}`;
-      title.style.cssText =
-        'font-size: 28px; font-weight: bold; color: #111827; margin: 0 0 8px 0; text-align: center;';
 
       const periodSubtitle =
         currentPeriod === 'pre-ramadan'
@@ -738,10 +734,15 @@ export const AllRostersPage: React.FC = () => {
               ? `March ${selectedYear} (Post-Ramadan)`
               : `${monthNames[selectedMonth - 1]} ${selectedYear}`;
 
+      const title = document.createElement('h2');
+      title.textContent = `PHARMACY DEPARTMENT DUTY ROSTER ${selectedYear}`;
+      title.style.cssText =
+        'font-size: 16px; font-weight: bold; color: #111827; margin: 0 0 4px 0; text-align: center; letter-spacing: 0.02em;';
+
       const subtitle = document.createElement('div');
       subtitle.textContent = periodSubtitle;
       subtitle.style.cssText =
-        'font-size: 18px; font-weight: 600; color: #4b5563; margin: 0 0 24px 0; text-align: center;';
+        'font-size: 13px; font-weight: 600; color: #4b5563; margin: 0 0 10px 0; text-align: center;';
 
       wrapper.appendChild(title);
       wrapper.appendChild(subtitle);
@@ -750,18 +751,25 @@ export const AllRostersPage: React.FC = () => {
       const parent = rootDiv.parentElement;
       wrapper.appendChild(rootDiv);
 
+      // Omit "Display" (Weekend / Totals) from exported image only
+      displayLegendSection = rootDiv.querySelector('[data-legend-section="display"]') as HTMLElement | null;
+      if (displayLegendSection) {
+        displayLegendDisplayPrev = displayLegendSection.style.display;
+        displayLegendSection.style.display = 'none';
+      }
+
       const footer = document.createElement('div');
       footer.textContent =
         'NB: DUTY ROSTER COULD BE CHANGED ACCORDING TO PHARMACY NEEDS';
       footer.style.cssText =
-        'font-size: 14px; font-weight: 700; color: #374151; margin: 28px 0 0 0; text-align: center; line-height: 1.4;';
+        'font-size: 11px; font-weight: 700; color: #374151; margin: 10px 0 0 0; text-align: center; line-height: 1.35;';
       wrapper.appendChild(footer);
 
       // Wait for layout to settle and table to expand
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Constrain legend width to match table width
-      const legendDiv = rootDiv.querySelector('.mt-6.bg-white') as HTMLElement;
+      const legendDiv = rootDiv.querySelector('[data-schedule-legend]') as HTMLElement;
       let legendOriginalWidth = '';
       if (legendDiv && table) {
         const tableWidth = table.scrollWidth;
@@ -795,6 +803,11 @@ export const AllRostersPage: React.FC = () => {
         legendDiv.style.boxSizing = '';
       }
 
+      if (displayLegendSection) {
+        displayLegendSection.style.display = displayLegendDisplayPrev;
+        displayLegendSection = null;
+      }
+
       // Move rootDiv back to original parent
       if (parent) {
         parent.appendChild(rootDiv);
@@ -812,7 +825,12 @@ export const AllRostersPage: React.FC = () => {
       return dataUrl && dataUrl !== 'data:,' ? dataUrl : null;
     } catch (error) {
       console.error('Image generation error:', error);
-      
+
+      if (displayLegendSection) {
+        displayLegendSection.style.display = displayLegendDisplayPrev;
+        displayLegendSection = null;
+      }
+
       // Restore original states on error
       buttonsToHide.forEach(btn => btn.style.display = '');
       inputsToHide.forEach(input => input.style.display = '');
@@ -847,8 +865,9 @@ export const AllRostersPage: React.FC = () => {
       const storageKey = `schedule_image_${selectedYear}_${selectedMonth}`;
       sessionStorage.setItem(storageKey, imageDataUrl);
       
-      // Open view page with just year and month in URL
-      const viewUrl = `${window.location.origin}/view-schedule.html?year=${selectedYear}&month=${selectedMonth}`;
+      // View page shows title; pass return path so Close returns to this app screen
+      const returnPath = `${window.location.pathname}${window.location.search}`;
+      const viewUrl = `${window.location.origin}/view-schedule.html?year=${selectedYear}&month=${selectedMonth}&return=${encodeURIComponent(returnPath)}`;
       window.open(viewUrl, '_blank');
     } catch (error) {
       console.error('View image error:', error);
@@ -1518,7 +1537,7 @@ export const AllRostersPage: React.FC = () => {
                           disabled={viewing || downloading || calendarExporting}
                           className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
-                          {viewing ? 'Preparing...' : 'View Schedule'}
+                          {viewing ? 'Preparing...' : 'View'}
                         </button>
                         <button
                           onClick={handleDownloadImage}

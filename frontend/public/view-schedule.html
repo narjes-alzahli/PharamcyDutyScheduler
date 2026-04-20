@@ -28,16 +28,11 @@
     }
     .header {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 12px;
       flex-wrap: wrap;
       gap: 10px;
-    }
-    h1 {
-      font-size: 24px;
-      font-weight: bold;
-      color: #111827;
     }
     .buttons {
       display: flex;
@@ -108,17 +103,32 @@
       border-radius: 6px;
       margin-bottom: 20px;
     }
+    @media print {
+      body {
+        background: white;
+        padding: 8px;
+      }
+      .container {
+        box-shadow: none;
+        padding: 8px;
+      }
+      .header {
+        margin-bottom: 8px;
+      }
+      .buttons {
+        display: none !important;
+      }
+      .image-container {
+        overflow: visible;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <div>
-        <h1 id="title">Schedule</h1>
-        <p id="subtitle" style="margin: 6px 0 0 0; font-size: 18px; font-weight: 600; color: #4b5563;"></p>
-      </div>
       <div class="buttons">
-        <button class="btn-back" onclick="window.close()">Close</button>
+        <button type="button" class="btn-back" onclick="goBack()">Close</button>
         <button class="btn-download" id="downloadBtn" onclick="downloadImage()" style="display: none;">Download</button>
       </div>
     </div>
@@ -137,11 +147,33 @@
     const urlParams = new URLSearchParams(window.location.search);
     const year = urlParams.get('year');
     const month = urlParams.get('month');
+    const returnParam = urlParams.get('return');
 
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
+    /** Same-origin path only (e.g. /roster-history?...). */
+    function safeReturnUrl(encoded) {
+      if (!encoded) return null;
+      try {
+        const path = decodeURIComponent(encoded);
+        if (typeof path !== 'string' || path.length === 0) return null;
+        if (!path.startsWith('/') || path.startsWith('//')) return null;
+        return window.location.origin + path;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function goBack() {
+      const target = safeReturnUrl(returnParam);
+      if (target) {
+        window.location.href = target;
+        return;
+      }
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+      window.location.href = window.location.origin + '/';
+    }
 
     // Get image data from sessionStorage
     let imageData = null;
@@ -174,14 +206,6 @@
       document.body.removeChild(link);
     }
 
-    // Initialize
-      if (year && month) {
-        document.getElementById('title').textContent =
-          `PHARMACY DEPARTMENT DUTY ROSTER ${year}`;
-        document.getElementById('subtitle').textContent =
-          `${monthNames[parseInt(month, 10) - 1]} ${year}`;
-      }
-      
     if (!imageData) {
       showError('No schedule image data found. Please generate the image again.');
     } else {
