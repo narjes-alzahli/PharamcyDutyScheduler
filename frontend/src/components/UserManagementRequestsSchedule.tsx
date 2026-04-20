@@ -4,6 +4,7 @@ import {
   enumerateLocalDatesInclusive,
   parseYMDToLocalDate,
 } from '../utils/dateFormat';
+import { getRamadanPeriodWindow } from '../utils/ramadanPeriods';
 
 // Weekend color key (same as ScheduleTable uses)
 const SPECIAL_COLOR_KEYS = {
@@ -206,15 +207,8 @@ export const UserManagementRequestsSchedule: React.FC<UserManagementRequestsSche
 
   // Get date range based on selected period
   const getPeriodDateRange = () => {
-    if (year === 2026 && (month === 2 || month === 3) && selectedPeriod) {
-      if (selectedPeriod === 'pre-ramadan') {
-        return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
-      } else if (selectedPeriod === 'ramadan') {
-        return { start: new Date('2026-02-19'), end: new Date('2026-03-18') };
-      } else if (selectedPeriod === 'post-ramadan') {
-        return { start: new Date('2026-03-19'), end: new Date('2026-03-31') };
-      }
-    }
+    const window = getRamadanPeriodWindow(year, month, selectedPeriod);
+    if (window) return { start: new Date(window.from), end: new Date(window.to) };
     return null;
   };
 

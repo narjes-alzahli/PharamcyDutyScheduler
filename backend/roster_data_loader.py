@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.models import User, LeaveRequest, ShiftRequest, LeaveType, RequestStatus, EmployeeSkills, ShiftType
 from backend.database import SessionLocal
 from backend.user_employee_sync import roster_display_name, committed_schedule_display_name
+from backend.ramadan_periods import get_ramadan_period_windows
 
 
 def get_standard_working_shifts(db: Session = None) -> Set[str]:
@@ -661,35 +662,40 @@ def load_assignment_history(
     standard_shifts = ["M", "IP", "A", "N", "M3", "M4", "H", "CL", "E", "MS", "IP+P", "P", "M+P"]
 
     def _period_start_for_date(dt: date) -> date:
-        """Map a date to the schedule period start (supports 2026 Ramadan split windows)."""
-        if dt.year == 2026:
-            if date(2026, 2, 1) <= dt <= date(2026, 2, 18):
-                return date(2026, 2, 1)   # pre-Ramadan
-            if date(2026, 2, 19) <= dt <= date(2026, 3, 18):
-                return date(2026, 2, 19)  # Ramadan
-            if date(2026, 3, 19) <= dt <= date(2026, 3, 31):
-                return date(2026, 3, 19)  # post-Ramadan
+        """Map a date to the schedule period start (supports dynamic Ramadan windows)."""
+        windows = get_ramadan_period_windows(dt.year, db)
+        if not windows:
+            return date(dt.year, dt.month, 1)
+        for _, (start_d, end_d) in windows.items():
+            if start_d <= dt <= end_d:
+                return start_d
         return date(dt.year, dt.month, 1)
 
     def _next_period_start(period_start: date) -> date:
-        if period_start == date(2026, 2, 1):
-            return date(2026, 2, 19)
-        if period_start == date(2026, 2, 19):
-            return date(2026, 3, 19)
-        if period_start == date(2026, 3, 19):
-            return date(2026, 4, 1)
+        windows = get_ramadan_period_windows(period_start.year, db)
+        if not windows:
+            if period_start.month == 12:
+                return date(period_start.year + 1, 1, 1)
+            return date(period_start.year, period_start.month + 1, 1)
+        ordered_starts = sorted(start for start, _ in windows.values())
+        for idx, start_d in enumerate(ordered_starts):
+            if period_start == start_d and idx + 1 < len(ordered_starts):
+                return ordered_starts[idx + 1]
+            if idx == len(ordered_starts) - 1 and period_start == start_d:
+                _, end_d = windows["post-ramadan"]
+                return end_d + timedelta(days=1)
         if period_start.month == 12:
             return date(period_start.year + 1, 1, 1)
         return date(period_start.year, period_start.month + 1, 1)
     
     def _previous_period_start(period_start: date) -> date:
         """Return start date of previous scheduling period."""
-        if period_start == date(2026, 2, 19):
-            return date(2026, 2, 1)
-        if period_start == date(2026, 3, 19):
-            return date(2026, 2, 19)
-        if period_start == date(2026, 4, 1):
-            return date(2026, 3, 19)
+        windows = get_ramadan_period_windows(period_start.year, db)
+        if windows:
+            ordered_starts = sorted(start for start, _ in windows.values())
+            for idx, start_d in enumerate(ordered_starts):
+                if period_start == start_d and idx > 0:
+                    return ordered_starts[idx - 1]
         if period_start.month == 1:
             return date(period_start.year - 1, 12, 1)
         return date(period_start.year, period_start.month - 1, 1)

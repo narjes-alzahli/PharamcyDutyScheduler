@@ -15,6 +15,13 @@ import {
   normalizeRequestYmd,
   type OverlapRecord,
 } from '../utils/requestOverlaps';
+import {
+  clearRamadanDateOverride,
+  getRamadanPeriodWindow,
+  getRamadanPeriodWindows,
+  isDateInWindow,
+  setRamadanDateOverride,
+} from '../utils/ramadanPeriods';
 
 interface User {
   username: string;
@@ -42,6 +49,13 @@ interface CalendarEntry {
 interface CalendarDay {
   date: Date;
   inCurrentMonth: boolean;
+}
+
+interface RamadanDateRow {
+  year: number;
+  start_date: string;
+  end_date: string;
+  source: string;
 }
 
 const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -785,7 +799,7 @@ export const UserManagement: React.FC = () => {
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'requests' | 'leave' | 'shift'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'ramadan' | 'requests' | 'leave' | 'shift'>('users');
   const [requestFilter, setRequestFilter] = useState<'all' | 'leave' | 'shift'>('all');
   const [leaveTableExpanded, setLeaveTableExpanded] = useState(false);
   const [shiftTableExpanded, setShiftTableExpanded] = useState(false);
@@ -849,6 +863,16 @@ export const UserManagement: React.FC = () => {
   const [shiftTableFilterDate, setShiftTableFilterDate] = useState<Date | null>(null);
   const [selectedCalendarEntryId, setSelectedCalendarEntryId] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null); // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
+  const [ramadanDates, setRamadanDates] = useState<RamadanDateRow[]>([]);
+  const [loadingRamadanDates, setLoadingRamadanDates] = useState(false);
+  const [savingRamadanYear, setSavingRamadanYear] = useState<number | null>(null);
+  const [deletingRamadanYear, setDeletingRamadanYear] = useState<number | null>(null);
+  const [showAddRamadanModal, setShowAddRamadanModal] = useState(false);
+  const [newRamadanYear, setNewRamadanYear] = useState<number>(new Date().getFullYear());
+  const [newRamadanFrom, setNewRamadanFrom] = useState<string>('');
+  const [newRamadanTo, setNewRamadanTo] = useState<string>('');
+  const [showEditRamadanModal, setShowEditRamadanModal] = useState(false);
+  const [editRamadanRow, setEditRamadanRow] = useState<RamadanDateRow | null>(null);
   
   // Pagination state
   const [usersPage, setUsersPage] = useState(1);
@@ -896,7 +920,7 @@ export const UserManagement: React.FC = () => {
       });
   }, [shiftRequests]);
 
-  // Generate month options with period options for 2026 (similar to All Rosters)
+  // Generate month options with period options for Ramadan split windows.
   const availableMonthYearOptions = useMemo(() => {
     const allOptions = [...availableLeaveMonthYears, ...availableShiftMonthYears]
       .filter((v, i, a) => a.findIndex(t => t.value === v.value) === i)
@@ -911,42 +935,50 @@ export const UserManagement: React.FC = () => {
     const periodOptions: Array<{ value: string; label: string; year: number; month: number; period: string | null }> = [];
     const regularOptions: Array<{ value: string; label: string; year: number; month: number; period: string | null }> = [];
     
-    const hasFeb2026 = allOptions.some(opt => {
+    const yearsWithRamadanMonths = new Set<number>();
+    allOptions.forEach(opt => {
       const [year, month] = opt.value.split('-').map(Number);
-      return year === 2026 && month === 2;
+      const windows = getRamadanPeriodWindows(year);
+      if (!windows) return;
+      const ramadanMonths = new Set<number>([
+        windows['pre-ramadan'].primaryMonth,
+        windows.ramadan.primaryMonth,
+        windows['post-ramadan'].primaryMonth,
+      ]);
+      if (ramadanMonths.has(month)) yearsWithRamadanMonths.add(year);
     });
-    const hasMar2026 = allOptions.some(opt => {
-      const [year, month] = opt.value.split('-').map(Number);
-      return year === 2026 && month === 3;
-    });
-    let ramadanAdded = false;
+    const ramadanAddedByYear = new Set<number>();
     
     allOptions.forEach(opt => {
       const [year, month] = opt.value.split('-').map(Number);
       
-      if (year === 2026 && month === 2) {
-        // Add period options for February
-        periodOptions.push({ value: `${year}-2-pre`, label: 'February 2026 (Pre-Ramadan)', year, month: 2, period: 'pre-ramadan' });
-        periodOptions.push({ value: `${year}-2-ramadan`, label: 'Ramadan 2026', year, month: 2, period: 'ramadan' });
-        ramadanAdded = true;
-      } else if (year === 2026 && month === 3) {
-        // Add period options for March (but avoid duplicate Ramadan if Feb also exists)
-        if (!ramadanAdded) {
-          periodOptions.push({ value: `${year}-3-ramadan`, label: 'Ramadan 2026', year, month: 3, period: 'ramadan' });
-        }
-        periodOptions.push({ value: `${year}-3-post`, label: 'March 2026 (Post-Ramadan)', year, month: 3, period: 'post-ramadan' });
-      } else {
-        // Regular month - for 2026, skip January (1), February (2), and March (3)
-        if (year === 2026 && (month === 1 || month === 2 || month === 3)) {
-          // Skip these months for 2026
-          return;
-        }
+      const windows = getRamadanPeriodWindows(year);
+      if (!windows) {
         regularOptions.push({ value: opt.value, label: opt.label, year, month, period: null });
+        return;
       }
+      const preMonth = windows['pre-ramadan'].primaryMonth;
+      const postMonth = windows['post-ramadan'].primaryMonth;
+      const ramadanMonth = windows.ramadan.primaryMonth;
+      if (month === preMonth) {
+        periodOptions.push({ value: `${year}-${preMonth}-pre`, label: `Pre-Ramadan ${year}`, year, month: preMonth, period: 'pre-ramadan' });
+        periodOptions.push({ value: `${year}-${ramadanMonth}-ramadan`, label: `Ramadan ${year}`, year, month: ramadanMonth, period: 'ramadan' });
+        ramadanAddedByYear.add(year);
+        return;
+      }
+      if (month === postMonth) {
+        if (!ramadanAddedByYear.has(year)) {
+          periodOptions.push({ value: `${year}-${postMonth}-ramadan`, label: `Ramadan ${year}`, year, month: postMonth, period: 'ramadan' });
+        }
+        periodOptions.push({ value: `${year}-${postMonth}-post`, label: `Post-Ramadan ${year}`, year, month: postMonth, period: 'post-ramadan' });
+        return;
+      }
+      if (month === ramadanMonth) return;
+      regularOptions.push({ value: opt.value, label: opt.label, year, month, period: null });
     });
     
-    // For 2026, order periods first, then regular months
-    if (hasFeb2026 || hasMar2026) {
+    // For Ramadan years, order periods first, then regular months
+    if (yearsWithRamadanMonths.size > 0) {
       // Sort periods: pre-ramadan, ramadan, post-ramadan
       periodOptions.sort((a, b) => {
         const periodOrder: { [key: string]: number } = { 'pre-ramadan': 1, 'ramadan': 2, 'post-ramadan': 3 };
@@ -991,23 +1023,35 @@ export const UserManagement: React.FC = () => {
     return leaveTableFilterDate || shiftTableFilterDate || null;
   }, [leaveTableFilterDate, shiftTableFilterDate]);
 
+  useEffect(() => {
+    const targetYear = scheduleMonthDate?.getFullYear();
+    if (!targetYear) return;
+    let cancelled = false;
+    dataAPI.getRamadanDates(targetYear)
+      .then((rec) => {
+        if (cancelled) return;
+        if (rec.start_date && rec.end_date) {
+          setRamadanDateOverride(targetYear, rec.start_date, rec.end_date, rec.source || undefined);
+        } else {
+          clearRamadanDateOverride(targetYear);
+        }
+      })
+      .catch(() => {
+        clearRamadanDateOverride(targetYear);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduleMonthDate]);
+
   // Helper function to check if a date is in the selected period
   const isDateInPeriod = (date: Date): boolean => {
     if (!scheduleMonthDate || !selectedPeriod) return true;
     const filterYear = scheduleMonthDate.getFullYear();
     const filterMonth = scheduleMonthDate.getMonth() + 1; // 1-12
-    
-    if (filterYear === 2026 && (filterMonth === 2 || filterMonth === 3)) {
-      const dateStr = date.toISOString().split('T')[0];
-      if (selectedPeriod === 'pre-ramadan') {
-        return dateStr >= '2026-02-01' && dateStr <= '2026-02-18';
-      } else if (selectedPeriod === 'ramadan') {
-        return dateStr >= '2026-02-19' && dateStr <= '2026-03-18';
-      } else if (selectedPeriod === 'post-ramadan') {
-        return dateStr >= '2026-03-19' && dateStr <= '2026-03-31';
-      }
-    }
-    return true;
+    const window = getRamadanPeriodWindow(filterYear, filterMonth, selectedPeriod);
+    if (!window) return true;
+    return isDateInWindow(date.toISOString().split('T')[0], window);
   };
 
   // Filter requests by year/month/period for table view (must be after state declarations)
@@ -1218,6 +1262,133 @@ export const UserManagement: React.FC = () => {
       loadRequests();
     }
   }, [activeTab, authReady, isManager, loadRequests]);
+
+  const loadRamadanDates = useCallback(async () => {
+    try {
+      setLoadingRamadanDates(true);
+      const rows = await dataAPI.listRamadanDates();
+      setRamadanDates(
+        rows
+          .filter((r) => r.start_date && r.end_date)
+          .map((r) => ({
+            year: r.year,
+            start_date: r.start_date as string,
+            end_date: r.end_date as string,
+            source: r.source || 'manual',
+          }))
+          .sort((a, b) => a.year - b.year),
+      );
+    } catch (error) {
+      console.error('Failed to load Ramadan dates:', error);
+      setRamadanDates([]);
+    } finally {
+      setLoadingRamadanDates(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authReady && isManager && activeTab === 'ramadan') {
+      loadRamadanDates();
+    }
+  }, [activeTab, authReady, isManager, loadRamadanDates]);
+
+  const openAddRamadanModal = () => {
+    const nextYear = ramadanDates.length > 0 ? Math.max(...ramadanDates.map((r) => r.year)) + 1 : new Date().getFullYear();
+    setNewRamadanYear(nextYear);
+    setNewRamadanFrom(`${nextYear}-02-15`);
+    setNewRamadanTo(`${nextYear}-03-15`);
+    setShowAddRamadanModal(true);
+  };
+
+  const handleCreateRamadanRow = () => {
+    if (!newRamadanYear || !newRamadanFrom || !newRamadanTo) {
+      setNotification({ message: 'Please fill year, from, and to dates.', type: 'error' });
+      setTimeout(() => setNotification(null), 3500);
+      return;
+    }
+    if (newRamadanTo < newRamadanFrom) {
+      setNotification({ message: '"To" date must be after or equal to "From" date.', type: 'error' });
+      setTimeout(() => setNotification(null), 3500);
+      return;
+    }
+    if (ramadanDates.some((r) => r.year === newRamadanYear)) {
+      setNotification({ message: `Year ${newRamadanYear} already exists. Edit it or delete it first.`, type: 'error' });
+      setTimeout(() => setNotification(null), 3500);
+      return;
+    }
+    setRamadanDates((prev) => [
+      ...prev,
+      { year: newRamadanYear, start_date: newRamadanFrom, end_date: newRamadanTo, source: 'pending' },
+    ].sort((a, b) => a.year - b.year));
+    setShowAddRamadanModal(false);
+  };
+
+  const openEditRamadanModal = (row: RamadanDateRow) => {
+    setEditRamadanRow({ ...row });
+    setShowEditRamadanModal(true);
+  };
+
+  const handleSaveRamadanRow = async (row: RamadanDateRow) => {
+    if (!row.year || !row.start_date || !row.end_date) {
+      setNotification({ message: 'Please fill year, from, and to dates.', type: 'error' });
+      setTimeout(() => setNotification(null), 3500);
+      return;
+    }
+    if (row.end_date < row.start_date) {
+      setNotification({ message: '"To" date must be after or equal to "From" date.', type: 'error' });
+      setTimeout(() => setNotification(null), 3500);
+      return;
+    }
+    try {
+      setSavingRamadanYear(row.year);
+      await dataAPI.saveRamadanDates(row.year, {
+        year: row.year,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        source: row.source || 'manual',
+      });
+      setNotification({ message: `Ramadan dates saved for ${row.year}.`, type: 'success' });
+      setTimeout(() => setNotification(null), 2500);
+      await loadRamadanDates();
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to save Ramadan dates', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setSavingRamadanYear(null);
+    }
+  };
+
+  const handleDeleteRamadanRow = async (row: RamadanDateRow) => {
+    if (!window.confirm(`Delete Ramadan dates for ${row.year}?`)) return;
+    try {
+      setDeletingRamadanYear(row.year);
+      await dataAPI.deleteRamadanDates(row.year);
+      setNotification({ message: `Ramadan dates deleted for ${row.year}.`, type: 'success' });
+      setTimeout(() => setNotification(null), 2500);
+      await loadRamadanDates();
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 404 || (typeof detail === 'string' && detail.toLowerCase().includes('not found'))) {
+        setRamadanDates((prev) => prev.filter((r) => r.year !== row.year));
+        setNotification({ message: `Removed unsaved row for ${row.year}.`, type: 'success' });
+        setTimeout(() => setNotification(null), 2200);
+      } else {
+        setNotification({ message: detail || 'Failed to delete Ramadan dates', type: 'error' });
+        setTimeout(() => setNotification(null), 4000);
+      }
+    } finally {
+      setDeletingRamadanYear(null);
+    }
+  };
+
+  const handleSaveRamadanFromModal = async () => {
+    if (!editRamadanRow) return;
+    await handleSaveRamadanRow(editRamadanRow);
+    if (!savingRamadanYear) {
+      setShowEditRamadanModal(false);
+      setEditRamadanRow(null);
+    }
+  };
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1688,7 +1859,7 @@ export const UserManagement: React.FC = () => {
   if (authLoading || !authReady) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Management</h2>
         <LoadingSkeleton type="list" rows={5} />
       </div>
     );
@@ -1698,7 +1869,7 @@ export const UserManagement: React.FC = () => {
   if (!isManager || !currentUser) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Management</h2>
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
           You don't have permission to access this page.
         </div>
@@ -1709,7 +1880,7 @@ export const UserManagement: React.FC = () => {
   if (loading) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Management</h2>
         <LoadingSkeleton type="list" rows={5} />
       </div>
     );
@@ -1717,7 +1888,7 @@ export const UserManagement: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Users &amp; Requests</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">Management</h2>
       
       {/* Auto-dismissing notification toast */}
       {notification && (
@@ -1809,6 +1980,16 @@ export const UserManagement: React.FC = () => {
               User Accounts
             </button>
             <button
+              onClick={() => setActiveTab('ramadan')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'ramadan'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <span>Ramadan Dates</span>
+            </button>
+            <button
               onClick={() => setActiveTab('requests')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'requests'
@@ -1819,6 +2000,198 @@ export const UserManagement: React.FC = () => {
               <span>Request History</span>
             </button>
           </nav>
+        </div>
+      )}
+
+      {activeTab === 'ramadan' && isManager && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900">Ramadan Dates</h3>
+            <button
+              onClick={openAddRamadanModal}
+              className="px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm"
+            >
+              + Add Year
+            </button>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">
+            Manage Ramadan date windows by year. These dates will result in Pre-Ramadan, Ramadan, and Post-Ramadan period splits.
+          </p>
+          {loadingRamadanDates ? (
+            <LoadingSkeleton type="list" rows={4} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border border-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Year</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">From</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">To</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border border-gray-300">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {ramadanDates.map((row, index) => (
+                    <tr key={`${row.year}-${index}`}>
+                      <td className="px-4 py-3 border border-gray-300 text-sm text-gray-900">{row.year}</td>
+                      <td className="px-4 py-3 border border-gray-300 text-sm text-gray-700">{row.start_date}</td>
+                      <td className="px-4 py-3 border border-gray-300 text-sm text-gray-700">{row.end_date}</td>
+                      <td className="px-4 py-3 border border-gray-300 text-sm">
+                        {row.source === 'pending' ? (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-300">
+                            Not Configured
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 border border-green-300">
+                            Split Enabled
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 border border-gray-300">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditRamadanModal(row)}
+                            className="text-blue-600 hover:text-blue-800"
+                            title="Edit Ramadan dates"
+                            aria-label={`Edit Ramadan dates for ${row.year}`}
+                          >
+                            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                              <path d="M11 3H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 0 3L12 12l-4 1 1-4 6.5-6.5a2.121 2.121 0 0 1 3 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => void handleDeleteRamadanRow(row)}
+                            disabled={deletingRamadanYear === row.year}
+                            className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Delete"
+                            aria-label={`Delete Ramadan dates for ${row.year}`}
+                          >
+                            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4">
+                              <path d="M3 6h14M8 6V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2m3 0v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM8 9v6M12 9v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {ramadanDates.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-gray-500 border border-gray-300">
+                        No Ramadan dates configured yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showAddRamadanModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Add Ramadan Year</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <input
+                  type="number"
+                  value={newRamadanYear}
+                  onChange={(e) => setNewRamadanYear(parseInt(e.target.value || '0', 10))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
+                <input
+                  type="date"
+                  value={newRamadanFrom}
+                  onChange={(e) => setNewRamadanFrom(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
+                <input
+                  type="date"
+                  value={newRamadanTo}
+                  onChange={(e) => setNewRamadanTo(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowAddRamadanModal(false)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateRamadanRow}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditRamadanModal && editRamadanRow && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Edit Ramadan Dates</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <input
+                  type="number"
+                  value={editRamadanRow.year}
+                  onChange={(e) => setEditRamadanRow({ ...editRamadanRow, year: parseInt(e.target.value || '0', 10) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
+                <input
+                  type="date"
+                  value={editRamadanRow.start_date}
+                  onChange={(e) => setEditRamadanRow({ ...editRamadanRow, start_date: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
+                <input
+                  type="date"
+                  value={editRamadanRow.end_date}
+                  onChange={(e) => setEditRamadanRow({ ...editRamadanRow, end_date: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => {
+                  setShowEditRamadanModal(false);
+                  setEditRamadanRow(null);
+                }}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSaveRamadanFromModal()}
+                disabled={savingRamadanYear === editRamadanRow.year}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-60"
+              >
+                {savingRamadanYear === editRamadanRow.year ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1845,11 +2218,13 @@ export const UserManagement: React.FC = () => {
                   value={scheduleMonthDate ? (() => {
                     const year = scheduleMonthDate.getFullYear();
                     const month = scheduleMonthDate.getMonth() + 1;
-                    if (year === 2026 && selectedPeriod) {
-                      if (selectedPeriod === 'pre-ramadan' && month === 2) return `${year}-2-pre`;
-                      if (selectedPeriod === 'ramadan' && month === 2) return `${year}-2-ramadan`;
-                      if (selectedPeriod === 'ramadan' && month === 3) return `${year}-3-ramadan`;
-                      if (selectedPeriod === 'post-ramadan' && month === 3) return `${year}-3-post`;
+                    if (selectedPeriod) {
+                      const window = getRamadanPeriodWindow(year, month, selectedPeriod);
+                      if (window) {
+                        if (selectedPeriod === 'pre-ramadan') return `${year}-${month}-pre`;
+                        if (selectedPeriod === 'ramadan') return `${year}-${month}-ramadan`;
+                        if (selectedPeriod === 'post-ramadan') return `${year}-${month}-post`;
+                      }
                     }
                     return `${year}-${month}`;
                   })() : ''}

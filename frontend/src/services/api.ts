@@ -233,6 +233,13 @@ export interface LockEntry {
   force: boolean;
 }
 
+export interface RamadanDateRecord {
+  year: number;
+  start_date: string | null;
+  end_date: string | null;
+  source: string | null;
+}
+
 export const dataAPI = {
   getEmployees: async (): Promise<Employee[]> => {
     const response = await api.get<Employee[]>('/api/data/employees');
@@ -260,6 +267,24 @@ export const dataAPI = {
   updateLocks: async (locks: LockEntry[]): Promise<any> => {
     const response = await api.put('/api/data/locks', locks);
     return response.data; // Returns {message, created, created_requests}
+  },
+  getRamadanDates: async (year: number): Promise<RamadanDateRecord> => {
+    const response = await api.get<RamadanDateRecord>(`/api/data/ramadan-dates/${year}`);
+    return response.data;
+  },
+  listRamadanDates: async (): Promise<RamadanDateRecord[]> => {
+    const response = await api.get<RamadanDateRecord[]>('/api/data/ramadan-dates');
+    return response.data;
+  },
+  saveRamadanDates: async (
+    year: number,
+    payload: { year: number; start_date: string; end_date: string; source?: string }
+  ): Promise<RamadanDateRecord> => {
+    const response = await api.put<RamadanDateRecord>(`/api/data/ramadan-dates/${year}`, payload);
+    return response.data;
+  },
+  deleteRamadanDates: async (year: number): Promise<void> => {
+    await api.delete(`/api/data/ramadan-dates/${year}`);
   },
 };
 

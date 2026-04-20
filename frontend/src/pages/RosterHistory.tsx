@@ -23,6 +23,7 @@ import {
   filterEntriesToPendingWindow,
 } from '../utils/pendingOffCalculation';
 import { FairnessLineGraph } from '../components/FairnessLineGraph';
+import { getRamadanPeriodWindow, getRamadanPeriodWindows, isDateInWindow, setRamadanDateOverride } from '../utils/ramadanPeriods';
 
 /** Committed month employee report: top-level `employees` or `metrics.employees` (list endpoint omits top-level). */
 function getEmployeeRowsFromSchedule(schedule: Schedule | null | undefined): any[] {
@@ -122,23 +123,28 @@ export const AllRostersPage: React.FC = () => {
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
-  // Period date ranges configuration (2026 only)
-  const PERIOD_RANGES = {
-    'pre-ramadan': { start: '2026-02-01', end: '2026-02-18' },
-    'ramadan': { start: '2026-02-19', end: '2026-03-18' },
-    'post-ramadan': { start: '2026-03-19', end: '2026-03-31' }
-  } as const;
+  const RAMADAN_YEAR = 2026;
+  const PERIOD_RANGES = getRamadanPeriodWindows(RAMADAN_YEAR);
+  const ramadanMonths = new Set<number>([
+    ...(PERIOD_RANGES
+      ? [
+          PERIOD_RANGES['pre-ramadan'].primaryMonth,
+          PERIOD_RANGES.ramadan.primaryMonth,
+          PERIOD_RANGES['post-ramadan'].primaryMonth,
+        ]
+      : []),
+  ]);
 
   // Helper to check if a date is in a period range
-  const isDateInPeriod = (dateStr: string, period: keyof typeof PERIOD_RANGES): boolean => {
+  const isDateInPeriod = (dateStr: string, period: 'pre-ramadan' | 'ramadan' | 'post-ramadan'): boolean => {
+    if (!PERIOD_RANGES) return false;
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return false;
-    const range = PERIOD_RANGES[period];
-    return date >= new Date(range.start) && date <= new Date(range.end);
+    return isDateInWindow(dateStr, PERIOD_RANGES[period]);
   };
 
   // Helper to filter schedule entries by period
-  const filterScheduleByPeriod = (schedule: any[], period: keyof typeof PERIOD_RANGES): any[] => {
+  const filterScheduleByPeriod = (schedule: any[], period: 'pre-ramadan' | 'ramadan' | 'post-ramadan'): any[] => {
     return schedule.filter((e: any) => {
       const dateStr = e.date?.split('T')[0] || e.date;
       return dateStr ? isDateInPeriod(dateStr, period) : false;
@@ -147,8 +153,12 @@ export const AllRostersPage: React.FC = () => {
 
   // Split and merge Feb and Mar 2026 schedules into pre-ramadan, ramadan, and post-ramadan
   const mergeRamadanSchedules = (schedules: Schedule[]): Schedule[] => {
-    const febSchedule = schedules.find(s => s.year === 2026 && s.month === 2);
-    const marSchedule = schedules.find(s => s.year === 2026 && s.month === 3);
+    if (!PERIOD_RANGES || ramadanMonths.size === 0) {
+      return schedules;
+    }
+    const [firstRamadanMonth, secondRamadanMonth] = Array.from(ramadanMonths).sort((a, b) => a - b);
+    const febSchedule = schedules.find(s => s.year === RAMADAN_YEAR && s.month === firstRamadanMonth);
+    const marSchedule = schedules.find(s => s.year === RAMADAN_YEAR && s.month === secondRamadanMonth);
     
     if (!febSchedule && !marSchedule) {
       return schedules;
@@ -161,8 +171,8 @@ export const AllRostersPage: React.FC = () => {
       const preRamadanEntries = filterScheduleByPeriod(febSchedule.schedule, 'pre-ramadan');
       if (preRamadanEntries.length > 0) {
         result.push({
-          year: 2026,
-          month: 2,
+          year: RAMADAN_YEAR,
+          month: firstRamadanMonth,
           schedule: preRamadanEntries,
           employees: febSchedule.employees,
           metrics: febSchedule.metrics
@@ -176,8 +186,8 @@ export const AllRostersPage: React.FC = () => {
     
     if (febRamadanEntries.length > 0 || marRamadanEntries.length > 0) {
       result.push({
-        year: 2026,
-        month: 2,
+        year: RAMADAN_YEAR,
+        month: firstRamadanMonth,
         schedule: [...febRamadanEntries, ...marRamadanEntries],
         employees: marSchedule?.employees || febSchedule?.employees,
         metrics: marSchedule?.metrics || febSchedule?.metrics
@@ -188,8 +198,8 @@ export const AllRostersPage: React.FC = () => {
       const postRamadanEntries = filterScheduleByPeriod(marSchedule.schedule, 'post-ramadan');
       if (postRamadanEntries.length > 0) {
         result.push({
-          year: 2026,
-          month: 3,
+          year: RAMADAN_YEAR,
+          month: secondRamadanMonth,
           schedule: postRamadanEntries,
           employees: marSchedule.employees,
           metrics: marSchedule.metrics
@@ -198,7 +208,7 @@ export const AllRostersPage: React.FC = () => {
     }
     
     // Add all other schedules
-    result.push(...schedules.filter(s => !(s.year === 2026 && (s.month === 2 || s.month === 3))));
+    result.push(...schedules.filter(s => !(s.year === RAMADAN_YEAR && ramadanMonths.has(s.month))));
     
     return result;
   };
@@ -264,6 +274,22 @@ export const AllRostersPage: React.FC = () => {
       setLoading(false);
     }
   }, [isManager]);
+
+  useEffect(() => {
+    if (!selectedYear) return;
+    let cancelled = false;
+    dataAPI.getRamadanDates(selectedYear)
+      .then((rec) => {
+        if (cancelled) return;
+        if (rec.start_date && rec.end_date) {
+          setRamadanDateOverride(selectedYear, rec.start_date, rec.end_date, rec.source || undefined);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedYear]);
 
   const hasUnpublishedForOption = useCallback((year: number, month: number, period?: string | null): boolean => {
     if (!isManager || !unpublishedSummary?.items?.length) return false;
@@ -404,12 +430,13 @@ export const AllRostersPage: React.FC = () => {
     try {
       setLoadingSchedule(true);
       
-      // For 2026 Feb/Mar, we need special handling for periods
-      if (year === 2026 && (month === 2 || month === 3)) {
+      // For Ramadan months, load both related months for period-aware view.
+      if (year === RAMADAN_YEAR && ramadanMonths.has(month)) {
+        const [firstRamadanMonth, secondRamadanMonth] = Array.from(ramadanMonths).sort((a, b) => a - b);
         // Load both months to check what we have
         const [febSchedule, marSchedule] = await Promise.all([
-          schedulesAPI.getSchedule(2026, 2).catch(() => null),
-          schedulesAPI.getSchedule(2026, 3).catch(() => null)
+          schedulesAPI.getSchedule(RAMADAN_YEAR, firstRamadanMonth).catch(() => null),
+          schedulesAPI.getSchedule(RAMADAN_YEAR, secondRamadanMonth).catch(() => null)
         ]);
         
         // Find ALL schedules in our merged list with this year/month (there might be multiple: pre-ramadan and ramadan both have month=2)
@@ -453,7 +480,7 @@ export const AllRostersPage: React.FC = () => {
         }
         
         // Filter schedule by detected period
-        if (detectedPeriod && detectedPeriod in PERIOD_RANGES) {
+        if (PERIOD_RANGES && detectedPeriod && detectedPeriod in PERIOD_RANGES) {
           let filteredSchedule: Schedule;
           
           if (detectedPeriod === 'ramadan') {
@@ -461,8 +488,8 @@ export const AllRostersPage: React.FC = () => {
             const febEntries = febSchedule ? filterScheduleByPeriod(febSchedule.schedule, 'ramadan') : [];
             const marEntries = marSchedule ? filterScheduleByPeriod(marSchedule.schedule, 'ramadan') : [];
             filteredSchedule = {
-              year: 2026,
-              month: 2,
+              year: RAMADAN_YEAR,
+              month: firstRamadanMonth,
               schedule: [...febEntries, ...marEntries],
               employees: marSchedule?.employees || febSchedule?.employees,
               metrics: marSchedule?.metrics || febSchedule?.metrics
@@ -519,9 +546,9 @@ export const AllRostersPage: React.FC = () => {
     }
   };
 
-  // Detect period from schedule date range (for 2026 Feb/Mar)
-  const detectPeriod = (schedule: Schedule): keyof typeof PERIOD_RANGES | null => {
-    if (!schedule || !schedule.schedule || schedule.year !== 2026 || (schedule.month !== 2 && schedule.month !== 3)) {
+  // Detect period from schedule date range.
+  const detectPeriod = (schedule: Schedule): 'pre-ramadan' | 'ramadan' | 'post-ramadan' | null => {
+    if (!PERIOD_RANGES || !schedule || !schedule.schedule || schedule.year !== RAMADAN_YEAR || !ramadanMonths.has(schedule.month)) {
       return null;
     }
     
@@ -542,8 +569,8 @@ export const AllRostersPage: React.FC = () => {
     
     // Check each period range
     for (const [period, range] of Object.entries(PERIOD_RANGES)) {
-      if (minDate >= new Date(range.start) && maxDate <= new Date(range.end)) {
-        return period as keyof typeof PERIOD_RANGES;
+      if (minDate >= new Date(range.from) && maxDate <= new Date(range.to)) {
+        return period as 'pre-ramadan' | 'ramadan' | 'post-ramadan';
       }
     }
     
@@ -553,8 +580,7 @@ export const AllRostersPage: React.FC = () => {
   // Get available years (only committed ones)
   const availableYears = Array.from(new Set(schedules.map(s => s.year))).sort();
   
-  // Get available month options for the selected year
-  // For 2026 Feb/Mar, show period-specific options instead of just "February" and "March"
+  // Get available month options for the selected year.
   const availableMonthOptions = useMemo(() => {
     if (!selectedYear) return [];
     
@@ -565,16 +591,22 @@ export const AllRostersPage: React.FC = () => {
     const regularOptions: Array<{ value: string; label: string; month: number; period: string | null }> = [];
     const processedMonths = new Set<number>();
     
-    // Special handling for 2026 Feb/Mar - show period-specific options FIRST
-    if (selectedYear === 2026) {
+    // Special handling for Ramadan months - show period-specific options FIRST
+    if (selectedYear === RAMADAN_YEAR && PERIOD_RANGES) {
+      const [firstRamadanMonth, secondRamadanMonth] = Array.from(ramadanMonths).sort((a, b) => a - b);
       // Check for pre-ramadan (Feb 1-18)
       const hasPreRamadan = yearSchedules.some(s => {
         const period = detectPeriod(s);
         return period === 'pre-ramadan';
       });
       if (hasPreRamadan) {
-        periodOptions.push({ value: '2-pre', label: 'February (Pre-Ramadan)', month: 2, period: 'pre-ramadan' });
-        processedMonths.add(2);
+        periodOptions.push({
+          value: `${firstRamadanMonth}-pre`,
+          label: `${monthNames[firstRamadanMonth - 1]} (Pre-Ramadan)`,
+          month: firstRamadanMonth,
+          period: 'pre-ramadan',
+        });
+        processedMonths.add(firstRamadanMonth);
       }
       
       // Check for ramadan (Feb 19 - Mar 18)
@@ -583,9 +615,9 @@ export const AllRostersPage: React.FC = () => {
         return period === 'ramadan';
       });
       if (hasRamadan) {
-        periodOptions.push({ value: '2-ramadan', label: 'Ramadan', month: 2, period: 'ramadan' });
-        processedMonths.add(2);
-        processedMonths.add(3); // Ramadan spans both months
+        periodOptions.push({ value: `${firstRamadanMonth}-ramadan`, label: 'Ramadan', month: firstRamadanMonth, period: 'ramadan' });
+        processedMonths.add(firstRamadanMonth);
+        processedMonths.add(secondRamadanMonth); // Ramadan spans both months
       }
       
       // Check for post-ramadan (Mar 19-31)
@@ -594,8 +626,13 @@ export const AllRostersPage: React.FC = () => {
         return period === 'post-ramadan';
       });
       if (hasPostRamadan) {
-        periodOptions.push({ value: '3-post', label: 'March (Post-Ramadan)', month: 3, period: 'post-ramadan' });
-        processedMonths.add(3);
+        periodOptions.push({
+          value: `${secondRamadanMonth}-post`,
+          label: `${monthNames[secondRamadanMonth - 1]} (Post-Ramadan)`,
+          month: secondRamadanMonth,
+          period: 'post-ramadan',
+        });
+        processedMonths.add(secondRamadanMonth);
       }
       
       // Sort periods in order: pre-ramadan, ramadan, post-ramadan
@@ -605,15 +642,11 @@ export const AllRostersPage: React.FC = () => {
       });
     }
     
-    // Add all other months that have committed schedules
-    // For 2026, skip February (2) and March (3) regular months (they have period options)
-    // But allow January (1) to show since it's a committed schedule
+    // Add all other months that have committed schedules.
     const allMonths = Array.from(new Set(yearSchedules.map(s => s.month))).sort();
     allMonths.forEach(month => {
       if (!processedMonths.has(month)) {
-        // For 2026, skip February and March regular months (they have period options)
-        // But allow January to show
-        if (selectedYear === 2026 && (month === 2 || month === 3)) {
+        if (selectedYear === RAMADAN_YEAR && ramadanMonths.has(month)) {
           return;
         }
         regularOptions.push({
@@ -625,23 +658,24 @@ export const AllRostersPage: React.FC = () => {
       }
     });
     
-    // Sort regular options by month
-    regularOptions.sort((a, b) => a.month - b.month);
-
-    // Chronological order in the dropdown: January before February periods, etc.
-    // (Previously period blocks were prepended, so February appeared above January.)
-    const chronologicalKey = (opt: {
+    const ramadanWindowsForYear = getRamadanPeriodWindows(selectedYear);
+    if (!ramadanWindowsForYear) {
+      const combined = [...periodOptions, ...regularOptions];
+      combined.sort((a, b) => a.month - b.month);
+      return combined;
+    }
+    const getStartKey = (opt: {
       month: number;
       period: string | null;
-    }): number => {
-      if (opt.period === 'pre-ramadan') return 2.0;
-      if (opt.period === 'ramadan') return 2.15;
-      if (opt.period === 'post-ramadan') return 3.0;
-      return opt.month;
+    }): string => {
+      if (opt.period === 'pre-ramadan') return ramadanWindowsForYear['pre-ramadan'].from;
+      if (opt.period === 'ramadan') return ramadanWindowsForYear.ramadan.from;
+      if (opt.period === 'post-ramadan') return ramadanWindowsForYear['post-ramadan'].from;
+      return `${selectedYear}-${String(opt.month).padStart(2, '0')}-01`;
     };
 
     const combined = [...periodOptions, ...regularOptions];
-    combined.sort((a, b) => chronologicalKey(a) - chronologicalKey(b));
+    combined.sort((a, b) => getStartKey(a).localeCompare(getStartKey(b)));
     return combined;
   }, [schedules, selectedYear]);
   
@@ -1415,11 +1449,11 @@ export const AllRostersPage: React.FC = () => {
                 <select
                   value={(() => {
                     if (!selectedYear || !selectedMonth) return '';
-                    // For 2026, check if we need period-specific value
-                    if (selectedYear === 2026 && selectedPeriod) {
-                      if (selectedPeriod === 'pre-ramadan' && selectedMonth === 2) return '2-pre';
-                      if (selectedPeriod === 'ramadan' && selectedMonth === 2) return '2-ramadan';
-                      if (selectedPeriod === 'post-ramadan' && selectedMonth === 3) return '3-post';
+                    if (selectedYear === RAMADAN_YEAR && selectedPeriod) {
+                      const [firstRamadanMonth, secondRamadanMonth] = Array.from(ramadanMonths).sort((a, b) => a - b);
+                      if (selectedPeriod === 'pre-ramadan' && selectedMonth === firstRamadanMonth) return `${firstRamadanMonth}-pre`;
+                      if (selectedPeriod === 'ramadan' && selectedMonth === firstRamadanMonth) return `${firstRamadanMonth}-ramadan`;
+                      if (selectedPeriod === 'post-ramadan' && selectedMonth === secondRamadanMonth) return `${secondRamadanMonth}-post`;
                     }
                     // For regular months, find the matching option
                     const matchingOption = availableMonthOptions.find(opt => opt.month === selectedMonth && !opt.period);
@@ -1434,8 +1468,7 @@ export const AllRostersPage: React.FC = () => {
                       return;
                     }
                     
-                    // Handle period-specific values for 2026
-                    if (selectedYear === 2026 && value.includes('-')) {
+                    if (selectedYear === RAMADAN_YEAR && value.includes('-')) {
                       const parts = value.split('-');
                       const month = parseInt(parts[0]);
                       const periodPart = parts[1];

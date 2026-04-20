@@ -26,7 +26,7 @@ from backend.roster_data_loader import (
     save_month_holidays,
     load_month_holidays
 )
-from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills, CommittedSchedule, ScheduleMetrics
+from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills, CommittedSchedule, ScheduleMetrics, RamadanDate
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import not_
 
@@ -412,6 +412,13 @@ class LockEntry(BaseModel):
     shift: str
     force: bool
     request_id: Optional[str] = None  # If provided, update this specific request; if None, always create new
+
+
+class RamadanDatePayload(BaseModel):
+    year: int
+    start_date: date
+    end_date: date
+    source: Optional[str] = "manual"
 
 
 @router.get("/employees")
@@ -1444,4 +1451,96 @@ async def save_month_holidays_endpoint(
     
     save_month_holidays(year, month, holidays, db=db)
     return {"message": "Holidays saved successfully"}
+
+
+@router.get("/ramadan-dates/{year}")
+async def get_ramadan_dates_for_year(
+    year: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get Ramadan dates for a year (DB source if configured)."""
+    row = db.query(RamadanDate).filter(RamadanDate.year == int(year)).first()
+    if row is None:
+        return {"year": year, "start_date": None, "end_date": None, "source": None}
+    return {
+        "year": int(row.year),
+        "start_date": row.start_date.isoformat(),
+        "end_date": row.end_date.isoformat(),
+        "source": row.source,
+    }
+
+
+@router.get("/ramadan-dates")
+async def list_ramadan_dates(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all configured Ramadan date records."""
+    rows = db.query(RamadanDate).order_by(RamadanDate.year.asc()).all()
+    return [
+        {
+            "year": int(r.year),
+            "start_date": r.start_date.isoformat(),
+            "end_date": r.end_date.isoformat(),
+            "source": r.source,
+        }
+        for r in rows
+    ]
+
+
+@router.put("/ramadan-dates/{year}")
+async def upsert_ramadan_dates_for_year(
+    year: int,
+    payload: RamadanDatePayload,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manager-only upsert for Ramadan dates by year."""
+    if current_user["employee_type"] != "Manager":
+        raise HTTPException(status_code=403, detail="Only managers can edit Ramadan dates")
+    if int(payload.year) != int(year):
+        raise HTTPException(status_code=400, detail="Path year must match payload year")
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status_code=400, detail="end_date must be on or after start_date")
+
+    row = db.query(RamadanDate).filter(RamadanDate.year == int(year)).first()
+    if row is None:
+        row = RamadanDate(
+            year=int(year),
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            source=(payload.source or "manual").strip() or "manual",
+        )
+        db.add(row)
+    else:
+        row.start_date = payload.start_date
+        row.end_date = payload.end_date
+        row.source = (payload.source or "manual").strip() or "manual"
+
+    db.commit()
+    return {
+        "message": "Ramadan dates saved successfully",
+        "year": int(row.year),
+        "start_date": row.start_date.isoformat(),
+        "end_date": row.end_date.isoformat(),
+        "source": row.source,
+    }
+
+
+@router.delete("/ramadan-dates/{year}")
+async def delete_ramadan_dates_for_year(
+    year: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manager-only delete for Ramadan dates by year."""
+    if current_user["employee_type"] != "Manager":
+        raise HTTPException(status_code=403, detail="Only managers can delete Ramadan dates")
+    row = db.query(RamadanDate).filter(RamadanDate.year == int(year)).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ramadan date record not found")
+    db.delete(row)
+    db.commit()
+    return {"message": "Ramadan dates deleted successfully", "year": int(year)}
 

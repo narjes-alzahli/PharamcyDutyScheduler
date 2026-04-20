@@ -23,6 +23,7 @@ from backend.utils import sanitize_json_floats
 from backend.models import User, CommittedSchedule, ScheduleMetrics, EmployeeSkills
 from backend.user_employee_sync import committed_schedule_display_name
 from backend.roster_data_loader import load_holidays_by_date_range
+from backend.ramadan_periods import get_ramadan_period_window, detect_periods_for_dates
 from roster.app.model.solver import RosterSolver
 from roster.app.model.schema import RosterConfig
 
@@ -161,18 +162,10 @@ def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dic
 
 
 def get_pending_off_window_inclusive(
-    year: int, month: int, selected_period: Optional[str]
+    year: int, month: int, selected_period: Optional[str], db: Optional[Session] = None
 ) -> Optional[Tuple[date_type, date_type]]:
-    """Match frontend ``getPendingOffWindow`` (2026 Ramadan split). Inclusive date bounds."""
-    if year != 2026 or not selected_period:
-        return None
-    if selected_period == "pre-ramadan" and month == 2:
-        return date_type(2026, 2, 1), date_type(2026, 2, 18)
-    if selected_period == "ramadan" and month in (2, 3):
-        return date_type(2026, 2, 19), date_type(2026, 3, 18)
-    if selected_period == "post-ramadan" and month == 3:
-        return date_type(2026, 3, 19), date_type(2026, 3, 31)
-    return None
+    """Match frontend ``getPendingOffWindow`` for dynamic Ramadan windows."""
+    return get_ramadan_period_window(year, month, selected_period, db=db)
 
 
 def recalculate_employee_report(
@@ -188,7 +181,7 @@ def recalculate_employee_report(
     # Get initial pending_off for this month
     initial_pending_off = get_initial_pending_off_for_month(year, month, db)
 
-    window = get_pending_off_window_inclusive(year, month, selected_period)
+    window = get_pending_off_window_inclusive(year, month, selected_period, db=db)
     if window:
         start_d, end_d = window
         dates: List[date] = []
@@ -567,7 +560,7 @@ async def publish_schedule(
         raise HTTPException(status_code=400, detail="Invalid publish request payload")
 
     q = db.query(CommittedSchedule)
-    window = get_pending_off_window_inclusive(year, month, selected_period)
+    window = get_pending_off_window_inclusive(year, month, selected_period, db=db)
     if window:
         start_d, end_d = window
         q = q.filter(CommittedSchedule.date >= start_d, CommittedSchedule.date <= end_d)
@@ -613,7 +606,7 @@ async def unpublish_schedule(
         raise HTTPException(status_code=400, detail="Invalid unpublish request payload")
 
     q = db.query(CommittedSchedule)
-    window = get_pending_off_window_inclusive(year, month, selected_period)
+    window = get_pending_off_window_inclusive(year, month, selected_period, db=db)
     if window:
         start_d, end_d = window
         q = q.filter(CommittedSchedule.date >= start_d, CommittedSchedule.date <= end_d)
@@ -662,14 +655,7 @@ async def get_unpublished_summary(
 
     items: List[dict] = []
     for (year, month), dates in grouped.items():
-        periods: List[str] = []
-        if year == 2026 and month in (2, 3):
-            if any(date_type(2026, 2, 1) <= d <= date_type(2026, 2, 18) for d in dates):
-                periods.append("pre-ramadan")
-            if any(date_type(2026, 2, 19) <= d <= date_type(2026, 3, 18) for d in dates):
-                periods.append("ramadan")
-            if any(date_type(2026, 3, 19) <= d <= date_type(2026, 3, 31) for d in dates):
-                periods.append("post-ramadan")
+        periods: List[str] = detect_periods_for_dates(year, month, dates, db=db)
         items.append({
             "year": year,
             "month": month,
@@ -709,7 +695,7 @@ async def update_schedule(
 
         # Preserve publication state when editing existing schedules.
         publish_scope = db.query(CommittedSchedule)
-        window = get_pending_off_window_inclusive(year, month, selected_period)
+        window = get_pending_off_window_inclusive(year, month, selected_period, db=db)
         if window:
             start_d, end_d = window
             publish_scope = publish_scope.filter(

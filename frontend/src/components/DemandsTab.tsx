@@ -4,6 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { shiftTypesAPI, ShiftType, dataAPI } from '../services/api';
 import api from '../services/api';
 import { shiftColors as defaultShiftColors } from '../utils/shiftColors';
+import { getRamadanPeriodWindow } from '../utils/ramadanPeriods';
 
 interface DemandsTabProps {
   selectedYear: number | null;
@@ -232,20 +233,12 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         
         // Determine which months to load based on period
         const monthsToLoad: number[] = [];
-        if (selectedYear === 2026 && selectedPeriod) {
-          // For periods that span multiple months, load all relevant months
-          if (selectedPeriod === 'ramadan') {
-            // Ramadan spans Feb 19 - March 18, so load both months
-            monthsToLoad.push(2, 3);
-          } else if (selectedPeriod === 'pre-ramadan') {
-            // Pre-Ramadan is Feb 1-18, only February
-            monthsToLoad.push(2);
-          } else if (selectedPeriod === 'post-ramadan') {
-            // Post-Ramadan is March 19-31, only March
-            monthsToLoad.push(3);
-          } else {
-            monthsToLoad.push(selectedMonth);
-          }
+        const periodWindow = getRamadanPeriodWindow(selectedYear, selectedMonth, selectedPeriod);
+        if (periodWindow) {
+          const startMonth = new Date(periodWindow.from).getMonth() + 1;
+          const endMonth = new Date(periodWindow.to).getMonth() + 1;
+          monthsToLoad.push(startMonth);
+          if (endMonth !== startMonth) monthsToLoad.push(endMonth);
         } else {
           monthsToLoad.push(selectedMonth);
         }
@@ -342,23 +335,20 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   const saveDemandsToBackend = useCallback(async (demands: any[]) => {
     if (!selectedYear || !selectedMonth) return;
     
-    // If period spans multiple months, split demands by month and save to each month's endpoint
-    if (selectedYear === 2026 && selectedPeriod === 'ramadan') {
-      // Ramadan spans Feb 19 - March 18, so split by month
-      const febDemands = demands.filter((d: any) => {
-        const date = new Date(d.date);
-        return date.getMonth() + 1 === 2; // February is month 2
-      });
-      const marDemands = demands.filter((d: any) => {
-        const date = new Date(d.date);
-        return date.getMonth() + 1 === 3; // March is month 3
-      });
-      
-      // Save to both months
-      await Promise.all([
-        febDemands.length > 0 ? api.post(`/api/data/demands/month/${selectedYear}/2`, febDemands) : Promise.resolve(),
-        marDemands.length > 0 ? api.post(`/api/data/demands/month/${selectedYear}/3`, marDemands) : Promise.resolve()
-      ]);
+    // If period spans multiple months, split demands by month and save each month.
+    const periodWindow = getRamadanPeriodWindow(selectedYear, selectedMonth, selectedPeriod);
+    if (periodWindow) {
+      const byMonth = new Map<number, any[]>();
+      for (const demand of demands) {
+        const demandMonth = new Date(demand.date).getMonth() + 1;
+        if (!byMonth.has(demandMonth)) byMonth.set(demandMonth, []);
+        byMonth.get(demandMonth)!.push(demand);
+      }
+      await Promise.all(
+        Array.from(byMonth.entries()).map(([m, rows]) =>
+          rows.length > 0 ? api.post(`/api/data/demands/month/${selectedYear}/${m}`, rows) : Promise.resolve(),
+        ),
+      );
     } else {
       // Regular month or period within single month - save normally
       await api.post(`/api/data/demands/month/${selectedYear}/${selectedMonth}`, demands);
@@ -547,23 +537,22 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
         }
       });
       
-      // Save holidays separately - need to save to both months if period spans multiple months
-      if (selectedYear === 2026 && selectedPeriod === 'ramadan') {
-        // Split holidays by month
-        const febHolidays: Record<string, string> = {};
-        const marHolidays: Record<string, string> = {};
+      // Save holidays separately; split by month when period spans months.
+      const holidayPeriodWindow = getRamadanPeriodWindow(selectedYear, selectedMonth, selectedPeriod);
+      if (holidayPeriodWindow) {
+        const byMonth: Record<number, Record<string, string>> = {};
         Object.entries(holidays).forEach(([date, holiday]) => {
-          const dateObj = new Date(date);
-          if (dateObj.getMonth() + 1 === 2) {
-            febHolidays[date] = holiday;
-          } else if (dateObj.getMonth() + 1 === 3) {
-            marHolidays[date] = holiday;
-          }
+          const m = new Date(date).getMonth() + 1;
+          byMonth[m] = byMonth[m] || {};
+          byMonth[m][date] = holiday;
         });
-        await Promise.all([
-          Object.keys(febHolidays).length > 0 ? api.post(`/api/data/holidays/month/${selectedYear}/2`, febHolidays) : Promise.resolve(),
-          Object.keys(marHolidays).length > 0 ? api.post(`/api/data/holidays/month/${selectedYear}/3`, marHolidays) : Promise.resolve()
-        ]);
+        await Promise.all(
+          Object.entries(byMonth).map(([m, monthHolidays]) =>
+            Object.keys(monthHolidays).length > 0
+              ? api.post(`/api/data/holidays/month/${selectedYear}/${m}`, monthHolidays)
+              : Promise.resolve(),
+          ),
+        );
       } else {
         await api.post(`/api/data/holidays/month/${selectedYear}/${selectedMonth}`, holidays);
       }
@@ -821,16 +810,8 @@ export const DemandsTab: React.FC<DemandsTabProps> = ({ selectedYear, selectedMo
   // Get date range based on selected period
   const getDateRange = () => {
     if (!selectedYear || !selectedMonth) return null;
-    
-    if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
-      if (selectedPeriod === 'pre-ramadan') {
-        return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
-      } else if (selectedPeriod === 'ramadan') {
-        return { start: new Date('2026-02-19'), end: new Date('2026-03-19') };
-      } else if (selectedPeriod === 'post-ramadan') {
-        return { start: new Date('2026-03-20'), end: new Date('2026-03-31') };
-      }
-    }
+    const window = getRamadanPeriodWindow(selectedYear, selectedMonth, selectedPeriod);
+    if (window) return { start: new Date(window.from), end: new Date(window.to) };
     return null;
   };
 

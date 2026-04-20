@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { shiftColors as defaultShiftColors } from '../utils/shiftColors';
 import { leaveTypesAPI, shiftTypesAPI, LeaveType, ShiftType } from '../services/api';
+import { getRamadanPeriodWindow } from '../utils/ramadanPeriods';
 
 /** `<input type="color">` only accepts #rrggbb. */
 function colorToHexForColorInput(c: string): string {
@@ -494,15 +495,8 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
 
   // Get date range for display
   const getDateRange = () => {
-    if (selectedPeriod && year === 2026 && (month === 2 || month === 3)) {
-      if (selectedPeriod === 'pre-ramadan') {
-        return { start: new Date('2026-02-01'), end: new Date('2026-02-18') };
-      } else if (selectedPeriod === 'ramadan') {
-        return { start: new Date('2026-02-19'), end: new Date('2026-03-18') };
-      } else if (selectedPeriod === 'post-ramadan') {
-        return { start: new Date('2026-03-19'), end: new Date('2026-03-31') };
-      }
-    }
+    const window = getRamadanPeriodWindow(year, month, selectedPeriod);
+    if (window) return { start: new Date(window.from), end: new Date(window.to) };
     return null;
   };
   
@@ -526,9 +520,11 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
       
       // Debug: Log dates for Ramadan
       if (selectedPeriod === 'ramadan') {
-        const febDates = dateList.filter(d => d.startsWith('2026-02'));
-        const marDates = dateList.filter(d => d.startsWith('2026-03'));
-        console.log(`Ramadan dates array: ${febDates.length} Feb dates, ${marDates.length} Mar dates, total: ${dateList.length}`);
+        const startMonthPrefix = dateRange.start.toISOString().slice(0, 7);
+        const endMonthPrefix = dateRange.end.toISOString().slice(0, 7);
+        const startMonthDates = dateList.filter(d => d.startsWith(startMonthPrefix));
+        const endMonthDates = dateList.filter(d => d.startsWith(endMonthPrefix));
+        console.log(`Ramadan dates array: ${startMonthDates.length} start-month dates, ${endMonthDates.length} end-month dates, total: ${dateList.length}`);
         console.log('First few dates:', dateList.slice(0, 5), 'Last few dates:', dateList.slice(-5));
       }
       
@@ -545,7 +541,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   
   // Filter schedule by period if selected
   const filteredSchedule = React.useMemo(() => {
-    if (!selectedPeriod || year !== 2026 || (month !== 2 && month !== 3)) {
+    if (!getRamadanPeriodWindow(year, month, selectedPeriod)) {
       return schedule;
     }
     
@@ -557,14 +553,16 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     
     // Debug: Log filtering results for Ramadan (only if schedule has entries)
     if (selectedPeriod === 'ramadan' && schedule.length > 0) {
-      const febDates = filtered.filter(e => e.date.split('T')[0].startsWith('2026-02'));
-      const marDates = filtered.filter(e => e.date.split('T')[0].startsWith('2026-03'));
-      console.log(`Ramadan filtering: ${febDates.length} Feb entries, ${marDates.length} Mar entries, ${dates.length} total dates in range`);
+      const startMonthPrefix = dates[0]?.slice(0, 7) || '';
+      const endMonthPrefix = dates[dates.length - 1]?.slice(0, 7) || '';
+      const startMonthEntries = filtered.filter(e => e.date.split('T')[0].startsWith(startMonthPrefix));
+      const endMonthEntries = filtered.filter(e => e.date.split('T')[0].startsWith(endMonthPrefix));
+      console.log(`Ramadan filtering: ${startMonthEntries.length} start-month entries, ${endMonthEntries.length} end-month entries, ${dates.length} total dates in range`);
       // Only warn if we have some entries but missing March ones (indicates a problem)
-      if (filtered.length > 0 && marDates.length === 0 && dates.some(d => d.startsWith('2026-03'))) {
-        console.warn('⚠️ No March entries found in schedule for Ramadan period!');
+      if (filtered.length > 0 && endMonthEntries.length === 0 && endMonthPrefix) {
+        console.warn('⚠️ No end-month entries found in schedule for Ramadan period!');
         console.log('Schedule entries sample:', schedule.slice(0, 5).map(e => e.date));
-        console.log('Expected March dates:', dates.filter(d => d.startsWith('2026-03')).slice(0, 5));
+        console.log('Expected end-month dates:', dates.filter(d => d.startsWith(endMonthPrefix)).slice(0, 5));
       }
     }
     

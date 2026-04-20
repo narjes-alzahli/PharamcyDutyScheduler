@@ -1,3 +1,5 @@
+import { getRamadanPeriodWindow } from './ramadanPeriods';
+
 /**
  * Pending off (matches roster/app/model/solver.py create_employee_report):
  *
@@ -49,17 +51,8 @@ export function getPendingOffWindow(
   month: number | undefined,
   selectedPeriod: string | null | undefined,
 ): { from: string; to: string } | null {
-  if (year !== 2026 || month === undefined || !selectedPeriod) return null;
-  if (selectedPeriod === 'pre-ramadan' && month === 2) {
-    return { from: '2026-02-01', to: '2026-02-18' };
-  }
-  if (selectedPeriod === 'ramadan' && (month === 2 || month === 3)) {
-    return { from: '2026-02-19', to: '2026-03-18' };
-  }
-  if (selectedPeriod === 'post-ramadan' && month === 3) {
-    return { from: '2026-03-19', to: '2026-03-31' };
-  }
-  return null;
+  const window = getRamadanPeriodWindow(year, month, selectedPeriod);
+  return window ? { from: window.from, to: window.to } : null;
 }
 
 export function filterEntriesToPendingWindow<T extends { date: string }>(

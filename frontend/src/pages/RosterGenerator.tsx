@@ -15,18 +15,33 @@ import {
   getPendingOffWindow,
   filterEntriesToPendingWindow,
 } from '../utils/pendingOffCalculation';
+import {
+  clearRamadanDateOverride,
+  getRamadanPeriodWindow,
+  getRamadanPeriodWindows,
+  hasRamadanDatesConfigured,
+  isDateInWindow,
+  setRamadanDateOverride,
+} from '../utils/ramadanPeriods';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ] as const;
 
-/** Local calendar date YYYY-MM-DD (for comparing to fixed Ramadan 2026 boundaries). */
+/** Local calendar date YYYY-MM-DD. */
 function formatLocalYMD(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function formatIsoToDmy(iso: string): string {
+  const parts = iso.split('T')[0].split('-');
+  if (parts.length !== 3) return iso;
+  const [year, month, day] = parts;
+  return `${day}-${month}-${year}`;
 }
 
 type RosterMonthOption = {
@@ -47,24 +62,50 @@ function getAvailableMonthOptions(
   const currentMonth = now.getMonth() + 1;
   const todayStr = formatLocalYMD(now);
 
-  if (year === 2026) {
+  const ramadanWindows = getRamadanPeriodWindows(year);
+  if (ramadanWindows) {
     const months: RosterMonthOption[] = [];
-    if (todayStr <= '2026-02-18') {
-      months.push({ month: 'February (Pre-Ramadan)', number: 2, isPeriod: true, periodId: 'pre-ramadan' });
+    const preMonthName = names[ramadanWindows['pre-ramadan'].primaryMonth - 1];
+    const postMonthName = names[ramadanWindows['post-ramadan'].primaryMonth - 1];
+    if (todayStr <= ramadanWindows['pre-ramadan'].to) {
+      months.push({
+        month: `${preMonthName} (Pre-Ramadan)`,
+        number: ramadanWindows['pre-ramadan'].primaryMonth,
+        isPeriod: true,
+        periodId: 'pre-ramadan',
+      });
     }
-    if (todayStr <= '2026-03-18') {
-      months.push({ month: 'Ramadan', number: 2, isPeriod: true, periodId: 'ramadan' });
+    if (todayStr <= ramadanWindows.ramadan.to) {
+      months.push({ month: 'Ramadan', number: ramadanWindows.ramadan.primaryMonth, isPeriod: true, periodId: 'ramadan' });
     }
-    if (todayStr <= '2026-03-31') {
-      months.push({ month: 'March (Post-Ramadan)', number: 3, isPeriod: true, periodId: 'post-ramadan' });
+    if (todayStr <= ramadanWindows['post-ramadan'].to) {
+      months.push({
+        month: `${postMonthName} (Post-Ramadan)`,
+        number: ramadanWindows['post-ramadan'].primaryMonth,
+        isPeriod: true,
+        periodId: 'post-ramadan',
+      });
     }
+    const blockedMonths = new Set<number>([
+      ramadanWindows['pre-ramadan'].primaryMonth,
+      ramadanWindows.ramadan.primaryMonth,
+      ramadanWindows['post-ramadan'].primaryMonth,
+    ]);
     names.forEach((month, index) => {
       const monthNum = index + 1;
-      if (monthNum < 4) return;
+      if (blockedMonths.has(monthNum)) return;
       if (year === currentYear && monthNum < currentMonth) return;
       months.push({ month, number: monthNum, isPeriod: false, periodId: undefined });
     });
-    return months;
+    const getStartKey = (opt: RosterMonthOption): string => {
+      if (opt.isPeriod && opt.periodId) {
+        if (opt.periodId === 'pre-ramadan') return ramadanWindows['pre-ramadan'].from;
+        if (opt.periodId === 'ramadan') return ramadanWindows.ramadan.from;
+        if (opt.periodId === 'post-ramadan') return ramadanWindows['post-ramadan'].from;
+      }
+      return `${year}-${String(opt.number).padStart(2, '0')}-01`;
+    };
+    return [...months].sort((a, b) => getStartKey(a).localeCompare(getStartKey(b)));
   }
 
   if (year === currentYear) {
@@ -119,6 +160,7 @@ export const RosterGenerator: React.FC = () => {
   const [shiftRequests, setShiftRequests] = useState<any[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+  const [isRamadanConfiguredForSelectedYear, setIsRamadanConfiguredForSelectedYear] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const jobNotFoundCountRef = useRef<number>(0);
   const hasShownFailureAlertRef = useRef<boolean>(false);
@@ -182,7 +224,7 @@ export const RosterGenerator: React.FC = () => {
     if (selectedYear !== null || selectedMonth !== null) return;
 
     const now = new Date();
-    const firstYear = Math.max(2026, now.getFullYear());
+    const firstYear = now.getFullYear();
     const months = getAvailableMonthOptions(firstYear, now, MONTH_NAMES);
     if (months.length === 0) return;
 
@@ -316,8 +358,8 @@ export const RosterGenerator: React.FC = () => {
   useEffect(() => {
     clearGeneratedResults();
     setSolving(false);
-    // Reset period selection when year/month changes (unless it's still 2026 Feb/Mar)
-    if (!(selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3))) {
+    // Reset period selection when year/month no longer maps to a Ramadan period window.
+    if (!getRamadanPeriodWindow(selectedYear ?? undefined, selectedMonth ?? undefined, selectedPeriod)) {
       setSelectedPeriod(null);
     }
   }, [selectedYear, selectedMonth, selectedPeriod]);
@@ -330,6 +372,29 @@ export const RosterGenerator: React.FC = () => {
       return () => clearInterval(interval);
     }
   }, [jobId, solving]);
+
+  useEffect(() => {
+    if (!selectedYear) return;
+    let cancelled = false;
+    dataAPI.getRamadanDates(selectedYear)
+      .then((rec) => {
+        if (cancelled) return;
+        if (rec.start_date && rec.end_date) {
+          setRamadanDateOverride(selectedYear, rec.start_date, rec.end_date, rec.source || undefined);
+          setIsRamadanConfiguredForSelectedYear(true);
+        } else {
+          clearRamadanDateOverride(selectedYear);
+          setIsRamadanConfiguredForSelectedYear(false);
+        }
+      })
+      .catch(() => {
+        clearRamadanDateOverride(selectedYear);
+        setIsRamadanConfiguredForSelectedYear(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedYear]);
 
   const loadRosterData = async (retryCount = 0, silent = false): Promise<void> => {
     const maxRetries = 2;
@@ -434,24 +499,13 @@ export const RosterGenerator: React.FC = () => {
     try {
       setSolving(true);
       
-      // Determine date range based on selected period (for 2026 February/March)
+      // Determine date range based on selected period.
       let startDate: string | undefined;
       let endDate: string | undefined;
-      
-      if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
-        if (selectedPeriod === 'pre-ramadan') {
-          // February (Pre-Ramadan): Feb 1-18, 2026
-          startDate = '2026-02-01';
-          endDate = '2026-02-18';
-        } else if (selectedPeriod === 'ramadan') {
-          // Ramadan: Feb 19 - March 18, 2026
-          startDate = '2026-02-19';
-          endDate = '2026-03-18';
-        } else if (selectedPeriod === 'post-ramadan') {
-          // March (Post-Ramadan): March 19-31, 2026
-          startDate = '2026-03-19';
-          endDate = '2026-03-31';
-        }
+      const periodWindow = getRamadanPeriodWindow(selectedYear, selectedMonth, selectedPeriod);
+      if (periodWindow) {
+        startDate = periodWindow.from;
+        endDate = periodWindow.to;
       }
       
       const request: SolveRequest = {
@@ -1206,11 +1260,11 @@ export const RosterGenerator: React.FC = () => {
     setShowAddLock(false);
   };
 
-  // Years from max(2026, current year) through +10 (roster planning horizon)
+  // Years from current year through +10 (roster planning horizon)
   const availableYears = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const years: number[] = [];
-    const startYear = Math.max(2026, currentYear);
+    const startYear = currentYear;
     for (let year = startYear; year <= currentYear + 10; year++) {
       years.push(year);
     }
@@ -1242,16 +1296,9 @@ export const RosterGenerator: React.FC = () => {
       if (Number.isNaN(date.getTime())) return false;
       if (date.getFullYear() !== selectedYear) return false;
 
-      if (option.isPeriod && option.periodId && selectedYear === 2026) {
-        if (option.periodId === 'pre-ramadan') {
-          return parsed >= '2026-02-01' && parsed <= '2026-02-18';
-        }
-        if (option.periodId === 'ramadan') {
-          return parsed >= '2026-02-19' && parsed <= '2026-03-18';
-        }
-        if (option.periodId === 'post-ramadan') {
-          return parsed >= '2026-03-19' && parsed <= '2026-03-31';
-        }
+      if (option.isPeriod && option.periodId) {
+        const window = getRamadanPeriodWindow(selectedYear, option.number, option.periodId);
+        if (window) return isDateInWindow(parsed, window);
       }
 
       return date.getMonth() + 1 === option.number;
@@ -1289,7 +1336,7 @@ export const RosterGenerator: React.FC = () => {
 
   const selectedMonthOptionKey = useMemo(() => {
     if (!selectedYear || !selectedMonth) return '';
-    if (selectedYear === 2026 && selectedPeriod) return selectedPeriod;
+    if (selectedPeriod && getRamadanPeriodWindow(selectedYear, selectedMonth, selectedPeriod)) return selectedPeriod;
     return selectedMonth.toString();
   }, [selectedYear, selectedMonth, selectedPeriod]);
 
@@ -1340,14 +1387,9 @@ export const RosterGenerator: React.FC = () => {
     return data.filter((item: any) => {
       const date = new Date(item[dateField]);
       // Filter by period if selected
-      if (selectedYear === 2026 && (selectedMonth === 2 || selectedMonth === 3) && selectedPeriod) {
-        if (selectedPeriod === 'pre-ramadan') {
-          return date >= new Date('2026-02-01') && date <= new Date('2026-02-18');
-        } else if (selectedPeriod === 'ramadan') {
-          return date >= new Date('2026-02-19') && date <= new Date('2026-03-19');
-        } else if (selectedPeriod === 'post-ramadan') {
-          return date >= new Date('2026-03-20') && date <= new Date('2026-03-31');
-        }
+      const window = getRamadanPeriodWindow(selectedYear, selectedMonth, selectedPeriod);
+      if (window) {
+        return date >= new Date(window.from) && date <= new Date(window.to);
       }
       return date.getFullYear() === selectedYear && date.getMonth() + 1 === selectedMonth;
     });
@@ -1455,7 +1497,7 @@ export const RosterGenerator: React.FC = () => {
           <label className="block text-sm font-medium text-gray-700 mb-2">Select Month</label>
           <select
             value={
-              selectedYear === 2026 && selectedPeriod
+              selectedPeriod && getRamadanPeriodWindow(selectedYear ?? undefined, selectedMonth ?? undefined, selectedPeriod)
                 ? selectedPeriod
                 : selectedMonth?.toString() || ''
             }
@@ -1467,8 +1509,8 @@ export const RosterGenerator: React.FC = () => {
                 return;
               }
               
-              // Auto-select period for 2026 periods
-              if (selectedYear === 2026) {
+              // Auto-select period when period option is chosen.
+              if (selectedYear) {
                 // Check if this is a period (starts with period identifier)
                 const option = availableMonths.find(m => {
                   if (m.isPeriod && m.periodId) {
@@ -1512,14 +1554,30 @@ export const RosterGenerator: React.FC = () => {
           </select>
         </div>
         {/* Show period info when a period is selected */}
-        {selectedYear === 2026 && selectedPeriod && (
+        {selectedYear && selectedPeriod && getRamadanPeriodWindow(selectedYear ?? undefined, selectedMonth ?? undefined, selectedPeriod) && (
           <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
             <p className="font-semibold">Selected Period:</p>
             <p className="text-sm">
-              {selectedPeriod === 'pre-ramadan' && 'February (Pre-Ramadan) - Feb 1-18, 2026'}
-              {selectedPeriod === 'ramadan' && 'Ramadan - Feb 19 to Mar 18, 2026'}
-              {selectedPeriod === 'post-ramadan' && 'March (Post-Ramadan) - Mar 19-31, 2026'}
+              {(() => {
+                const windows = getRamadanPeriodWindows(selectedYear);
+                if (!windows) return null;
+                if (selectedPeriod === 'pre-ramadan') {
+                  return `${MONTH_NAMES[windows['pre-ramadan'].primaryMonth - 1]} (Pre-Ramadan): ${formatIsoToDmy(windows['pre-ramadan'].from)} to ${formatIsoToDmy(windows['pre-ramadan'].to)}`;
+                }
+                if (selectedPeriod === 'ramadan') {
+                  return `Ramadan: ${formatIsoToDmy(windows.ramadan.from)} to ${formatIsoToDmy(windows.ramadan.to)}`;
+                }
+                if (selectedPeriod === 'post-ramadan') {
+                  return `${MONTH_NAMES[windows['post-ramadan'].primaryMonth - 1]} (Post-Ramadan): ${formatIsoToDmy(windows['post-ramadan'].from)} to ${formatIsoToDmy(windows['post-ramadan'].to)}`;
+                }
+                return null;
+              })()}
             </p>
+          </div>
+        )}
+        {selectedYear && !isRamadanConfiguredForSelectedYear && !hasRamadanDatesConfigured(selectedYear) && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded">
+            Ramadan dates not set for this year; using normal monthly mode.
           </div>
         )}
       </div>
