@@ -128,7 +128,6 @@
   <div class="container">
     <div class="header">
       <div class="buttons">
-        <button type="button" class="btn-back" onclick="goBack()">Close</button>
         <button class="btn-download" id="downloadBtn" onclick="downloadImage()" style="display: none;">Download</button>
       </div>
     </div>
@@ -147,34 +146,6 @@
     const urlParams = new URLSearchParams(window.location.search);
     const year = urlParams.get('year');
     const month = urlParams.get('month');
-    const returnParam = urlParams.get('return');
-
-    /** Same-origin path only (e.g. /roster-history?...). */
-    function safeReturnUrl(encoded) {
-      if (!encoded) return null;
-      try {
-        const path = decodeURIComponent(encoded);
-        if (typeof path !== 'string' || path.length === 0) return null;
-        if (!path.startsWith('/') || path.startsWith('//')) return null;
-        return window.location.origin + path;
-      } catch (e) {
-        return null;
-      }
-    }
-
-    function goBack() {
-      const target = safeReturnUrl(returnParam);
-      if (target) {
-        window.location.href = target;
-        return;
-      }
-      if (window.history.length > 1) {
-        window.history.back();
-        return;
-      }
-      window.location.href = window.location.origin + '/';
-    }
-
     // Get image data from sessionStorage
     let imageData = null;
     if (year && month) {

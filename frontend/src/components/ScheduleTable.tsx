@@ -145,9 +145,9 @@ const LEGEND_CODE_DESCRIPTION: Record<string, string> = {
   N: 'Night',
   H: 'Harat',
   MS: 'Medical Store',
-  P: 'Preparation',
-  'M+P': 'Main+Prep',
-  'IP+P': 'Inpatient+Prep',
+  P: 'Prep',
+  'M+P': 'M+Prep',
+  'IP+P': 'IP+Prep',
   C: 'Course',
   CL: 'Clinic',
   E: 'Evening',
@@ -989,33 +989,6 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
 
       {/* Legend with Color Pickers */}
       <div className="mt-3 bg-white p-2 sm:p-2.5 rounded-lg shadow" data-schedule-legend>
-        {canChangeColors && (
-        <div className="mb-1 flex items-center justify-end">
-          <button
-            onClick={() => {
-              if (window.confirm('Reset all colors to database defaults?')) {
-                // Reset to database colors (which include defaults for any missing)
-                const dynamicColors = getDynamicShiftColors();
-                // Ensure special colors use their specified defaults
-                const resetColors = { 
-                  ...defaultShiftColors, 
-                  ...dynamicColors, 
-                  [SPECIAL_COLOR_KEYS.weekend]: defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend],
-                  [SPECIAL_COLOR_KEYS.totals]: defaultSpecialColors[SPECIAL_COLOR_KEYS.totals],
-                  '0': defaultSpecialColors['0'],
-                  '': defaultSpecialColors['']
-                };
-                setCustomColors(resetColors);
-                // Clear localStorage so it uses database defaults
-                localStorage.removeItem('shiftColors');
-              }
-            }}
-            className="rounded bg-gray-200 px-2 py-0.5 text-[11px] text-gray-700 hover:bg-gray-300"
-          >
-            Reset Colors
-          </button>
-        </div>
-        )}
         <div className="space-y-0">
           {legendSections.map((section, sectionIdx) => (
             <div
@@ -1026,7 +999,8 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
               <h4 className="mb-0.5 border-b border-gray-100 pb-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-gray-600">
                 {section.title}
               </h4>
-              <div className="grid min-w-0 grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-x-1.5 gap-y-0.5 print:grid-cols-10 print:gap-x-1 print:gap-y-0.5">
+              <div className={section.id === 'display' && canChangeColors ? 'flex items-end gap-2' : ''}>
+                <div className="grid min-w-0 flex-1 grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-x-1.5 gap-y-0.5 print:grid-cols-6 print:gap-x-1 print:gap-y-1">
                 {section.items.map((item) => {
             const { key, defaultColor, description, label, swatchCode } = item;
             const codeInSwatch = swatchCode ?? key;
@@ -1035,12 +1009,12 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
             const swLen = codeInSwatch.length;
             const swatchTextClass =
               swLen > 4
-                ? 'text-[8px] sm:text-[9px]'
+                ? 'text-[7px] sm:text-[8px]'
                 : swLen === 4
-                  ? 'text-[9px] sm:text-[11px]'
+                  ? 'text-[8px] sm:text-[10px]'
                   : swLen > 2
-                    ? 'text-[10px] sm:text-[12px]'
-                    : 'text-xs sm:text-[13px]';
+                    ? 'text-[9px] sm:text-[11px]'
+                    : 'text-[10px] sm:text-xs';
 
             return (
               <div key={key} className="group flex min-w-0 max-w-full items-center gap-1 overflow-hidden py-px">
@@ -1063,7 +1037,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                     />
                   )}
                   <div
-                    className={`flex min-h-[26px] min-w-[26px] max-w-[3.5rem] shrink-0 items-center justify-center rounded border border-gray-300 px-0.5 outline-none ring-0 transition-colors sm:min-h-[28px] sm:min-w-[28px] print:min-h-[22px] print:min-w-[22px] ${
+                    className={`flex min-h-[24px] min-w-[24px] max-w-[3.25rem] shrink-0 items-center justify-center rounded border border-gray-300 px-0.5 outline-none ring-0 transition-colors sm:min-h-[26px] sm:min-w-[26px] print:min-h-[20px] print:min-w-[20px] ${
                       canChangeColors
                         ? 'cursor-pointer hover:border-gray-400 focus:outline-none focus-visible:outline-none active:border-gray-500'
                         : 'cursor-default'
@@ -1136,7 +1110,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                   )}
                 </div>
                 <span
-                  className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-800 sm:text-xs print:text-[9px]"
+                  className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-800 sm:text-xs print:whitespace-normal print:break-words print:overflow-visible print:[text-overflow:clip] print:leading-tight"
                   title={label}
                 >
                   {description}
@@ -1144,6 +1118,30 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
               </div>
             );
                 })}
+                </div>
+                {section.id === 'display' && canChangeColors && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('Reset all colors to database defaults?')) {
+                        const dynamicColors = getDynamicShiftColors();
+                        const resetColors = {
+                          ...defaultShiftColors,
+                          ...dynamicColors,
+                          [SPECIAL_COLOR_KEYS.weekend]: defaultSpecialColors[SPECIAL_COLOR_KEYS.weekend],
+                          [SPECIAL_COLOR_KEYS.totals]: defaultSpecialColors[SPECIAL_COLOR_KEYS.totals],
+                          '0': defaultSpecialColors['0'],
+                          '': defaultSpecialColors[''],
+                        };
+                        setCustomColors(resetColors);
+                        localStorage.removeItem('shiftColors');
+                      }
+                    }}
+                    className="mb-px shrink-0 rounded bg-gray-200 px-2 py-0.5 text-[11px] text-gray-700 hover:bg-gray-300"
+                  >
+                    Reset Colors
+                  </button>
+                )}
               </div>
             </div>
           ))}
