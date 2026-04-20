@@ -1300,7 +1300,7 @@ export const UserManagement: React.FC = () => {
     setShowAddRamadanModal(true);
   };
 
-  const handleCreateRamadanRow = () => {
+  const handleCreateRamadanRow = async () => {
     if (!newRamadanYear || !newRamadanFrom || !newRamadanTo) {
       setNotification({ message: 'Please fill year, from, and to dates.', type: 'error' });
       setTimeout(() => setNotification(null), 3500);
@@ -1316,11 +1316,24 @@ export const UserManagement: React.FC = () => {
       setTimeout(() => setNotification(null), 3500);
       return;
     }
-    setRamadanDates((prev) => [
-      ...prev,
-      { year: newRamadanYear, start_date: newRamadanFrom, end_date: newRamadanTo, source: 'pending' },
-    ].sort((a, b) => a.year - b.year));
-    setShowAddRamadanModal(false);
+    try {
+      setSavingRamadanYear(newRamadanYear);
+      await dataAPI.saveRamadanDates(newRamadanYear, {
+        year: newRamadanYear,
+        start_date: newRamadanFrom,
+        end_date: newRamadanTo,
+        source: 'manual',
+      });
+      setNotification({ message: `Ramadan dates saved for ${newRamadanYear}.`, type: 'success' });
+      setTimeout(() => setNotification(null), 2500);
+      setShowAddRamadanModal(false);
+      await loadRamadanDates();
+    } catch (error: any) {
+      setNotification({ message: error.response?.data?.detail || 'Failed to save Ramadan dates', type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setSavingRamadanYear(null);
+    }
   };
 
   const openEditRamadanModal = (row: RamadanDateRow) => {
@@ -2039,12 +2052,15 @@ export const UserManagement: React.FC = () => {
                       <td className="px-4 py-3 border border-gray-300 text-sm text-gray-700">{row.end_date}</td>
                       <td className="px-4 py-3 border border-gray-300 text-sm">
                         {row.source === 'pending' ? (
-                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-300">
-                            Not Configured
+                          <span
+                            className="inline-flex cursor-help items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-300"
+                            title="This year is not saved to the database yet. Open Edit and click Save. If it still shows Not Added after that, contact whoever maintains this app (developer or IT)."
+                          >
+                            Not Added
                           </span>
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 border border-green-300">
-                            Split Enabled
+                            Added
                           </span>
                         )}
                       </td>
@@ -2130,10 +2146,11 @@ export const UserManagement: React.FC = () => {
                 Cancel
               </button>
               <button
-                onClick={handleCreateRamadanRow}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                onClick={() => void handleCreateRamadanRow()}
+                disabled={savingRamadanYear === newRamadanYear}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-60"
               >
-                Add
+                {savingRamadanYear === newRamadanYear ? 'Saving...' : 'Add'}
               </button>
             </div>
           </div>

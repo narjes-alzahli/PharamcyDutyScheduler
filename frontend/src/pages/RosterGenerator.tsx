@@ -121,22 +121,6 @@ function getAvailableMonthOptions(
   return [];
 }
 
-function isSelectionValidForYear(
-  year: number,
-  month: number | null,
-  period: string | null,
-  now: Date
-): boolean {
-  if (month == null) return false;
-  const opts = getAvailableMonthOptions(year, now, MONTH_NAMES);
-  return opts.some((opt) => {
-    if (opt.isPeriod && opt.periodId) {
-      return period === opt.periodId && opt.number === month;
-    }
-    return !period && opt.number === month;
-  });
-}
-
 export const RosterGenerator: React.FC = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -1470,14 +1454,10 @@ export const RosterGenerator: React.FC = () => {
                 setSelectedPeriod(null);
                 return;
               }
-              const now = new Date();
-              if (
-                selectedMonth != null &&
-                !isSelectionValidForYear(newYear, selectedMonth, selectedPeriod, now)
-              ) {
-                setSelectedMonth(null);
-                setSelectedPeriod(null);
-              }
+              // Always reset month/period when the year changes so the month dropdown
+              // shows "Select Month..." instead of carrying over the previous year's choice.
+              setSelectedMonth(null);
+              setSelectedPeriod(null);
             }}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
           >
