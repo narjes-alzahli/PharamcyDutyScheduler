@@ -2,7 +2,7 @@
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, Tuple, Set, List
+from typing import Any, Dict, List, Set, Tuple
 from datetime import date, timedelta
 from sqlalchemy.orm import Session, joinedload
 
@@ -411,6 +411,74 @@ def load_demands_by_date_range(start_date: date, end_date: date, db: Session = N
     finally:
         if close_db:
             db.close()
+
+
+_DEMAND_NEED_COLS = (
+    "need_M",
+    "need_IP",
+    "need_A",
+    "need_N",
+    "need_M3",
+    "need_M4",
+    "need_H",
+    "need_CL",
+    "need_E",
+    "need_MS",
+    "need_IP_P",
+    "need_P",
+    "need_M_P",
+)
+
+
+def ensure_demands_cover_date_range(
+    demands_df: pd.DataFrame,
+    start_date: date,
+    end_date: date,
+) -> pd.DataFrame:
+    """One demand row per calendar day in [start_date, end_date]; missing days get zero needs.
+
+    Cross-month Ramadan (and similar windows) must still optimize every day even when
+    staffing-needs rows exist only for the first calendar month in the DB.
+    """
+    if start_date > end_date:
+        return demands_df
+
+    days: List[date] = []
+    cur = start_date
+    while cur <= end_date:
+        days.append(cur)
+        cur += timedelta(days=1)
+
+    df = demands_df.copy() if demands_df is not None else pd.DataFrame()
+    if not df.empty and "date" in df.columns:
+        df = df.copy()
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+        df = df.dropna(subset=["date"])
+    else:
+        df = pd.DataFrame(columns=["date", *_DEMAND_NEED_COLS])
+
+    by_date: Dict[date, Dict[str, Any]] = {}
+    for _, row in df.iterrows():
+        d = row.get("date")
+        if d is None or pd.isna(d):
+            continue
+        if not isinstance(d, date):
+            continue
+        rec = {c: row.get(c, 0) for c in _DEMAND_NEED_COLS}
+        for c in _DEMAND_NEED_COLS:
+            v = rec[c]
+            try:
+                rec[c] = int(v) if v is not None and not (isinstance(v, float) and pd.isna(v)) else 0
+            except (TypeError, ValueError):
+                rec[c] = 0
+        by_date[d] = rec
+
+    rows: List[Dict[str, Any]] = []
+    for d in days:
+        base = by_date.get(d, {c: 0 for c in _DEMAND_NEED_COLS})
+        rows.append({"date": d, **base})
+
+    return pd.DataFrame(rows)
 
 
 def save_month_demands(year: int, month: int, demands_df: pd.DataFrame, db: Session = None):

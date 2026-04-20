@@ -24,14 +24,15 @@ from backend.database import SessionLocal, get_db
 from backend.models import LeaveType
 from backend.utils import deep_json_safe
 from backend.roster_data_loader import (
-    load_roster_data_from_db, 
-    load_month_demands, 
+    load_roster_data_from_db,
+    load_month_demands,
     load_demands_by_date_range,
+    ensure_demands_cover_date_range,
     save_month_demands,
     load_month_holidays,
     load_holidays_by_date_range,
     load_previous_month_last_days,
-    load_previous_period_last_days
+    load_previous_period_last_days,
 )
 from backend.routers.data import get_pending_off_from_most_recent_committed_month
 
@@ -119,6 +120,8 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 (pd.to_datetime(month_demands['date']) >= pd.Timestamp(start_date)) &
                 (pd.to_datetime(month_demands['date']) <= pd.Timestamp(end_date))
             ]
+            # Fill missing calendar days (e.g. second month of cross-month Ramadan with demands only in DB for month one).
+            month_demands = ensure_demands_cover_date_range(month_demands, start_date, end_date)
             if month_demands.empty:
                 error_msg = f"No demands data found for {period_name}. Please add demands in the Staffing Needs tab before solving."
                 solver_jobs[job_id]["status"] = "failed"

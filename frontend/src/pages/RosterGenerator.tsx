@@ -359,6 +359,8 @@ export const RosterGenerator: React.FC = () => {
 
   useEffect(() => {
     if (!selectedYear) return;
+    // Avoid stale split/calendar mode while the new year's Ramadan row is loading.
+    setIsRamadanConfiguredForSelectedYear(false);
     let cancelled = false;
     dataAPI.getRamadanDates(selectedYear)
       .then((rec) => {
@@ -611,7 +613,8 @@ export const RosterGenerator: React.FC = () => {
         selectedMonth,
         normalizedSchedule,
         generatedEmployees || undefined,
-        scheduleMetrics || undefined
+        scheduleMetrics || undefined,
+        selectedPeriod || undefined,
       );
       showToast({
         message:
@@ -1257,7 +1260,8 @@ export const RosterGenerator: React.FC = () => {
 
   const availableMonths = useMemo(
     () => getAvailableMonthOptions(selectedYear, new Date(), MONTH_NAMES),
-    [selectedYear]
+    // Re-run when Ramadan override for this year finishes loading (memo only keyed on year would stay stale).
+    [selectedYear, isRamadanConfiguredForSelectedYear],
   );
 
   const totalPendingRequestCount = useMemo(() => {

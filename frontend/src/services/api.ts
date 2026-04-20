@@ -349,14 +349,25 @@ export const schedulesAPI = {
     const response = await api.get<Schedule>(`/api/schedules/committed/${year}/${month}`);
     return response.data;
   },
-  commitSchedule: async (year: number, month: number, schedule: any[], employees?: any[], metrics?: any): Promise<void> => {
-    await api.post('/api/schedules/commit', {
+  commitSchedule: async (
+    year: number,
+    month: number,
+    schedule: any[],
+    employees?: any[],
+    metrics?: any,
+    selectedPeriod?: string | null,
+  ): Promise<void> => {
+    const payload: Record<string, unknown> = {
       year,
       month,
       schedule,
       employees,
       metrics,
-    });
+    };
+    if (selectedPeriod != null && selectedPeriod !== '') {
+      payload.selected_period = selectedPeriod;
+    }
+    await api.post('/api/schedules/commit', payload);
   },
   updateSchedule: async (
     year: number,

@@ -406,21 +406,34 @@ async def commit_schedule(
         schedule = schedule_data['schedule']  # List of {employee, date, shift}
         employees = schedule_data.get('employees', [])  # Optional employee report data
         metrics = schedule_data.get('metrics', {})  # Optional metrics
-        
-        # Determine the date range of the schedule being committed
-        # This allows us to delete only entries in this specific range (important for periods)
+        selected_period = schedule_data.get("selected_period")
+        if selected_period is not None and not isinstance(selected_period, str):
+            selected_period = None
+
+        # Determine the date range of rows to replace before inserting.
+        # When selected_period is set (Ramadan splits), delete the full logical period window so
+        # stale days outside the new payload (e.g. rest of February after saving Pre-Ramadan only)
+        # are not left behind.
         schedule_dates = []
         for entry in schedule:
             date_val = pd.to_datetime(entry['date'], errors='coerce').date()
             if not pd.isna(date_val):
                 schedule_dates.append(date_val)
-        
-        if schedule_dates:
+
+        window = (
+            get_pending_off_window_inclusive(int(year), int(month), selected_period, db=db)
+            if selected_period
+            else None
+        )
+        if window:
+            start_d, end_d = window
+            db.query(CommittedSchedule).filter(
+                CommittedSchedule.date >= start_d,
+                CommittedSchedule.date <= end_d,
+            ).delete()
+        elif schedule_dates:
             min_date = min(schedule_dates)
             max_date = max(schedule_dates)
-            
-            # Delete existing schedule entries only for dates in this range
-            # This prevents deleting entries from other periods (e.g., Pre-Ramadan when committing Ramadan)
             db.query(CommittedSchedule).filter(
                 CommittedSchedule.date >= min_date,
                 CommittedSchedule.date <= max_date
