@@ -9,6 +9,10 @@ interface ScheduleAnalysisProps {
   metrics?: any;
   year: number;
   month: number;
+  /** Shift requests (e.g. from Roster Generator) for fairness bar "requested" counts */
+  shiftRequests?: any[];
+  /** Roster locks / admin-forced shifts */
+  rosterLocks?: any[];
 }
 
 export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
@@ -17,6 +21,8 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
   metrics,
   year,
   month,
+  shiftRequests,
+  rosterLocks,
 }) => {
   const [expandedSections, setExpandedSections] = useState({
     summary: false,
@@ -51,6 +57,14 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
   }, [employees]);
 
   const fairnessData = calculateFairnessData(schedule, employeeOrder);
+
+  const relevantDates = useMemo(() => {
+    const s = new Set<string>();
+    (schedule || []).forEach((e: any) => {
+      if (e?.date) s.add(String(e.date).split('T')[0]);
+    });
+    return s;
+  }, [schedule]);
 
   const employeeDetails = employees || [];
   // Use employee order from schedule instead of sorting by pending_off
@@ -131,6 +145,9 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
               fairnessData={fairnessData}
               employeeOrder={employeeOrder}
               employees={employees}
+              shiftRequests={shiftRequests}
+              rosterLocks={rosterLocks}
+              relevantDates={relevantDates}
             />
           </div>
         )}
@@ -159,6 +176,7 @@ export const ScheduleAnalysis: React.FC<ScheduleAnalysisProps> = ({
                       text: pendingOffValues.map((value: number) => Math.round(value).toString()),
                       textposition: 'auto',
                       marker: { color: '#5DADE2' },
+                      hovertemplate: '%{x}: %{y}<extra></extra>',
                     },
                   ]}
                   layout={{

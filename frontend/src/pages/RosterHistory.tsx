@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { schedulesAPI, Schedule, dataAPI, shiftTypesAPI, leaveTypesAPI } from '../services/api';
+import {
+  schedulesAPI,
+  Schedule,
+  dataAPI,
+  shiftTypesAPI,
+  leaveTypesAPI,
+  requestsAPI,
+} from '../services/api';
 import { buildMyWorkingShiftsIcs } from '../utils/rosterCalendarIcs';
 import { ScheduleTable } from '../components/ScheduleTable';
 import * as htmlToImage from 'html-to-image';
@@ -98,6 +105,9 @@ export const AllRostersPage: React.FC = () => {
   const [originalSchedule, setOriginalSchedule] = useState<Schedule | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   const [employeesFromAPI, setEmployeesFromAPI] = useState<any[]>([]);
+  /** Shift requests + roster locks for fairness chart “Requested” counts (same sources as Roster Generator). */
+  const [fairnessShiftRequests, setFairnessShiftRequests] = useState<any[]>([]);
+  const [fairnessRosterLocks, setFairnessRosterLocks] = useState<any[]>([]);
   const [unpublishedSummary, setUnpublishedSummary] = useState<{
     has_unpublished: boolean;
     items: Array<{ year: number; month: number; periods: string[]; has_unpublished: boolean }>;
@@ -291,6 +301,24 @@ export const AllRostersPage: React.FC = () => {
     }
   }, []);
 
+  const loadFairnessRequestSources = useCallback(async () => {
+    try {
+      const shiftReq = await requestsAPI.getAllShiftRequests();
+      setFairnessShiftRequests(Array.isArray(shiftReq) ? shiftReq : []);
+    } catch (err: any) {
+      console.error('Failed to load shift requests for fairness:', err);
+      setFairnessShiftRequests([]);
+    }
+    try {
+      const rosterData = await dataAPI.getRosterData();
+      const locks = rosterData?.locks;
+      setFairnessRosterLocks(Array.isArray(locks) ? locks : []);
+    } catch (err: any) {
+      console.error('Failed to load roster locks for fairness:', err);
+      setFairnessRosterLocks([]);
+    }
+  }, []);
+
   // FIX: Load schedules list ONLY after auth guard confirms we're ready
   // This ensures user is authenticated AND token is valid before making API calls
   // FIX: Add request cancellation on unmount to prevent memory leaks
@@ -300,6 +328,7 @@ export const AllRostersPage: React.FC = () => {
     if (authReady) {
       loadSchedules(abortController.signal);
       loadEmployees(); // Load employees to get correct order
+      loadFairnessRequestSources();
     } else {
       // Auth not ready - clear schedules and show loading
       setSchedules([]);
@@ -312,7 +341,7 @@ export const AllRostersPage: React.FC = () => {
     return () => {
       abortController.abort();
     };
-  }, [authReady, loadSchedules, loadEmployees]);
+  }, [authReady, loadSchedules, loadEmployees, loadFairnessRequestSources]);
 
   // Load specific schedule ONLY after schedules list is loaded
   useEffect(() => {
@@ -972,6 +1001,14 @@ export const AllRostersPage: React.FC = () => {
 
   const monthSchedule = getMonthSchedule();
 
+  const fairnessRelevantDates = useMemo(() => {
+    const s = new Set<string>();
+    monthSchedule.forEach((e: any) => {
+      if (e?.date) s.add(String(e.date).split('T')[0]);
+    });
+    return s;
+  }, [monthSchedule]);
+
   const handleDownloadMyCalendar = async () => {
     if (!user?.employee_name || !selectedYear || !selectedMonth) return;
     setCalendarExporting(true);
@@ -1627,6 +1664,9 @@ export const AllRostersPage: React.FC = () => {
                           fairnessData={fairnessData}
                           employeeOrder={employeeOrder}
                           employees={employeesFromAPI}
+                          shiftRequests={fairnessShiftRequests}
+                          rosterLocks={fairnessRosterLocks}
+                          relevantDates={fairnessRelevantDates}
                         />
                       </div>
                     )}
@@ -1685,6 +1725,7 @@ export const AllRostersPage: React.FC = () => {
                                         textposition: 'auto',
                                         marker: { color: '#5DADE2' },
                                         orientation: 'v',
+                                        hovertemplate: '%{x}: %{y}<extra></extra>',
                                       }]}
                                       layout={{
                                         xaxis: { title: 'Staff' },

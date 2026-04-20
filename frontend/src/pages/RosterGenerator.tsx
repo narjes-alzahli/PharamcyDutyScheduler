@@ -2647,6 +2647,8 @@ export const RosterGenerator: React.FC = () => {
                               metrics={scheduleMetrics}
                               year={selectedYear}
                               month={selectedMonth}
+                              shiftRequests={shiftRequests}
+                              rosterLocks={rosterData?.locks || []}
                             />
                           </>
                         );
@@ -2662,6 +2664,8 @@ export const RosterGenerator: React.FC = () => {
                               metrics={scheduleMetrics}
                               year={selectedYear}
                               month={selectedMonth}
+                              shiftRequests={shiftRequests}
+                              rosterLocks={rosterData?.locks || []}
                             />
                           );
                         }
@@ -2675,6 +2679,8 @@ export const RosterGenerator: React.FC = () => {
                               metrics={scheduleMetrics}
                               year={selectedYear}
                               month={selectedMonth}
+                              shiftRequests={shiftRequests}
+                              rosterLocks={rosterData?.locks || []}
                             />
                           );
                         }

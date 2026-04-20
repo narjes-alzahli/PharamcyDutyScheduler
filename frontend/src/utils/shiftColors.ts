@@ -28,7 +28,7 @@ export const shiftColors: Record<string, string> = {
   'APP': '#ec7c13',    // Orange/Brown-Orange - Appointment
   'STL': '#B0E0E6',    // Powder Blue - Study Leave
   'L': '#ded9d9',      // Light Gray/Beige - Leave
-  'PH': '#a8d5e2',     // Light blue - Public Holiday (solver: O on calendar holiday)
+  'PH': '#FEFFE5',     // Cream - Public Holiday (solver: O on calendar holiday)
   // Special/Empty
   '': '#FFFFFF',       // White - Empty
 };

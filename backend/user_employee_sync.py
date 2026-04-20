@@ -125,7 +125,7 @@ def ensure_public_holiday_leave_type(db: Session) -> None:
         LeaveType(
             code="PH",
             description="Public Holiday",
-            color_hex="#a8d5e2",
+            color_hex="#FEFFE5",
             counts_as_rest=True,
             is_active=True,
         )
