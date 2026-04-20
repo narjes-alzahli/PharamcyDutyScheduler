@@ -156,7 +156,7 @@ const LEGEND_CODE_DESCRIPTION: Record<string, string> = {
   DO: 'Day Off',
   APP: 'Appointment',
   W: 'Workshop',
-  L: 'Other',
+  L: 'Leave',
   AL: 'Annual',
   SL: 'Sick',
   STL: 'Study',
@@ -611,12 +611,17 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     };
 
     const describe = (code: string): string => {
-      if (Object.prototype.hasOwnProperty.call(LEGEND_CODE_DESCRIPTION, code)) {
-        return LEGEND_CODE_DESCRIPTION[code];
+      const normalizedCode = code.replace(/\s+/g, '').toUpperCase();
+      if (Object.prototype.hasOwnProperty.call(LEGEND_CODE_DESCRIPTION, normalizedCode)) {
+        return LEGEND_CODE_DESCRIPTION[normalizedCode];
       }
       const raw = labelFromDb(code);
       const stripped = stripLeaveWordFromDescription(raw);
-      return stripped || raw;
+      const canonicalized = stripped
+        .replace(/inpatient\s*\+\s*prep(?:aration)?/gi, 'IP+Prep')
+        .replace(/main\s*\+\s*prep(?:aration)?/gi, 'M+Prep')
+        .replace(/\bprep(?:aration)?\b/gi, 'Prep');
+      return canonicalized || stripped || raw;
     };
 
     const rawItems: LegendItem[] = Array.from(codesInMonth).map((code) => {
