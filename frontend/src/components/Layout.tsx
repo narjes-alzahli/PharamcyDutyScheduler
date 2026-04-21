@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAuthGuard } from '../hooks/useAuthGuard';
-import { authAPI, requestsAPI, schedulesAPI } from '../services/api';
+import { authAPI, dataAPI, requestsAPI, schedulesAPI } from '../services/api';
 import { isTokenExpired } from '../utils/tokenUtils';
 
 interface LayoutProps {
@@ -23,6 +23,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [hasUnpublishedSchedules, setHasUnpublishedSchedules] = useState(false);
+  const [hasPendingPoSync, setHasPendingPoSync] = useState(false);
+  const PO_SYNC_IGNORE_KEY = 'po_sync_ignore_target';
 
   const handleLogout = async () => {
     await logout();
@@ -89,10 +91,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         }
         
         try {
-          const [leaveRes, shiftRes, unpublishedRes] = await Promise.all([
+          const [leaveRes, shiftRes, unpublishedRes, poSyncRes] = await Promise.all([
             requestsAPI.getAllLeaveRequests(),
             requestsAPI.getAllShiftRequests(),
             schedulesAPI.getUnpublishedSummary(),
+            dataAPI.getPendingOffSyncStatus(),
           ]);
 
           if (cancelled) return;
@@ -101,6 +104,15 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           const shiftPending = shiftRes.filter((req: any) => req.status === 'Pending').length;
           setPendingRequestCount(leavePending + shiftPending);
           setHasUnpublishedSchedules(Boolean(unpublishedRes?.has_unpublished));
+          const target = poSyncRes?.target;
+          const targetId = target
+            ? `${target.kind}:${target.year}:${target.month}:${target.selected_period || ''}`
+            : null;
+          const ignoredTarget = localStorage.getItem(PO_SYNC_IGNORE_KEY);
+          const poPending =
+            Boolean(poSyncRes?.requires_sync) &&
+            (!targetId || ignoredTarget !== targetId);
+          setHasPendingPoSync(poPending);
         } catch (error: any) {
           if (cancelled) return;
           
@@ -110,6 +122,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             console.warn('⚠️ Unexpected auth error in Layout - auth guard should have prevented this');
             setPendingRequestCount(0);
             setHasUnpublishedSchedules(false);
+            setHasPendingPoSync(false);
             return;
           }
           
@@ -117,6 +130,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           console.error('Failed to fetch pending requests:', error);
           setPendingRequestCount(0);
           setHasUnpublishedSchedules(false);
+          setHasPendingPoSync(false);
         }
       };
 
@@ -212,6 +226,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                       </span>
                       <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
                         There is an unpublished schedule
+                      </span>
+                    </span>
+                  )}
+                  {item.path === '/users' && isManager && hasPendingPoSync && (
+                    <span className="relative inline-flex group">
+                      <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-yellow-500 px-1.5 text-[10px] font-bold text-white">
+                        !
+                      </span>
+                      <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
+                        Pending P/O sync in Management
                       </span>
                     </span>
                   )}
@@ -328,6 +352,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                           </span>
                           <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
                             There is an unpublished schedule
+                          </span>
+                        </span>
+                      )}
+                      {item.path === '/users' && isManager && hasPendingPoSync && (
+                        <span className="relative inline-flex group">
+                          <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-yellow-500 px-1.5 text-[10px] font-bold text-white">
+                            !
+                          </span>
+                          <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow transition-opacity duration-0 group-hover:opacity-100">
+                            Pending P/O sync in Management
                           </span>
                         </span>
                       )}

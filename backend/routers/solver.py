@@ -34,7 +34,7 @@ from backend.roster_data_loader import (
     load_previous_month_last_days,
     load_previous_period_last_days,
 )
-from backend.routers.data import get_pending_off_from_most_recent_committed_month
+from backend.routers.schedules import get_initial_pending_off_from_previous_segment
 
 router = APIRouter()
 security = HTTPBearer()
@@ -366,19 +366,16 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 data_dir=temp_path,
             )
             data.previous_period_shifts = prev_period_shifts or {}
-            # Keep pending_off source consistent with GET /api/data/employees.
-            latest_po_by_name, latest_po_by_uid = get_pending_off_from_most_recent_committed_month(db)
+            # Seed pending_off from the date-wise previous segment (calendar month or Ramadan chain).
+            initial_po_by_name = get_initial_pending_off_from_previous_segment(
+                start_date,
+                end_date,
+                db,
+            )
             for emp_data in data.employees:
-                effective_po = None
-                uid = getattr(emp_data, "user_id", None)
-                if uid is not None and uid in latest_po_by_uid:
-                    effective_po = latest_po_by_uid[uid]
-                else:
-                    emp_name = getattr(emp_data, "employee", None)
-                    if emp_name in latest_po_by_name:
-                        effective_po = latest_po_by_name[emp_name]
-                if effective_po is not None:
-                    emp_data.pending_off = float(effective_po)
+                emp_name = getattr(emp_data, "employee", None)
+                if emp_name and emp_name in initial_po_by_name:
+                    emp_data.pending_off = float(initial_po_by_name[emp_name])
             
             # [HISTORY_AWARE_FAIRNESS] Extract assignment history for fairness calculations
             # Build skills dict from employees data
@@ -423,14 +420,10 @@ def run_solver(job_id: str, request: SolveRequest, roster_data: Dict):
                 demands = {day: data.get_daily_requirement(day) for day in data.get_all_dates()}
                 initial_pending_off = {}
                 for emp_data in data.employees:
-                    # Preserve None when source says None (single-skill freeze should keep it).
-                    uid = getattr(emp_data, "user_id", None)
-                    if uid is not None and uid in latest_po_by_uid:
-                        initial_pending_off[emp_data.employee] = latest_po_by_uid[uid]
-                    elif emp_data.employee in latest_po_by_name:
-                        initial_pending_off[emp_data.employee] = latest_po_by_name[emp_data.employee]
-                    else:
-                        initial_pending_off[emp_data.employee] = emp_data.pending_off
+                    po = getattr(emp_data, "pending_off", None)
+                    initial_pending_off[emp_data.employee] = (
+                        float(po) if po is not None else 0.0
+                    )
                 
                 employee_df = solver.create_employee_report(
                     assignments,

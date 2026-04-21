@@ -260,6 +260,37 @@ export const dataAPI = {
     const response = await api.get('/api/data/roster-data');
     return response.data;
   },
+  getPendingOffSyncStatus: async (): Promise<{
+    requires_sync: boolean;
+    reason: string;
+    target?: {
+      kind: 'month' | 'period';
+      year: number;
+      month: number;
+      selected_period?: string | null;
+      label: string;
+      start_date: string;
+    };
+  }> => {
+    const response = await api.get('/api/data/pending-off-sync-status');
+    return response.data;
+  },
+  syncPendingOff: async (): Promise<{
+    message: string;
+    updated: number;
+    matched: number;
+    total_staff: number;
+    target: {
+      kind: 'month' | 'period';
+      year: number;
+      month: number;
+      selected_period?: string | null;
+      label: string;
+    };
+  }> => {
+    const response = await api.post('/api/data/pending-off-sync');
+    return response.data;
+  },
   updateTimeOff: async (timeOff: TimeOffEntry[]): Promise<any> => {
     const response = await api.put('/api/data/time-off', timeOff);
     return response.data; // Returns {message, created, created_leave_requests, created_shift_requests}
@@ -375,10 +406,14 @@ export const schedulesAPI = {
     schedule: any[],
     employees?: any[],
     selectedPeriod?: string | null,
+    pendingOffOverrides?: Record<string, number>,
   ): Promise<void> => {
     const payload: Record<string, unknown> = { schedule, employees };
     if (selectedPeriod != null && selectedPeriod !== '') {
       payload.selected_period = selectedPeriod;
+    }
+    if (pendingOffOverrides && Object.keys(pendingOffOverrides).length > 0) {
+      payload.pending_off_overrides = pendingOffOverrides;
     }
     await api.put(`/api/schedules/committed/${year}/${month}`, payload);
   },

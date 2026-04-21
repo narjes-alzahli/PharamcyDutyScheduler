@@ -7,7 +7,7 @@ import pandas as pd
 import json
 from typing import List, Optional, Dict, Tuple
 from sqlalchemy.orm import Session, joinedload
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
 from calendar import monthrange
 import sys
 import tempfile
@@ -23,7 +23,11 @@ from backend.utils import sanitize_json_floats
 from backend.models import User, CommittedSchedule, ScheduleMetrics, EmployeeSkills
 from backend.user_employee_sync import committed_schedule_display_name
 from backend.roster_data_loader import load_holidays_by_date_range
-from backend.ramadan_periods import get_ramadan_period_window, detect_periods_for_dates
+from backend.ramadan_periods import (
+    get_ramadan_period_window,
+    detect_periods_for_dates,
+    get_ramadan_period_windows,
+)
 from roster.app.model.solver import RosterSolver
 from roster.app.model.schema import RosterConfig
 
@@ -100,51 +104,39 @@ def _remap_employee_metrics_to_user_id_keys(db: Session, metrics: Dict) -> None:
     metrics["employee_metrics"] = new_em
 
 
-def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dict[str, float]:
-    """Get initial pending_off values that should be used for this month.
-    
-    This is the previous month's final pending_off, or EmployeeSkills.pending_off if no previous month exists.
-    """
-    # Calculate previous month
-    if month == 1:
-        prev_year = year - 1
-        prev_month = 12
-    else:
-        prev_year = year
-        prev_month = month - 1
-    
-    # Try to get previous month's final pending_off from ScheduleMetrics
-    prev_metrics = db.query(ScheduleMetrics).filter(
-        ScheduleMetrics.year == prev_year,
-        ScheduleMetrics.month == prev_month
-    ).first()
-    
-    initial_pending_off: Dict[str, float] = {}
+def _po_maps_from_employee_metrics_rows(
+    prev_employees: List[dict],
+) -> Tuple[Dict[str, float], Dict[int, float]]:
     po_by_uid: Dict[int, float] = {}
     po_by_name: Dict[str, float] = {}
-
-    if prev_metrics and prev_metrics.metrics and "employees" in prev_metrics.metrics:
-        prev_employees = prev_metrics.metrics["employees"]
-        for emp_data in prev_employees:
-            if not isinstance(emp_data, dict):
-                continue
-            pending_off = emp_data.get("pending_off")
-            if pending_off is None:
-                continue
+    for emp_data in prev_employees:
+        if not isinstance(emp_data, dict):
+            continue
+        pending_off = emp_data.get("pending_off")
+        if pending_off is None:
+            continue
+        try:
+            pof = float(pending_off)
+        except (TypeError, ValueError):
+            continue
+        uid = emp_data.get("user_id")
+        if uid is not None:
             try:
-                pof = float(pending_off)
+                po_by_uid[int(uid)] = pof
             except (TypeError, ValueError):
-                continue
-            uid = emp_data.get("user_id")
-            if uid is not None:
-                try:
-                    po_by_uid[int(uid)] = pof
-                except (TypeError, ValueError):
-                    pass
-            employee_name = emp_data.get("employee")
-            if employee_name:
-                po_by_name[str(employee_name).strip()] = pof
+                pass
+        employee_name = emp_data.get("employee")
+        if employee_name:
+            po_by_name[str(employee_name).strip()] = pof
+    return po_by_name, po_by_uid
 
+
+def _merge_initial_pending_off_maps(
+    po_by_name: Dict[str, float],
+    po_by_uid: Dict[int, float],
+    db: Session,
+) -> Dict[str, float]:
+    initial_pending_off: Dict[str, float] = {}
     all_employees = db.query(EmployeeSkills).all()
     for emp in all_employees:
         uid = emp.user_id
@@ -161,11 +153,193 @@ def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dic
     return initial_pending_off
 
 
+def _initial_pending_off_from_metrics_dict(metrics: dict, db: Session) -> Optional[Dict[str, float]]:
+    if not metrics or not isinstance(metrics, dict):
+        return None
+    prev_employees = metrics.get("employees")
+    if not isinstance(prev_employees, list) or not prev_employees:
+        return None
+    po_by_name, po_by_uid = _po_maps_from_employee_metrics_rows(prev_employees)
+    if not po_by_name and not po_by_uid:
+        return None
+    return _merge_initial_pending_off_maps(po_by_name, po_by_uid, db)
+
+
+def _find_schedule_metrics_for_ramadan_period(
+    period_id: str,
+    year_hint: int,
+    db: Session,
+) -> Optional[dict]:
+    """Latest (year, month) metrics row tagged with ``pending_off_period`` for this slice."""
+    best: Optional[Tuple[int, int, dict]] = None
+    y_lo = min(year_hint, year_hint - 1)
+    y_hi = max(year_hint, year_hint + 1)
+    for rec in db.query(ScheduleMetrics).filter(
+        ScheduleMetrics.year >= y_lo,
+        ScheduleMetrics.year <= y_hi,
+    ).all():
+        m = rec.metrics if isinstance(rec.metrics, dict) else None
+        if not m or m.get("pending_off_period") != period_id:
+            continue
+        key = (int(rec.year), int(rec.month))
+        if best is None or key[0] * 12 + key[1] > best[0] * 12 + best[1]:
+            best = (key[0], key[1], m)
+    return best[2] if best else None
+
+
+def _metrics_row_for_calendar_month(year: int, month: int, db: Session) -> Optional[dict]:
+    rec = db.query(ScheduleMetrics).filter(
+        ScheduleMetrics.year == int(year),
+        ScheduleMetrics.month == int(month),
+    ).first()
+    if not rec or not rec.metrics or not isinstance(rec.metrics, dict):
+        return None
+    return rec.metrics
+
+
+def _metrics_employees_have_pending_off_values(emps: object) -> bool:
+    if not isinstance(emps, list):
+        return False
+    for emp in emps:
+        if not isinstance(emp, dict):
+            continue
+        po = emp.get("pending_off")
+        if po is None or po == "null":
+            continue
+        return True
+    return False
+
+
+def _latest_schedule_metrics_before_calendar_month(
+    cutoff_year: int,
+    cutoff_month: int,
+    db: Session,
+) -> Optional[dict]:
+    """Newest (year, month) strictly before ``(cutoff_year, cutoff_month)`` with usable PO in metrics."""
+    try:
+        cutoff = int(cutoff_year) * 12 + int(cutoff_month)
+    except (TypeError, ValueError):
+        return None
+    best_key = -1
+    best_metrics: Optional[dict] = None
+    for rec in db.query(ScheduleMetrics).all():
+        try:
+            key = int(rec.year) * 12 + int(rec.month)
+        except (TypeError, ValueError):
+            continue
+        if key >= cutoff:
+            continue
+        m = rec.metrics if isinstance(rec.metrics, dict) else None
+        if not m:
+            continue
+        if not _metrics_employees_have_pending_off_values(m.get("employees")):
+            continue
+        if key > best_key:
+            best_key = key
+            best_metrics = m
+    return best_metrics
+
+
+def _initial_pending_off_from_latest_saved_before_month(
+    cutoff_year: int,
+    cutoff_month: int,
+    db: Session,
+) -> Dict[str, float]:
+    """Prefer latest saved month with PO data before cutoff; else EmployeeSkills (user roster)."""
+    m = _latest_schedule_metrics_before_calendar_month(cutoff_year, cutoff_month, db)
+    if m:
+        got = _initial_pending_off_from_metrics_dict(m, db)
+        if got is not None:
+            return got
+    return _merge_initial_pending_off_maps({}, {}, db)
+
+
+def get_initial_pending_off_for_month(year: int, month: int, db: Session) -> Dict[str, float]:
+    """Initial pending_off for calendar ``(year, month)``.
+
+    Uses the **latest** saved ``schedule_metrics`` row strictly before this month that has
+    ``employees`` with at least one ``pending_off`` set (so gaps like Apr 2027 vs May 2026 work).
+    If none exist, uses ``EmployeeSkills.pending_off`` (same source as user accounts).
+    """
+    return _initial_pending_off_from_latest_saved_before_month(year, month, db)
+
+
+def _initial_pending_off_ramadan_period_walk(
+    period_chain: List[str],
+    year_hint: int,
+    solve_start: date_type,
+    anchor: date_type,
+    db: Session,
+    *,
+    try_anchor_month_metrics: bool = True,
+    before_pre_calendar_month: Optional[Tuple[int, int]] = None,
+) -> Dict[str, float]:
+    """Try tagged Ramadan slices in order, optional anchor-month row, optional “before pre” month scan, then April-style walk-back."""
+    for pid in period_chain:
+        m = _find_schedule_metrics_for_ramadan_period(pid, year_hint, db)
+        if m:
+            got = _initial_pending_off_from_metrics_dict(m, db)
+            if got is not None:
+                return got
+    if try_anchor_month_metrics:
+        cal = _metrics_row_for_calendar_month(anchor.year, anchor.month, db)
+        if cal:
+            got = _initial_pending_off_from_metrics_dict(cal, db)
+            if got is not None:
+                return got
+    if before_pre_calendar_month is not None:
+        py, pm = before_pre_calendar_month
+        # "Month before pre" means: walk back from pre's month cutoff until PO is found,
+        # then fall back to EmployeeSkills when nothing exists.
+        return _initial_pending_off_from_latest_saved_before_month(py, pm, db)
+    return _initial_pending_off_from_latest_saved_before_month(
+        solve_start.year,
+        solve_start.month,
+        db,
+    )
+
+
+def get_initial_pending_off_from_previous_segment(
+    solve_start: date_type,
+    solve_end: date_type,
+    db: Session,
+) -> Dict[str, float]:
+    """Initial pending_off for solver generation from EmployeeSkills only.
+
+    This intentionally ignores historical metrics walk-back and always seeds from
+    the current EmployeeSkills.pending_off values (same source as User Accounts /
+    Staff Skills).
+    """
+    _ = solve_start
+    _ = solve_end
+    return _merge_initial_pending_off_maps({}, {}, db)
+
+
 def get_pending_off_window_inclusive(
     year: int, month: int, selected_period: Optional[str], db: Optional[Session] = None
 ) -> Optional[Tuple[date_type, date_type]]:
     """Match frontend ``getPendingOffWindow`` for dynamic Ramadan windows."""
     return get_ramadan_period_window(year, month, selected_period, db=db)
+
+
+def _should_sync_employee_skills_pending_off(
+    year: int,
+    month: int,
+    selected_period: Optional[str],
+    db: Session,
+) -> bool:
+    """Only sync EmployeeSkills PO for periods ending on or before today."""
+    today = date_type.today()
+    window = get_pending_off_window_inclusive(year, month, selected_period, db=db)
+    if window:
+        _, end_d = window
+        return end_d <= today
+    try:
+        last_day = monthrange(int(year), int(month))[1]
+        return date_type(int(year), int(month), int(last_day)) <= today
+    except Exception:
+        # Safe fallback: do not sync when date parsing fails.
+        return False
 
 
 def recalculate_employee_report(
@@ -178,8 +352,20 @@ def recalculate_employee_report(
     """Recalculate employee report from schedule data."""
     from datetime import date, timedelta
 
-    # Get initial pending_off for this month
-    initial_pending_off = get_initial_pending_off_for_month(year, month, db)
+    if selected_period:
+        wsel = get_ramadan_period_window(year, month, selected_period, db=db)
+        if wsel:
+            solve_start, solve_end = wsel
+        else:
+            solve_start = date(year, month, 1)
+            solve_end = date(year, month, monthrange(year, month)[1])
+    else:
+        solve_start = date(year, month, 1)
+        solve_end = date(year, month, monthrange(year, month)[1])
+
+    initial_pending_off = get_initial_pending_off_from_previous_segment(
+        solve_start, solve_end, db
+    )
 
     window = get_pending_off_window_inclusive(year, month, selected_period, db=db)
     if window:
@@ -508,13 +694,19 @@ async def commit_schedule(
             )
             db.add(metrics_entry)
         
-        # Update EmployeeSkills.pending_off (prefer enriched metrics rows with user_id)
+        # Update EmployeeSkills.pending_off only when this period is not in the future.
+        can_sync_employee_skills_po = _should_sync_employee_skills_pending_off(
+            int(year),
+            int(month),
+            selected_period,
+            db,
+        )
         report_rows = (
             metrics.get("employees")
             if isinstance(metrics, dict) and isinstance(metrics.get("employees"), list) and metrics["employees"]
             else employees
         )
-        if report_rows:
+        if can_sync_employee_skills_po and report_rows:
             for emp_data in report_rows:
                 pending_off = emp_data.get('pending_off')
                 if pending_off is None:
@@ -723,42 +915,170 @@ async def update_schedule(
         scope_rows = publish_scope.all()
         is_published_for_updated_rows = all(bool(r.is_published) for r in scope_rows) if scope_rows else True
 
-        # Delete existing schedule entries
-        db.query(CommittedSchedule).filter(
-            CommittedSchedule.year == year,
-            CommittedSchedule.month == month
-        ).delete()
-        
-        # Insert updated schedule entries
+        # If schedule rows are unchanged, do not recalculate employee report.
+        # Use stable identity by user_id only.
+        incoming_rows: List[Tuple[str, date_type, str]] = []
         for entry in schedule:
-            date_val = pd.to_datetime(entry['date'], errors='coerce').date()
+            date_val = pd.to_datetime(entry.get('date'), errors='coerce').date()
             if pd.isna(date_val):
                 continue
-            
-            uid = _resolve_schedule_user_id(db, entry.get("employee", ""))
-            schedule_entry = CommittedSchedule(
-                year=year,
-                month=month,
-                employee_name=entry['employee'],
-                user_id=uid,
-                date=date_val,
-                shift=entry['shift'],
-                is_published=is_published_for_updated_rows,
+            emp_name = str(entry.get('employee', '')).strip()
+            try:
+                resolved_uid = _resolve_schedule_user_id(db, emp_name)
+            except HTTPException:
+                continue
+            identity = f"uid:{int(resolved_uid)}"
+            incoming_rows.append((
+                identity,
+                date_val,
+                str(entry.get('shift', '')).strip(),
+            ))
+        incoming_rows_sorted = sorted(incoming_rows)
+        existing_rows_sorted = sorted(
+            (
+                (f"uid:{int(r.user_id)}" if r.user_id is not None else ""),
+                r.date,
+                str(r.shift or '').strip(),
             )
-            db.add(schedule_entry)
-        
-        # Recalculate employee report from updated schedule (same date scope as frontend when selected_period set)
-        employee_df = recalculate_employee_report(
-            schedule, year, month, db, selected_period=selected_period
+            for r in scope_rows
+            if r.user_id is not None
         )
-        employees = employee_df.to_dict('records')
+        schedule_changed = incoming_rows_sorted != existing_rows_sorted
+        incoming_by_emp_day: Dict[Tuple[str, date_type], str] = {
+            (emp, day): shift for emp, day, shift in incoming_rows
+        }
+        existing_by_emp_day: Dict[Tuple[str, date_type], str] = {
+            (
+                (f"uid:{int(r.user_id)}" if r.user_id is not None else ""),
+                r.date,
+            ): str(r.shift or '').strip()
+            for r in scope_rows
+            if r.user_id is not None
+        }
+        changed_uidents: set[str] = set()
+        for k in set(incoming_by_emp_day.keys()) | set(existing_by_emp_day.keys()):
+            if incoming_by_emp_day.get(k) != existing_by_emp_day.get(k):
+                changed_uidents.add(k[0])
+
+        existing_metrics_for_month = db.query(ScheduleMetrics).filter(
+            ScheduleMetrics.year == year,
+            ScheduleMetrics.month == month
+        ).first()
+        existing_metrics_obj = (
+            existing_metrics_for_month.metrics
+            if existing_metrics_for_month and isinstance(existing_metrics_for_month.metrics, dict)
+            else {}
+        )
+        existing_employees = existing_metrics_obj.get("employees")
+        existing_employees_list = existing_employees if isinstance(existing_employees, list) else []
+        incoming_employees = schedule_data.get("employees")
+        incoming_employees_list = incoming_employees if isinstance(incoming_employees, list) else []
+
+        if schedule_changed:
+            # Delete existing schedule entries
+            db.query(CommittedSchedule).filter(
+                CommittedSchedule.year == year,
+                CommittedSchedule.month == month
+            ).delete()
+            
+            # Insert updated schedule entries
+            for entry in schedule:
+                date_val = pd.to_datetime(entry['date'], errors='coerce').date()
+                if pd.isna(date_val):
+                    continue
+                
+                uid = _resolve_schedule_user_id(db, entry.get("employee", ""))
+                schedule_entry = CommittedSchedule(
+                    year=year,
+                    month=month,
+                    employee_name=entry['employee'],
+                    user_id=uid,
+                    date=date_val,
+                    shift=entry['shift'],
+                    is_published=is_published_for_updated_rows,
+                )
+                db.add(schedule_entry)
+            
+            # Recalculate only when shifts/assignments changed.
+            employee_df = recalculate_employee_report(
+                schedule, year, month, db, selected_period=selected_period
+            )
+            employees = employee_df.to_dict('records')
+        else:
+            # No shift changes: persist direct employee-row edits from payload.
+            employees = incoming_employees_list if incoming_employees_list else existing_employees_list
+
+        # Row-level behavior for schedule edits:
+        # keep previously saved pending_off for employees whose shifts did not change.
+        if schedule_changed and isinstance(employees, list) and existing_employees_list:
+            saved_po_by_uid: Dict[int, object] = {}
+            for row in existing_employees_list:
+                if not isinstance(row, dict):
+                    continue
+                uid = row.get("user_id")
+                if uid is None or uid == "":
+                    continue
+                try:
+                    saved_po_by_uid[int(uid)] = row.get("pending_off")
+                except (TypeError, ValueError):
+                    continue
+            for row in employees:
+                if not isinstance(row, dict):
+                    continue
+                uid_raw = row.get("user_id")
+                if uid_raw is None or uid_raw == "":
+                    continue
+                try:
+                    uid = int(uid_raw)
+                except (TypeError, ValueError):
+                    continue
+                if f"uid:{uid}" in changed_uidents:
+                    continue
+                if uid in saved_po_by_uid:
+                    row["pending_off"] = saved_po_by_uid[uid]
+
+        # Apply direct incoming employee-row edits (e.g. manual PO in history) by user_id only.
+        if isinstance(employees, list) and incoming_employees_list:
+            incoming_po_by_uid: Dict[int, object] = {}
+            for row in incoming_employees_list:
+                if not isinstance(row, dict):
+                    continue
+                uid = row.get("user_id")
+                if uid is None or uid == "":
+                    continue
+                try:
+                    incoming_po_by_uid[int(uid)] = row.get("pending_off")
+                except (TypeError, ValueError):
+                    continue
+            for row in employees:
+                if not isinstance(row, dict):
+                    continue
+                uid = row.get("user_id")
+                if uid is None or uid == "":
+                    continue
+                try:
+                    uid_int = int(uid)
+                except (TypeError, ValueError):
+                    continue
+                if schedule_changed and f"uid:{uid_int}" in changed_uidents:
+                    # Shift-changed employees stay formula-recalculated.
+                    continue
+                if uid_int not in incoming_po_by_uid:
+                    continue
+                raw = incoming_po_by_uid[uid_int]
+                if raw is None:
+                    continue
+                try:
+                    row["pending_off"] = float(raw)
+                except (TypeError, ValueError):
+                    pass
 
         # Update metrics
         metrics = schedule_data.get('metrics', {})
         if not isinstance(metrics, dict):
             metrics = {}
 
-        # Store recalculated employees data in metrics JSON
+        # Store employees data in metrics JSON.
         # Reorder employees to match EmployeeSkills table order (by ID)
         if employees:
             # Get employee order from EmployeeSkills table (ordered by ID)
@@ -803,38 +1123,45 @@ async def update_schedule(
             )
             db.add(metrics_entry)
         
-        # Update EmployeeSkills.pending_off based on recalculated employee report
+        # Update EmployeeSkills.pending_off only when this period is not in the future.
+        can_sync_employee_skills_po = _should_sync_employee_skills_pending_off(
+            int(year),
+            int(month),
+            selected_period,
+            db,
+        )
         report_rows = (
             metrics.get("employees")
             if isinstance(metrics, dict) and isinstance(metrics.get("employees"), list) and metrics["employees"]
             else employees
         )
-        for emp_data in report_rows:
-            pending_off = emp_data.get('pending_off')
-            if pending_off is None:
-                continue
-            employee_skills = None
-            uid = emp_data.get("user_id")
-            if uid is not None:
-                try:
-                    employee_skills = (
-                        db.query(EmployeeSkills)
-                        .filter(EmployeeSkills.user_id == int(uid))
-                        .first()
-                    )
-                except (TypeError, ValueError):
-                    employee_skills = None
-            if employee_skills is None:
-                employee_name = emp_data.get('employee')
-                if employee_name:
-                    employee_skills = db.query(EmployeeSkills).filter(
-                        EmployeeSkills.name == employee_name
-                    ).first()
-            if employee_skills:
-                # Single-skill staff pending_off must remain unchanged (not recalculated).
-                if _is_single_skill_employee(employee_skills):
+        if can_sync_employee_skills_po:
+            for emp_data in report_rows:
+                pending_off = emp_data.get('pending_off')
+                if pending_off is None:
                     continue
-                employee_skills.pending_off = float(pending_off)
+                employee_skills = None
+                uid = emp_data.get("user_id")
+                if uid is not None:
+                    try:
+                        employee_skills = (
+                            db.query(EmployeeSkills)
+                            .filter(EmployeeSkills.user_id == int(uid))
+                            .first()
+                        )
+                    except (TypeError, ValueError):
+                        employee_skills = None
+                if employee_skills is None:
+                    employee_name = emp_data.get('employee')
+                    if employee_name:
+                        employee_skills = db.query(EmployeeSkills).filter(
+                            EmployeeSkills.name == employee_name
+                        ).first()
+                if employee_skills:
+                    # Single-skill staff pending_off must remain unchanged (not recalculated).
+                    if _is_single_skill_employee(employee_skills):
+                        continue
+                    employee_skills.pending_off = float(pending_off)
         
         db.commit()
         

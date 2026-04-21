@@ -580,12 +580,18 @@ export const AllRostersPage: React.FC = () => {
             const secondEntries = secondMonthSchedule
               ? filterScheduleByRamadanWindows(secondMonthSchedule.schedule, 'ramadan', windows)
               : [];
+            // Keep employee/metrics source aligned with the month currently selected in the UI.
+            // This prevents stale P/O values when saving a Ramadan slice anchored to one month.
+            const selectedMonthSchedule =
+              month === firstRamadanMonth ? firstMonthSchedule : secondMonthSchedule;
+            const fallbackMonthSchedule =
+              month === firstRamadanMonth ? secondMonthSchedule : firstMonthSchedule;
             filteredSchedule = {
               year,
               month: firstRamadanMonth,
               schedule: [...firstEntries, ...secondEntries],
-              employees: secondMonthSchedule?.employees || firstMonthSchedule?.employees,
-              metrics: secondMonthSchedule?.metrics || firstMonthSchedule?.metrics,
+              employees: selectedMonthSchedule?.employees || fallbackMonthSchedule?.employees,
+              metrics: selectedMonthSchedule?.metrics || fallbackMonthSchedule?.metrics,
             };
           } else if (detectedPeriod === 'pre-ramadan') {
             if (!firstMonthSchedule) {
@@ -1023,6 +1029,33 @@ export const AllRostersPage: React.FC = () => {
     }
   };
 
+  const handlePendingOffChange = (employee: string, value: number, userId?: number) => {
+    if (typeof userId !== 'number' || Number.isNaN(userId)) return;
+    setCurrentSchedule((prev) => {
+      if (!prev) return prev;
+      const updateRows = (rows: any[] | undefined) =>
+        (rows || []).map((row: any) => {
+          const raw = row?.user_id;
+          const uid =
+            raw !== null && raw !== undefined && raw !== ''
+              ? (typeof raw === 'number' ? raw : Number(raw))
+              : null;
+          if (uid === null || Number.isNaN(uid) || uid !== userId) return row;
+          return { ...row, pending_off: value };
+        });
+      return {
+        ...prev,
+        employees: updateRows(prev.employees),
+        metrics: {
+          ...(prev.metrics || {}),
+          employees: updateRows(prev.metrics?.employees),
+        },
+      };
+    });
+    setHasUnsavedChanges(true);
+    setSaveSuccess(false);
+  };
+
   const handleSaveSchedule = async () => {
     if (!currentSchedule || !selectedYear || !selectedMonth) {
       alert('No schedule to save');
@@ -1047,9 +1080,8 @@ export const AllRostersPage: React.FC = () => {
         getEmployeeRowsFromSchedule(currentSchedule),
         currentPeriod,
       );
-      
       // Reload the schedule to get the updated version
-      await loadSchedule(selectedYear, selectedMonth);
+      await loadSchedule(selectedYear, selectedMonth, currentPeriod);
       
       // Show success message in the same spot as "Unsaved changes"
       setSaveSuccess(true);
@@ -1307,18 +1339,64 @@ export const AllRostersPage: React.FC = () => {
     });
   }, [monthSchedule, originalSchedule, selectedYear, selectedMonth, currentPeriod, employeesFromAPI]);
 
+  // True only when actual schedule assignments changed (not just manual pending_off overrides).
+  const scheduleAssignmentsChanged = useMemo(() => {
+    if (!currentSchedule || !originalSchedule) return false;
+    const normalize = (rows: any[] | undefined) =>
+      (rows || [])
+        .map((entry: any) => {
+          const datePart = String(entry?.date || '').split('T')[0];
+          return `${String(entry?.employee || '').trim()}|${datePart}|${String(entry?.shift || '').trim()}`;
+        })
+        .sort();
+    const now = normalize(currentSchedule.schedule);
+    const orig = normalize(originalSchedule.schedule);
+    if (now.length !== orig.length) return true;
+    for (let i = 0; i < now.length; i += 1) {
+      if (now[i] !== orig[i]) return true;
+    }
+    return false;
+  }, [currentSchedule, originalSchedule]);
+
+  // Employees whose assignment rows changed (row-level diff: employee/date/shift).
+  const employeesWithShiftChanges = useMemo(() => {
+    const changed = new Set<string>();
+    if (!currentSchedule || !originalSchedule) return changed;
+
+    const toEmployeeDayShift = (rows: any[] | undefined) =>
+      (rows || []).map((entry: any) => ({
+        employee: String(entry?.employee || '').trim(),
+        date: String(entry?.date || '').split('T')[0],
+        shift: String(entry?.shift || '').trim(),
+      }));
+
+    const nowRows = toEmployeeDayShift(currentSchedule.schedule);
+    const origRows = toEmployeeDayShift(originalSchedule.schedule);
+
+    const nowByKey = new Map<string, string>();
+    nowRows.forEach((r) => nowByKey.set(`${r.employee}|${r.date}`, r.shift));
+    const origByKey = new Map<string, string>();
+    origRows.forEach((r) => origByKey.set(`${r.employee}|${r.date}`, r.shift));
+
+    const allKeys = new Set<string>([
+      ...Array.from(nowByKey.keys()),
+      ...Array.from(origByKey.keys()),
+    ]);
+    allKeys.forEach((key) => {
+      if (nowByKey.get(key) !== origByKey.get(key)) {
+        const employee = key.split('|')[0];
+        if (employee) changed.add(employee);
+      }
+    });
+
+    return changed;
+  }, [currentSchedule, originalSchedule]);
+
   /**
    * P/O column: only values from this viewed month’s committed snapshot (`employees` or `metrics.employees`).
    * Never spread GET /employees rows — that leaks global pending_off when the snapshot lives under metrics only.
    */
   const scheduleEmployeesForTable = useMemo(() => {
-    if (hasUnsavedChanges && dynamicEmployees && dynamicEmployees.length > 0) {
-      const mapped = dynamicEmployees.map((e: PendingOffData) => ({
-        employee: e.employee,
-        pending_off: e.pending_off,
-      }));
-      return orderTableRowsByPreferredEmployees(mapped, preferredScheduleEmployeeOrder);
-    }
     const committedRows = getEmployeeRowsFromSchedule(currentSchedule);
     const poByName = new Map<string, number | null | undefined>(
       committedRows.map((e: any) => [e.employee, e.pending_off]),
@@ -1378,7 +1456,19 @@ export const AllRostersPage: React.FC = () => {
             });
           }
         });
-        return rows;
+        const baseRows = rows;
+        if (scheduleAssignmentsChanged && dynamicEmployees && dynamicEmployees.length > 0) {
+          const dynamicByEmployee = new Map<string, number | null | undefined>(
+            dynamicEmployees.map((e: PendingOffData) => [e.employee, e.pending_off]),
+          );
+          const blendedRows = baseRows.map((row) =>
+            employeesWithShiftChanges.has(row.employee) && dynamicByEmployee.has(row.employee)
+              ? { ...row, pending_off: dynamicByEmployee.get(row.employee) }
+              : row,
+          );
+          return orderTableRowsByPreferredEmployees(blendedRows, preferredScheduleEmployeeOrder);
+        }
+        return baseRows;
       }
       return employeesFromAPI.map((emp: any) => ({ employee: emp.employee }));
     }
@@ -1387,7 +1477,8 @@ export const AllRostersPage: React.FC = () => {
     }
     return [];
   }, [
-    hasUnsavedChanges,
+    scheduleAssignmentsChanged,
+    employeesWithShiftChanges,
     dynamicEmployees,
     employeesFromAPI,
     currentSchedule,
@@ -1596,17 +1687,22 @@ export const AllRostersPage: React.FC = () => {
                         ' Schedule',
                       )}
                     </h3>
-                    {isManager && !hasUnsavedChanges && !saveSuccess && (
-                      <span className="text-sm text-gray-500 italic">Click any cell to edit</span>
+                    {isManager && (
+                      saveSuccess ? (
+                        <span className="text-sm text-green-600 font-medium">Changes saved successfully</span>
+                      ) : (
+                        <span className="text-sm text-gray-500 italic">Click any cell to edit</span>
+                      )
                     )}
-                    {isManager && currentSelectionHasDraft && (
-                      <span className="ml-2 text-sm text-amber-600 font-medium">Draft (unpublished)</span>
-                    )}
-                    {isManager && hasUnsavedChanges && (
-                      <span className="text-sm text-amber-600 font-medium">Unsaved changes</span>
-                    )}
-                    {isManager && saveSuccess && (
-                      <span className="text-sm text-green-600 font-medium">Changes saved successfully</span>
+                    {isManager && (currentSelectionHasDraft || hasUnsavedChanges) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {!hasUnsavedChanges && currentSelectionHasDraft && (
+                          <span className="text-sm text-amber-600 font-medium">Draft (unpublished)</span>
+                        )}
+                        {hasUnsavedChanges && (
+                          <span className="text-sm text-amber-600 font-medium">Unsaved changes</span>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center gap-3">
@@ -1702,6 +1798,8 @@ export const AllRostersPage: React.FC = () => {
                     canChangeColors={isManager}
                     onScheduleChange={handleScheduleChange}
                     selectedPeriod={currentPeriod}
+                    pendingOffEditable={isManager}
+                    onPendingOffChange={handlePendingOffChange}
                   />
                 </div>
               </div>
@@ -1799,16 +1897,9 @@ export const AllRostersPage: React.FC = () => {
                         </div>
                         
                         {(() => {
-                          // Use dynamic employees if we have unsaved changes, otherwise use committed employees
-                          const displayEmployees = (dynamicEmployees && hasUnsavedChanges)
-                            ? orderTableRowsByPreferredEmployees(
-                                dynamicEmployees.map((e) => ({
-                                  employee: e.employee,
-                                  pending_off: e.pending_off,
-                                })),
-                                preferredScheduleEmployeeOrder,
-                              )
-                            : getEmployeeRowsFromSchedule(currentSchedule);
+                          const displayEmployees = scheduleEmployeesForTable.filter(
+                            (e: any) => e.pending_off !== undefined && e.pending_off !== null,
+                          );
                           
                           if (!displayEmployees || displayEmployees.length === 0) {
                             return (

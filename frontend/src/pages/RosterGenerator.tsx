@@ -134,6 +134,8 @@ export const RosterGenerator: React.FC = () => {
   const [generatedSchedule, setGeneratedSchedule] = useState<any[] | null>(null);
   const [originalGeneratedSchedule, setOriginalGeneratedSchedule] = useState<any[] | null>(null);
   const [generatedEmployees, setGeneratedEmployees] = useState<any[] | null>(null);
+  /** Manual P/O adjustments in the generated schedule view (merged on commit). */
+  const [pendingOffOverrides, setPendingOffOverrides] = useState<Record<string, number>>({});
   const [scheduleMetrics, setScheduleMetrics] = useState<any>(null);
   const [showAddTimeOff, setShowAddTimeOff] = useState(false);
   const [showAddLock, setShowAddLock] = useState(false);
@@ -470,11 +472,186 @@ export const RosterGenerator: React.FC = () => {
     setGeneratedSchedule(null);
     setOriginalGeneratedSchedule(null);
     setGeneratedEmployees(null);
+    setPendingOffOverrides({});
     setScheduleMetrics(null);
     setJobId(null);
     setJobStatus(null);
     hasShownFailureAlertRef.current = false; // Reset alert flag when clearing results
   };
+
+  const generatedViewEmployees = useMemo(() => {
+    const applyPo = (rows: any[]) =>
+      rows.map((e: any) => {
+        const rawUid = e?.user_id;
+        const uid =
+          rawUid !== null && rawUid !== undefined && rawUid !== ''
+            ? (typeof rawUid === 'number' ? rawUid : Number(rawUid))
+            : null;
+        if (uid === null || Number.isNaN(uid)) return e;
+        const o = pendingOffOverrides[String(uid)];
+        return o === undefined ? e : { ...e, pending_off: o };
+      });
+
+    if (!generatedSchedule || selectedYear == null || selectedMonth == null) return null;
+    if (!generatedEmployees || !originalGeneratedSchedule) {
+      const base = generatedEmployees || rosterData?.employees;
+      if (!base?.length) return null;
+      return applyPo(base);
+    }
+
+    const scheduleChanged =
+      JSON.stringify(generatedSchedule) !== JSON.stringify(originalGeneratedSchedule);
+    if (!scheduleChanged) {
+      return applyPo(generatedEmployees);
+    }
+
+    // Recalculate pending_off only for employees whose shift rows changed.
+    const toKeyedShiftMap = (rows: any[]) => {
+      const out = new Map<string, string>();
+      (rows || []).forEach((entry: any) => {
+        const employee = String(entry?.employee || '').trim();
+        const datePart = String(entry?.date || '').split('T')[0];
+        const shift = String(entry?.shift || '').trim();
+        if (!employee || !datePart) return;
+        out.set(`${employee}|${datePart}`, shift);
+      });
+      return out;
+    };
+    const nowByEmpDay = toKeyedShiftMap(generatedSchedule || []);
+    const origByEmpDay = toKeyedShiftMap(originalGeneratedSchedule || []);
+    const changedEmployees = new Set<string>();
+    const allEmpDayKeys = new Set<string>([
+      ...Array.from(nowByEmpDay.keys()),
+      ...Array.from(origByEmpDay.keys()),
+    ]);
+    allEmpDayKeys.forEach((k) => {
+      if (nowByEmpDay.get(k) !== origByEmpDay.get(k)) {
+        const emp = k.split('|')[0];
+        if (emp) changedEmployees.add(emp);
+      }
+    });
+
+    const pendingWindow = getPendingOffWindow(selectedYear, selectedMonth, selectedPeriod);
+    const originalScheduleEntries = filterEntriesToPendingWindow(
+      originalGeneratedSchedule,
+      selectedYear,
+      selectedMonth,
+      selectedPeriod,
+    );
+
+    const originalCalculated = calculatePendingOff(
+      originalScheduleEntries,
+      {},
+      {},
+      selectedYear,
+      selectedMonth,
+      pendingWindow,
+    );
+    const originalEmployeesMap = new Map(generatedEmployees.map((e: any) => [e.employee, e]));
+
+    const initialPendingOff: Record<string, number> = {};
+    originalCalculated.forEach((calc) => {
+      const original = originalEmployeesMap.get(calc.employee);
+      if (original) {
+        const finalPendingOff = original.pending_off || 0;
+        const addedThisMonth = calc.weekend_days_in_month + calc.night_shifts - calc.Os_given;
+        initialPendingOff[calc.employee] = Math.max(0, finalPendingOff - addedThisMonth);
+      } else {
+        initialPendingOff[calc.employee] = 0;
+      }
+    });
+
+    generatedEmployees.forEach((emp: any) => {
+      if (!(emp.employee in initialPendingOff)) {
+        initialPendingOff[emp.employee] = emp.pending_off || 0;
+      }
+    });
+
+    const currentScheduleEntries = filterEntriesToPendingWindow(
+      generatedSchedule,
+      selectedYear,
+      selectedMonth,
+      selectedPeriod,
+    );
+
+    const recalculated = calculatePendingOff(
+      currentScheduleEntries,
+      initialPendingOff,
+      {},
+      selectedYear,
+      selectedMonth,
+      pendingWindow,
+    );
+    const recalculatedByEmployee = new Map(recalculated.map((e) => [e.employee, e]));
+
+    const employeesWithSkillsMap = new Map(
+      ((rosterData?.employees || []) as any[]).map((emp: any) => [
+        emp.employee,
+        {
+          skill_M: emp.skill_M,
+          skill_IP: emp.skill_IP,
+          skill_A: emp.skill_A,
+          skill_N: emp.skill_N,
+          skill_M3: emp.skill_M3,
+          skill_M4: emp.skill_M4,
+          skill_H: emp.skill_H,
+          skill_CL: emp.skill_CL,
+          skill_E: emp.skill_E,
+          skill_MS: emp.skill_MS,
+          skill_IP_P: emp.skill_IP_P,
+          skill_P: emp.skill_P,
+          skill_M_P: emp.skill_M_P,
+        },
+      ]),
+    );
+
+    const dynamicEmployees = (generatedEmployees || rosterData?.employees || []).map((emp: any) => {
+      const calc = recalculatedByEmployee.get(emp.employee);
+      const skills: any = employeesWithSkillsMap.get(emp.employee) || {};
+      const skillFlags = [
+        skills.skill_M,
+        skills.skill_IP,
+        skills.skill_A,
+        skills.skill_N,
+        skills.skill_M3,
+        skills.skill_M4,
+        skills.skill_H,
+        skills.skill_CL,
+        skills.skill_E,
+        skills.skill_MS,
+        skills.skill_IP_P,
+        skills.skill_P,
+        skills.skill_M_P,
+      ];
+      const isSingleSkill = skillFlags.filter(Boolean).length === 1;
+      const frozenPendingOff = initialPendingOff[emp.employee] ?? (emp.pending_off || 0);
+      const recalculatedPending = isSingleSkill ? frozenPendingOff : (calc?.pending_off ?? (emp.pending_off || 0));
+      const shouldUseRecalculated = changedEmployees.has(emp.employee);
+      return {
+        employee: emp.employee,
+        user_id: emp.user_id,
+        pending_off: shouldUseRecalculated ? recalculatedPending : (emp.pending_off || 0),
+        total_working_days: calc?.total_working_days ?? 0,
+        night_shifts: calc?.night_shifts ?? 0,
+        afternoon_shifts: 0,
+        weekend_days_in_month: calc?.weekend_days_in_month ?? 0,
+        Os_given: calc?.Os_given ?? 0,
+        ...skills,
+      };
+    });
+
+    return applyPo(dynamicEmployees);
+  }, [
+    generatedSchedule,
+    originalGeneratedSchedule,
+    generatedEmployees,
+    rosterData?.employees,
+    selectedYear,
+    selectedMonth,
+    selectedPeriod,
+    rosterData,
+    pendingOffOverrides,
+  ]);
 
   const handleGenerate = async () => {
     if (!selectedYear || !selectedMonth) {
@@ -612,7 +789,7 @@ export const RosterGenerator: React.FC = () => {
         selectedYear,
         selectedMonth,
         normalizedSchedule,
-        generatedEmployees || undefined,
+        generatedViewEmployees || generatedEmployees || undefined,
         scheduleMetrics || undefined,
         selectedPeriod || undefined,
       );
@@ -1539,7 +1716,7 @@ export const RosterGenerator: React.FC = () => {
         </div>
         {/* Show period info when a period is selected */}
         {selectedYear && selectedPeriod && getRamadanPeriodWindow(selectedYear ?? undefined, selectedMonth ?? undefined, selectedPeriod) && (
-          <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
+          <div className="md:col-span-2 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded">
             <p className="font-semibold">Selected Period:</p>
             <p className="text-sm">
               {(() => {
@@ -1560,8 +1737,11 @@ export const RosterGenerator: React.FC = () => {
           </div>
         )}
         {selectedYear && !isRamadanConfiguredForSelectedYear && !hasRamadanDatesConfigured(selectedYear) && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded">
-            Ramadan dates not set for this year; using normal monthly mode.
+          <div className="md:col-span-2 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded">
+            <p>Ramadan dates are not set for this year; the month list uses normal calendar months.</p>
+            <p className="text-sm mt-1">
+              Add them in Management → Ramadan Dates.
+            </p>
           </div>
         )}
       </div>
@@ -2518,218 +2698,42 @@ export const RosterGenerator: React.FC = () => {
 
                   {generatedSchedule && selectedYear && selectedMonth ? (
                     <>
-                      {(() => {
-                        // Calculate dynamic pending_off when schedule is edited
-                        if (!generatedEmployees || !originalGeneratedSchedule) {
-                          return (
-                            <div className="overflow-x-auto max-w-full">
-                            <ScheduleTable
-                              schedule={generatedSchedule}
-                              year={selectedYear}
-                              month={selectedMonth}
-                              employees={generatedEmployees || rosterData?.employees}
-                              editable={true}
-                              canChangeColors={true}
-                              onScheduleChange={(updatedSchedule) => {
-                                setGeneratedSchedule(updatedSchedule);
-                              }}
-                              selectedPeriod={selectedPeriod}
-                            />
-                            </div>
-                          );
-                        }
-                        
-                        // Check if schedule has been edited (different from original)
-                        const scheduleChanged = JSON.stringify(generatedSchedule) !== JSON.stringify(originalGeneratedSchedule);
-                        if (!scheduleChanged) {
-                          return (
-                            <div className="overflow-x-auto max-w-full">
-                            <ScheduleTable
-                              schedule={generatedSchedule}
-                              year={selectedYear}
-                              month={selectedMonth}
-                              employees={generatedEmployees}
-                              editable={true}
-                              canChangeColors={true}
-                              onScheduleChange={(updatedSchedule) => {
-                                setGeneratedSchedule(updatedSchedule);
-                              }}
-                              selectedPeriod={selectedPeriod}
-                            />
-                            </div>
-                          );
-                        }
-                        
-                        const pendingWindow = getPendingOffWindow(selectedYear, selectedMonth, selectedPeriod);
-                        const originalScheduleEntries = filterEntriesToPendingWindow(
-                          originalGeneratedSchedule,
-                          selectedYear,
-                          selectedMonth,
-                          selectedPeriod,
-                        );
-
-                        const originalCalculated = calculatePendingOff(
-                          originalScheduleEntries,
-                          {},
-                          {},
-                          selectedYear,
-                          selectedMonth,
-                          pendingWindow,
-                        );
-                        const originalEmployeesMap = new Map(generatedEmployees.map((e: any) => [e.employee, e]));
-                        
-                        // Reverse-calculate initial pending_off
-                        const initialPendingOff: Record<string, number> = {};
-                        originalCalculated.forEach(calc => {
-                          const original = originalEmployeesMap.get(calc.employee);
-                          if (original) {
-                            const finalPendingOff = original.pending_off || 0;
-                            const addedThisMonth =
-                              calc.weekend_days_in_month + calc.night_shifts - calc.Os_given;
-                            initialPendingOff[calc.employee] = Math.max(0, finalPendingOff - addedThisMonth);
-                          } else {
-                            initialPendingOff[calc.employee] = 0;
+                      <div className="overflow-x-auto max-w-full">
+                        <ScheduleTable
+                          schedule={generatedSchedule}
+                          year={selectedYear}
+                          month={selectedMonth}
+                          employees={
+                            generatedViewEmployees ??
+                            generatedEmployees ??
+                            rosterData?.employees ??
+                            []
                           }
-                        });
-                        
-                        // For any employees not in calculated, use their original pending_off
-                        generatedEmployees.forEach((emp: any) => {
-                          if (!(emp.employee in initialPendingOff)) {
-                            initialPendingOff[emp.employee] = emp.pending_off || 0;
-                          }
-                        });
-                        
-                        const currentScheduleEntries = filterEntriesToPendingWindow(
-                          generatedSchedule,
-                          selectedYear,
-                          selectedMonth,
-                          selectedPeriod,
-                        );
+                          editable={true}
+                          canChangeColors={true}
+                          onScheduleChange={(updatedSchedule) => {
+                            setGeneratedSchedule(updatedSchedule);
+                          }}
+                          selectedPeriod={selectedPeriod}
+                          pendingOffEditable={true}
+                          onPendingOffChange={(_employee, value, userId) => {
+                            if (typeof userId !== 'number' || Number.isNaN(userId)) return;
+                            setPendingOffOverrides((prev) => ({ ...prev, [String(userId)]: value }));
+                          }}
+                        />
+                      </div>
 
-                        const recalculated = calculatePendingOff(
-                          currentScheduleEntries,
-                          initialPendingOff,
-                          {},
-                          selectedYear,
-                          selectedMonth,
-                          pendingWindow,
-                        );
-                        const recalculatedByEmployee = new Map(
-                          recalculated.map((e) => [e.employee, e]),
-                        );
-                        
-                        // Create a map of employees with their skill information.
-                        // IMPORTANT: use rosterData employees (source of truth for skills),
-                        // not generatedEmployees (which may not include skill flags).
-                        const employeesWithSkillsMap = new Map(
-                          ((rosterData?.employees || []) as any[]).map((emp: any) => [
-                            emp.employee,
-                            {
-                              skill_M: emp.skill_M,
-                              skill_IP: emp.skill_IP,
-                              skill_A: emp.skill_A,
-                              skill_N: emp.skill_N,
-                              skill_M3: emp.skill_M3,
-                              skill_M4: emp.skill_M4,
-                              skill_H: emp.skill_H,
-                              skill_CL: emp.skill_CL,
-                              skill_E: emp.skill_E,
-                              skill_MS: emp.skill_MS,
-                              skill_IP_P: emp.skill_IP_P,
-                              skill_P: emp.skill_P,
-                              skill_M_P: emp.skill_M_P,
-                            }
-                          ])
-                        );
-                        
-                        // Merge skill information into dynamicEmployees.
-                        // Single-skill employees must keep pending_off unchanged.
-                        const dynamicEmployees = (generatedEmployees || rosterData?.employees || []).map((emp: any) => {
-                          const calc = recalculatedByEmployee.get(emp.employee);
-                          const skills: any = employeesWithSkillsMap.get(emp.employee) || {};
-                          const skillFlags = [
-                            skills.skill_M, skills.skill_IP, skills.skill_A, skills.skill_N,
-                            skills.skill_M3, skills.skill_M4, skills.skill_H, skills.skill_CL,
-                            skills.skill_E, skills.skill_MS, skills.skill_IP_P, skills.skill_P, skills.skill_M_P,
-                          ];
-                          const isSingleSkill = skillFlags.filter(Boolean).length === 1;
-                          const frozenPendingOff = initialPendingOff[emp.employee] ?? (emp.pending_off || 0);
-                          return {
-                            employee: emp.employee,
-                            pending_off: isSingleSkill ? frozenPendingOff : (calc?.pending_off ?? (emp.pending_off || 0)),
-                            total_working_days: calc?.total_working_days ?? 0,
-                            night_shifts: calc?.night_shifts ?? 0,
-                            afternoon_shifts: 0, // Not used in display
-                            weekend_days_in_month: calc?.weekend_days_in_month ?? 0,
-                            Os_given: calc?.Os_given ?? 0,
-                            ...skills, // Include all skill fields
-                          };
-                        });
-                        
-                        return (
-                          <>
-                            <div className="overflow-x-auto max-w-full">
-                            <ScheduleTable
-                              schedule={generatedSchedule}
-                              year={selectedYear}
-                              month={selectedMonth}
-                              employees={dynamicEmployees}
-                              editable={true}
-                              canChangeColors={true}
-                              onScheduleChange={(updatedSchedule) => {
-                                setGeneratedSchedule(updatedSchedule);
-                              }}
-                              selectedPeriod={selectedPeriod}
-                            />
-                            </div>
-                            
-                            <ScheduleAnalysis
-                              schedule={generatedSchedule}
-                              employees={dynamicEmployees}
-                              metrics={scheduleMetrics}
-                              year={selectedYear}
-                              month={selectedMonth}
-                              shiftRequests={shiftRequests}
-                              rosterLocks={rosterData?.locks || []}
-                            />
-                          </>
-                        );
-                      })()}
-                      
-                      {(() => {
-                        // If schedule hasn't been edited, show ScheduleAnalysis with original employees
-                        if (!generatedEmployees || !originalGeneratedSchedule) {
-                          return (
-                            <ScheduleAnalysis
-                              schedule={generatedSchedule}
-                              employees={generatedEmployees || rosterData?.employees}
-                              metrics={scheduleMetrics}
-                              year={selectedYear}
-                              month={selectedMonth}
-                              shiftRequests={shiftRequests}
-                              rosterLocks={rosterData?.locks || []}
-                            />
-                          );
-                        }
-                        
-                        const scheduleChanged = JSON.stringify(generatedSchedule) !== JSON.stringify(originalGeneratedSchedule);
-                        if (!scheduleChanged) {
-                          return (
-                            <ScheduleAnalysis
-                              schedule={generatedSchedule}
-                              employees={generatedEmployees}
-                              metrics={scheduleMetrics}
-                              year={selectedYear}
-                              month={selectedMonth}
-                              shiftRequests={shiftRequests}
-                              rosterLocks={rosterData?.locks || []}
-                            />
-                          );
-                        }
-                        
-                        // Schedule has been edited - already rendered with dynamic employees above
-                        return null;
-                      })()}
+                      {generatedViewEmployees && (
+                        <ScheduleAnalysis
+                          schedule={generatedSchedule}
+                          employees={generatedViewEmployees}
+                          metrics={scheduleMetrics}
+                          year={selectedYear}
+                          month={selectedMonth}
+                          shiftRequests={shiftRequests}
+                          rosterLocks={rosterData?.locks || []}
+                        />
+                      )}
 
                       <div className="mt-8 border-t border-gray-200 pt-6">
                         <h3 className="text-xl font-bold text-gray-900 mb-4">Ready to Use This Schedule?</h3>

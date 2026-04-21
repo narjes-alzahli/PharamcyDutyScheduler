@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pathlib import Path
+from datetime import date
 import pandas as pd
 import json
 from typing import List, Dict, Optional, Any, Tuple, Set
@@ -27,6 +28,7 @@ from backend.roster_data_loader import (
     load_month_holidays
 )
 from backend.models import User, LeaveRequest, LeaveType, RequestStatus, EmployeeType, ShiftRequest, ShiftType, EmployeeSkills, CommittedSchedule, ScheduleMetrics, RamadanDate
+from backend.ramadan_periods import get_ramadan_period_windows
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import not_
 
@@ -325,53 +327,225 @@ def _validate_lock_entries_batch(db: Session, entries: List[LockEntry], active_s
 security = HTTPBearer()
 
 
+def _pending_off_maps_from_metrics(
+    metrics: Optional[dict],
+) -> Tuple[Dict[str, Optional[float]], Dict[int, Optional[float]]]:
+    """Parse metrics.employees into pending_off maps; empty if unusable."""
+    out: Dict[str, Optional[float]] = {}
+    out_uid: Dict[int, Optional[float]] = {}
+    if not metrics or not isinstance(metrics, dict):
+        return out, out_uid
+    emps = metrics.get("employees")
+    if not isinstance(emps, list) or len(emps) == 0:
+        return out, out_uid
+    for emp in emps:
+        if not isinstance(emp, dict):
+            continue
+        name = emp.get("employee")
+        po = emp.get("pending_off")
+        val: Optional[float]
+        if po is None or po == "null":
+            val = None
+        else:
+            try:
+                val = float(po)
+            except (TypeError, ValueError):
+                val = None
+        uid = emp.get("user_id")
+        if uid is not None:
+            try:
+                out_uid[int(uid)] = val
+            except (TypeError, ValueError):
+                pass
+        if name:
+            out[str(name)] = val
+    return out, out_uid
+
+
 def get_pending_off_from_most_recent_committed_month(
     db: Session,
+    *,
+    anchor_on_or_before_today: bool = False,
 ) -> Tuple[Dict[str, Optional[float]], Dict[int, Optional[float]]]:
     """
-    For user accounts / global employee list: pending_off from the chronologically latest
-    (year, month) that has committed rows AND schedule_metrics with an employees report.
-    Walks backward from newest month if the newest has no metrics yet.
+    Resolve pending_off snapshots from ``schedule_metrics`` (same source for published
+    schedules and saved drafts).
 
-    Returns (by_display_name, by_user_id) so overlays work after renames when metrics carry user_id.
+    - ``anchor_on_or_before_today=False`` (solver / backward-compat): use the single
+      calendar-latest (year, month) row that has a non-empty employees report.
+    - ``anchor_on_or_before_today=True`` (GET employees, roster-data): use the latest
+      such month that is **on or before** the server's current calendar month. Future
+      months are ignored; if no eligible snapshot exists, returns empty maps.
+
+    Returns (by_display_name, by_user_id) for overlays when metrics carry ``user_id``.
     """
-    pairs = db.query(CommittedSchedule.year, CommittedSchedule.month).distinct().all()
-    if not pairs:
+    candidates: List[Tuple[int, int, Dict[str, Optional[float]], Dict[int, Optional[float]]]] = []
+    for rec in db.query(ScheduleMetrics).all():
+        by_name, by_uid = _pending_off_maps_from_metrics(rec.metrics if isinstance(rec.metrics, dict) else None)
+        if not by_name and not by_uid:
+            continue
+        try:
+            y, m = int(rec.year), int(rec.month)
+        except (TypeError, ValueError):
+            continue
+        candidates.append((y, m, by_name, by_uid))
+
+    if not candidates:
         return {}, {}
-    ordered = sorted(pairs, key=lambda p: (p[0], p[1]), reverse=True)
-    for y, m in ordered:
-        rec = db.query(ScheduleMetrics).filter(ScheduleMetrics.year == y, ScheduleMetrics.month == m).first()
-        if not rec or not rec.metrics:
+
+    def month_key(row: Tuple[int, int, Any, Any]) -> int:
+        return row[0] * 12 + row[1]
+
+    if anchor_on_or_before_today:
+        today = date.today()
+        cutoff = today.year * 12 + today.month
+        eligible = [c for c in candidates if month_key(c) <= cutoff]
+        if not eligible:
+            return {}, {}
+        chosen = max(eligible, key=month_key)
+    else:
+        chosen = max(candidates, key=month_key)
+
+    return chosen[2], chosen[3]
+
+
+def sync_employee_skills_pending_off_from_latest_committed_month(
+    db: Session,
+    *,
+    anchor_on_or_before_today: bool = True,
+) -> Dict[str, int]:
+    """
+    Sync EmployeeSkills.pending_off from latest saved schedule metrics snapshot.
+
+    Used on User Accounts load so base pending_off follows the latest valid
+    month relative to today (future months ignored).
+    """
+    latest_po, latest_po_uid = get_pending_off_from_most_recent_committed_month(
+        db,
+        anchor_on_or_before_today=anchor_on_or_before_today,
+    )
+    if not latest_po and not latest_po_uid:
+        return {"updated": 0, "total_staff": 0}
+
+    staff_rows = db.query(EmployeeSkills).all()
+    changed = 0
+    for row in staff_rows:
+        new_po: Optional[float] = None
+        if row.user_id is not None and int(row.user_id) in latest_po_uid:
+            cand = latest_po_uid.get(int(row.user_id))
+            if cand is not None:
+                new_po = float(cand)
+        if new_po is None and row.name in latest_po:
+            cand = latest_po.get(row.name)
+            if cand is not None:
+                new_po = float(cand)
+        if new_po is None:
             continue
-        emps = rec.metrics.get("employees")
-        if not isinstance(emps, list) or len(emps) == 0:
-            continue
-        out: Dict[str, Optional[float]] = {}
-        out_uid: Dict[int, Optional[float]] = {}
-        for emp in emps:
-            if not isinstance(emp, dict):
+        cur = float(row.pending_off or 0.0)
+        if abs(cur - new_po) > 1e-9:
+            row.pending_off = new_po
+            changed += 1
+
+    if changed > 0:
+        db.commit()
+    return {"updated": changed, "total_staff": len(staff_rows)}
+
+
+def _resolve_current_po_sync_target(db: Session, today: date) -> Dict[str, Any]:
+    """Resolve current sync scope: Ramadan period if active, otherwise calendar month."""
+    windows = get_ramadan_period_windows(today.year, db)
+    if windows:
+        for period_id in ("pre-ramadan", "ramadan", "post-ramadan"):
+            start_d, end_d = windows[period_id]
+            if start_d <= today <= end_d:
+                return {
+                    "kind": "period",
+                    "year": int(today.year),
+                    "month": int(start_d.month),
+                    "selected_period": period_id,
+                    "start_date": start_d,
+                    "end_date": end_d,
+                    "label": f"{period_id} {today.year}",
+                }
+    month_start = date(today.year, today.month, 1)
+    return {
+        "kind": "month",
+        "year": int(today.year),
+        "month": int(today.month),
+        "selected_period": None,
+        "start_date": month_start,
+        "end_date": today,
+        "label": month_start.strftime("%B %Y"),
+    }
+
+
+def _get_target_pending_off_maps(
+    db: Session,
+    target: Dict[str, Any],
+) -> Tuple[Dict[str, Optional[float]], Dict[int, Optional[float]]]:
+    """Get pending_off snapshot maps for the resolved sync target."""
+    if target["kind"] == "period":
+        year = int(target["year"])
+        period_id = str(target["selected_period"])
+        matches: List[Tuple[int, int, Dict[str, Optional[float]], Dict[int, Optional[float]]]] = []
+        for rec in db.query(ScheduleMetrics).filter(
+            ScheduleMetrics.year >= year - 1,
+            ScheduleMetrics.year <= year + 1,
+        ).all():
+            metrics = rec.metrics if isinstance(rec.metrics, dict) else None
+            if not metrics or metrics.get("pending_off_period") != period_id:
                 continue
-            name = emp.get("employee")
-            po = emp.get("pending_off")
-            val: Optional[float]
-            if po is None or po == "null":
-                val = None
-            else:
-                try:
-                    val = float(po)
-                except (TypeError, ValueError):
-                    val = None
-            uid = emp.get("user_id")
-            if uid is not None:
-                try:
-                    out_uid[int(uid)] = val
-                except (TypeError, ValueError):
-                    pass
-            if name:
-                out[str(name)] = val
-        if out or out_uid:
-            return out, out_uid
-    return {}, {}
+            by_name, by_uid = _pending_off_maps_from_metrics(metrics)
+            if not by_name and not by_uid:
+                continue
+            try:
+                y, m = int(rec.year), int(rec.month)
+            except (TypeError, ValueError):
+                continue
+            matches.append((y, m, by_name, by_uid))
+        if not matches:
+            return {}, {}
+        chosen = max(matches, key=lambda x: x[0] * 12 + x[1])
+        return chosen[2], chosen[3]
+
+    rec = db.query(ScheduleMetrics).filter(
+        ScheduleMetrics.year == int(target["year"]),
+        ScheduleMetrics.month == int(target["month"]),
+    ).first()
+    if not rec or not isinstance(rec.metrics, dict):
+        return {}, {}
+    return _pending_off_maps_from_metrics(rec.metrics)
+
+
+def _apply_pending_off_maps_to_employee_skills(
+    db: Session,
+    by_name: Dict[str, Optional[float]],
+    by_uid: Dict[int, Optional[float]],
+) -> Dict[str, int]:
+    staff_rows = db.query(EmployeeSkills).all()
+    changed = 0
+    matched = 0
+    for row in staff_rows:
+        new_po: Optional[float] = None
+        if row.user_id is not None and int(row.user_id) in by_uid:
+            cand = by_uid.get(int(row.user_id))
+            if cand is not None:
+                new_po = float(cand)
+                matched += 1
+        if new_po is None and row.name in by_name:
+            cand = by_name.get(row.name)
+            if cand is not None:
+                new_po = float(cand)
+                matched += 1
+        if new_po is None:
+            continue
+        cur = float(row.pending_off or 0.0)
+        if abs(cur - new_po) > 1e-9:
+            row.pending_off = new_po
+            changed += 1
+    if changed > 0:
+        db.commit()
+    return {"updated": changed, "matched": matched, "total_staff": len(staff_rows)}
 
 
 class EmployeeData(BaseModel):
@@ -426,27 +600,98 @@ async def get_employees(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all staff (roster skills rows); pending_off is overlaid from the most recent committed month when available."""
+    """Get all staff (roster skills rows) using EmployeeSkills.pending_off as source of truth."""
     roster_data = load_roster_data_from_db(db)
     employees_df = roster_data['employees']
-    records = employees_df.to_dict("records")
-    latest_po, latest_po_uid = get_pending_off_from_most_recent_committed_month(db)
-    for row in records:
-        po_set = False
-        uid = row.get("user_id")
-        if uid is not None:
-            try:
-                i = int(uid)
-                if i in latest_po_uid:
-                    row["pending_off"] = latest_po_uid[i]
-                    po_set = True
-            except (TypeError, ValueError):
-                pass
-        if not po_set:
-            name = row.get("employee")
-            if name and name in latest_po:
-                row["pending_off"] = latest_po[name]
-    return sanitize_json_floats(records)
+    return sanitize_json_floats(employees_df.to_dict("records"))
+
+
+@router.get("/pending-off-sync-status")
+async def get_pending_off_sync_status(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Status for monthly/periodic P/O sync banner in User Accounts."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can view sync status")
+    today = date.today()
+    target = _resolve_current_po_sync_target(db, today)
+    start_date = target["start_date"]
+    if today < start_date:
+        return {"requires_sync": False, "reason": "before_target_start"}
+    by_name, by_uid = _get_target_pending_off_maps(db, target)
+    if not by_name and not by_uid:
+        return {
+            "requires_sync": False,
+            "reason": "no_committed_schedule_for_target",
+            "target": {
+                "kind": target["kind"],
+                "year": target["year"],
+                "month": target["month"],
+                "selected_period": target["selected_period"],
+                "label": target["label"],
+                "start_date": target["start_date"].isoformat(),
+            },
+        }
+    staff_rows = db.query(EmployeeSkills).all()
+    pending = False
+    for row in staff_rows:
+        target_po: Optional[float] = None
+        if row.user_id is not None and int(row.user_id) in by_uid:
+            cand = by_uid.get(int(row.user_id))
+            if cand is not None:
+                target_po = float(cand)
+        if target_po is None and row.name in by_name:
+            cand = by_name.get(row.name)
+            if cand is not None:
+                target_po = float(cand)
+        if target_po is None:
+            continue
+        cur = float(row.pending_off or 0.0)
+        if abs(cur - target_po) > 1e-9:
+            pending = True
+            break
+    return {
+        "requires_sync": pending,
+        "reason": "pending_changes" if pending else "already_synced",
+        "target": {
+            "kind": target["kind"],
+            "year": target["year"],
+            "month": target["month"],
+            "selected_period": target["selected_period"],
+            "label": target["label"],
+            "start_date": target["start_date"].isoformat(),
+        },
+    }
+
+
+@router.post("/pending-off-sync")
+async def run_pending_off_sync(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manual sync for current month/period target."""
+    if current_user['employee_type'] != 'Manager':
+        raise HTTPException(status_code=403, detail="Only managers can sync pending off")
+    today = date.today()
+    target = _resolve_current_po_sync_target(db, today)
+    if today < target["start_date"]:
+        return {"message": "Sync not available yet for this target", "updated": 0}
+    by_name, by_uid = _get_target_pending_off_maps(db, target)
+    if not by_name and not by_uid:
+        raise HTTPException(status_code=400, detail="No committed schedule metrics found for current target")
+    stats = _apply_pending_off_maps_to_employee_skills(db, by_name, by_uid)
+    return {
+        "message": "Pending off synced successfully",
+        "target": {
+            "kind": target["kind"],
+            "year": target["year"],
+            "month": target["month"],
+            "selected_period": target["selected_period"],
+            "label": target["label"],
+        },
+        **stats,
+    }
 
 
 # POST /employees removed - employees are now created automatically when creating Staff users in User Management
@@ -687,7 +932,10 @@ async def get_roster_data(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all roster data (employees, demands, time_off, locks)."""
+    """Get all roster data (employees, demands, time_off, locks).
+
+    Employee ``pending_off`` matches GET /employees and comes from EmployeeSkills.
+    """
     try:
         # Don't expand ranges for frontend - keep as ranges
         roster_data = load_roster_data_from_db(db, expand_ranges=False)
@@ -715,23 +963,6 @@ async def get_roster_data(
         
         # Replace NaN in employees and demands DataFrames
         employees_records = roster_data['employees'].replace({np.nan: None}).to_dict('records')
-        # Keep pending_off source consistent with GET /api/data/employees
-        latest_po, latest_po_uid = get_pending_off_from_most_recent_committed_month(db)
-        for row in employees_records:
-            po_set = False
-            uid = row.get("user_id")
-            if uid is not None:
-                try:
-                    i = int(uid)
-                    if i in latest_po_uid:
-                        row["pending_off"] = latest_po_uid[i]
-                        po_set = True
-                except (TypeError, ValueError):
-                    pass
-            if not po_set:
-                name = row.get("employee")
-                if name and name in latest_po:
-                    row["pending_off"] = latest_po[name]
         demands_records = demands_df.replace({np.nan: None}).to_dict('records') if not demands_df.empty else []
         
         return {

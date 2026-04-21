@@ -57,6 +57,7 @@ interface Employee {
   employee: string;
   /** From committed month metrics; omit or null when not set for that snapshot */
   pending_off?: number | null;
+  user_id?: number | string | null;
 }
 
 interface ScheduleTableProps {
@@ -68,6 +69,9 @@ interface ScheduleTableProps {
   canChangeColors?: boolean;
   onScheduleChange?: (updatedSchedule: ScheduleEntry[]) => void;
   selectedPeriod?: string | null; // 'pre-ramadan', 'ramadan', 'post-ramadan', or null
+  /** When set, P/O column is a number input (e.g. managers adjusting pending off). */
+  pendingOffEditable?: boolean;
+  onPendingOffChange?: (employee: string, value: number, userId?: number) => void;
 }
 
 interface MobileAssignment {
@@ -253,7 +257,9 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   editable = false,
   canChangeColors = false,
   onScheduleChange,
-  selectedPeriod
+  selectedPeriod,
+  pendingOffEditable = false,
+  onPendingOffChange,
 }) => {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
@@ -709,9 +715,17 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
 
   // Create employee pending_off lookup (do not coerce undefined/null to 0 — must match saved month snapshot)
   const pendingOffMap: Record<string, number | null | undefined> = {};
+  const pendingOffUserIdMap: Record<string, number | undefined> = {};
   if (employeeData) {
     employeeData.forEach(emp => {
       pendingOffMap[emp.employee] = emp.pending_off;
+      const rawUid = emp.user_id;
+      if (rawUid !== null && rawUid !== undefined && rawUid !== '') {
+        const uid = typeof rawUid === 'number' ? rawUid : Number(rawUid);
+        if (!Number.isNaN(uid)) {
+          pendingOffUserIdMap[emp.employee] = uid;
+        }
+      }
     });
   }
 
@@ -719,6 +733,36 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
     const po = pendingOffMap[employee];
     if (po === null || po === undefined) return '';
     return String(po);
+  };
+
+  const renderPendingOffCell = (employee: string) => {
+    const po = pendingOffMap[employee];
+    const uid = pendingOffUserIdMap[employee];
+    const display = po === null || po === undefined ? '' : String(Math.round(Number(po)));
+    if (pendingOffEditable && onPendingOffChange) {
+      return (
+        <input
+          type="number"
+          step={1}
+          title="Pending off (editable; formula is default until you change this)"
+          className="w-8 max-w-full min-w-0 rounded border border-dashed border-gray-500 bg-white px-0.5 py-0 text-center font-bold text-xs text-gray-900 [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          value={display}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '' || v === '-') {
+              onPendingOffChange(employee, 0, uid);
+              return;
+            }
+            const n = parseFloat(v);
+            if (!Number.isNaN(n)) {
+              onPendingOffChange(employee, n, uid);
+            }
+          }}
+        />
+      );
+    }
+    return formatPendingOffCell(employee);
   };
 
   // Create pivot data structure
@@ -778,7 +822,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
               <th className="border border-black px-1 py-1 text-left font-bold sticky left-0 bg-gray-100 z-10 text-xs">
                 Staff
               </th>
-              <th className="border border-black px-1 py-1 text-center font-bold text-xs">
+              <th className="w-9 min-w-[2.25rem] border border-black px-0.5 py-1 text-center font-bold text-xs">
                 P/O
               </th>
               {dates.map(dateStr => {
@@ -807,8 +851,8 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
                 <td className="border border-black px-1 py-1 font-semibold sticky left-0 bg-white z-10 text-xs">
                   {employee}
                 </td>
-                <td className="border border-black px-1 py-1 text-center font-bold text-xs">
-                  {formatPendingOffCell(employee)}
+                <td className="w-9 min-w-[2.25rem] border border-black px-0.5 py-1 text-center font-bold text-xs">
+                  {renderPendingOffCell(employee)}
                 </td>
                 {dates.map(dateStr => {
                   const shift = pivotData[employee][dateStr] || '';

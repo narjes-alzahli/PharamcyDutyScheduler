@@ -800,6 +800,27 @@ export const UserManagement: React.FC = () => {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'ramadan' | 'requests' | 'leave' | 'shift'>('users');
+  const [poSyncStatus, setPoSyncStatus] = useState<{
+    requires_sync: boolean;
+    reason: string;
+    target?: {
+      kind: 'month' | 'period';
+      year: number;
+      month: number;
+      selected_period?: string | null;
+      label: string;
+      start_date: string;
+    };
+  } | null>(null);
+  const [syncingPo, setSyncingPo] = useState(false);
+  const PO_SYNC_IGNORE_KEY = 'po_sync_ignore_target';
+  const getPoSyncTargetId = (status?: {
+    target?: { kind: 'month' | 'period'; year: number; month: number; selected_period?: string | null };
+  } | null) => {
+    const t = status?.target;
+    if (!t) return null;
+    return `${t.kind}:${t.year}:${t.month}:${t.selected_period || ''}`;
+  };
   const [requestFilter, setRequestFilter] = useState<'all' | 'leave' | 'shift'>('all');
   const [leaveTableExpanded, setLeaveTableExpanded] = useState(false);
   const [shiftTableExpanded, setShiftTableExpanded] = useState(false);
@@ -1223,12 +1244,24 @@ export const UserManagement: React.FC = () => {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [usersRes, employeesRes] = await Promise.all([
+      const [usersRes, employeesRes, poSyncRes] = await Promise.all([
         api.get('/api/users/'),
         dataAPI.getEmployees(),
+        dataAPI.getPendingOffSyncStatus(),
       ]);
       setUsers(usersRes.data);
       setEmployees(employeesRes);
+      const ignoredTargetId = localStorage.getItem(PO_SYNC_IGNORE_KEY);
+      const currentTargetId = getPoSyncTargetId(poSyncRes);
+      const suppressed =
+        Boolean(poSyncRes?.requires_sync) &&
+        Boolean(currentTargetId) &&
+        ignoredTargetId === currentTargetId;
+      setPoSyncStatus(
+        suppressed
+          ? { ...poSyncRes, requires_sync: false, reason: 'ignored_this_time' }
+          : poSyncRes,
+      );
       if (employeesRes.length > 0) {
         setSelectedEmployee(employeesRes[0].employee);
       }
@@ -1238,6 +1271,36 @@ export const UserManagement: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
+  const handleSyncPendingOff = useCallback(async () => {
+    try {
+      setSyncingPo(true);
+      const result = await dataAPI.syncPendingOff();
+      setNotification({
+        message: `Synced P/O for ${result.target?.label || 'current target'} (${result.updated} updated).`,
+        type: 'success',
+      });
+      localStorage.removeItem(PO_SYNC_IGNORE_KEY);
+      setTimeout(() => setNotification(null), 3000);
+      await loadData();
+    } catch (error: any) {
+      const msg = error.response?.data?.detail || 'Failed to sync pending off';
+      setNotification({ message: msg, type: 'error' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setSyncingPo(false);
+    }
+  }, [loadData]);
+
+  const handleIgnoreSyncThisTime = useCallback(() => {
+    const targetId = getPoSyncTargetId(poSyncStatus);
+    if (targetId) {
+      localStorage.setItem(PO_SYNC_IGNORE_KEY, targetId);
+    }
+    setPoSyncStatus((prev) =>
+      prev ? { ...prev, requires_sync: false, reason: 'ignored_this_time' } : prev,
+    );
+  }, [poSyncStatus]);
 
   useEffect(() => {
     // MAJOR RESTRUCTURE: Use auth guard instead of manual checks
@@ -3079,6 +3142,31 @@ export const UserManagement: React.FC = () => {
             ➕ Create User
           </button>
         </div>
+        {poSyncStatus?.requires_sync && (
+          <div className="mb-4 rounded border border-yellow-300 bg-yellow-50 px-4 py-3 text-yellow-900 flex items-center justify-between gap-3">
+            <div className="text-sm">
+              {`Sync pending-off data from ${poSyncStatus.target?.label || 'Current Period'} roster:`}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSyncPendingOff}
+                disabled={syncingPo}
+                className="px-3 py-1.5 bg-yellow-600 text-white rounded-md text-sm font-semibold hover:bg-yellow-700 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {syncingPo ? 'Syncing...' : 'Sync P/O'}
+              </button>
+              <button
+                type="button"
+                onClick={handleIgnoreSyncThisTime}
+                disabled={syncingPo}
+                className="px-3 py-1.5 bg-gray-200 text-gray-800 rounded-md text-sm font-semibold hover:bg-gray-300 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                Ignore Sync
+              </button>
+            </div>
+          </div>
+        )}
         {users.length > 0 ? (
           <>
           <SearchBar
