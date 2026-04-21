@@ -2715,11 +2715,7 @@ export const RosterGenerator: React.FC = () => {
                             setGeneratedSchedule(updatedSchedule);
                           }}
                           selectedPeriod={selectedPeriod}
-                          pendingOffEditable={true}
-                          onPendingOffChange={(_employee, value, userId) => {
-                            if (typeof userId !== 'number' || Number.isNaN(userId)) return;
-                            setPendingOffOverrides((prev) => ({ ...prev, [String(userId)]: value }));
-                          }}
+                          pendingOffEditable={false}
                         />
                       </div>
 

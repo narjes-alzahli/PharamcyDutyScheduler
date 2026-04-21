@@ -1008,6 +1008,10 @@ async def update_schedule(
             # No shift changes: persist direct employee-row edits from payload.
             employees = incoming_employees_list if incoming_employees_list else existing_employees_list
 
+        # Ensure recalculated/incoming rows have stable user_id before row-level PO preservation.
+        if isinstance(employees, list) and employees:
+            _enrich_employee_rows_with_user_id(db, employees)
+
         # Row-level behavior for schedule edits:
         # keep previously saved pending_off for employees whose shifts did not change.
         if schedule_changed and isinstance(employees, list) and existing_employees_list:

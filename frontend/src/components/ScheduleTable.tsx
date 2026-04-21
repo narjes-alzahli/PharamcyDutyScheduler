@@ -261,6 +261,7 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   pendingOffEditable = false,
   onPendingOffChange,
 }) => {
+  const [pendingOffDrafts, setPendingOffDrafts] = useState<Record<string, string>>({});
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftType[]>([]);
   const [editingCell, setEditingCell] = useState<{ employee: string; date: string } | null>(null);
@@ -738,11 +739,25 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
   const renderPendingOffCell = (employee: string) => {
     const po = pendingOffMap[employee];
     const uid = pendingOffUserIdMap[employee];
-    const display = po === null || po === undefined ? '' : String(Math.round(Number(po)));
+    const draft = pendingOffDrafts[employee];
+    const committedDisplay = po === null || po === undefined ? '' : String(Math.round(Number(po)));
+    const display = draft !== undefined ? draft : committedDisplay;
+    const commitDraft = (raw: string) => {
+      if (!onPendingOffChange) return;
+      if (raw === '' || raw === '-') {
+        onPendingOffChange(employee, 0, uid);
+        return;
+      }
+      const n = parseFloat(raw);
+      if (!Number.isNaN(n)) {
+        onPendingOffChange(employee, n, uid);
+      }
+    };
     if (pendingOffEditable && onPendingOffChange) {
       return (
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
           step={1}
           title="Pending off (editable; formula is default until you change this)"
           className="w-8 max-w-full min-w-0 rounded border border-dashed border-gray-500 bg-white px-0.5 py-0 text-center font-bold text-xs text-gray-900 [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
@@ -750,13 +765,35 @@ export const ScheduleTable: React.FC<ScheduleTableProps> = ({
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => {
             const v = e.target.value;
-            if (v === '' || v === '-') {
-              onPendingOffChange(employee, 0, uid);
-              return;
+            // Allow intermediate typing states (e.g. "-" before "-5").
+            if (/^-?\d*$/.test(v)) {
+              setPendingOffDrafts((prev) => ({ ...prev, [employee]: v }));
+              if (v !== '' && v !== '-') {
+                const n = parseFloat(v);
+                if (!Number.isNaN(n)) {
+                  onPendingOffChange(employee, n, uid);
+                }
+              }
             }
-            const n = parseFloat(v);
-            if (!Number.isNaN(n)) {
-              onPendingOffChange(employee, n, uid);
+          }}
+          onBlur={() => {
+            const raw = pendingOffDrafts[employee];
+            if (raw !== undefined) {
+              commitDraft(raw);
+              setPendingOffDrafts((prev) => {
+                const next = { ...prev };
+                delete next[employee];
+                return next;
+              });
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const raw = pendingOffDrafts[employee];
+              if (raw !== undefined) {
+                commitDraft(raw);
+              }
+              (e.target as HTMLInputElement).blur();
             }
           }}
         />
