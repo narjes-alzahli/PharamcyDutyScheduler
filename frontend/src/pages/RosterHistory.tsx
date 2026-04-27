@@ -15,6 +15,16 @@ import { useAuthGuard } from '../hooks/useAuthGuard';
 import { useDate } from '../contexts/DateContext';
 import { isTokenExpired } from '../utils/tokenUtils';
 import Plot from 'react-plotly.js';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Tooltip,
+} from 'chart.js';
+import { Bar, Line } from 'react-chartjs-2';
 import { calculateFairnessData, FairnessData } from '../utils/fairnessMetrics';
 import {
   calculatePendingOff,
@@ -30,7 +40,76 @@ import {
   type RamadanPeriodId,
 } from '../utils/ramadanPeriods';
 
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip);
+
 type RamadanWindows = NonNullable<ReturnType<typeof getRamadanPeriodWindows>>;
+
+type OverallMetricKey =
+  | 'night'
+  | 'm4'
+  | 'afternoon'
+  | 'thursday'
+  | 'weekend'
+  | 'ipCombined'
+  | 'mainCombined'
+  | 'oShift'
+  | 'leaveRequested';
+
+type OverallViewMode = 'grouped-bar' | 'line-trend' | 'heatmap';
+
+const OVERALL_METRICS: Array<{ key: OverallMetricKey; label: string }> = [
+  { key: 'night', label: 'Night' },
+  { key: 'm4', label: 'M4' },
+  { key: 'afternoon', label: 'A' },
+  { key: 'thursday', label: 'Thursday' },
+  { key: 'weekend', label: 'Weekend' },
+  { key: 'ipCombined', label: 'IP / IP+P' },
+  { key: 'mainCombined', label: 'M / M3 / M+P' },
+  { key: 'oShift', label: 'O' },
+  { key: 'leaveRequested', label: 'Requested Leave' },
+];
+
+const MONTH_COLORS = ['#1D9E75', '#378ADD', '#534AB7'];
+const HEATMAP_COLORS = ['#EAF8F4', '#CDEEE3', '#9FDCC8', '#63C0A0', '#2F9D7B', '#136A52'];
+
+const NIGHT_SHIFTS = new Set(['N']);
+const M4_SHIFTS = new Set(['M4']);
+const AFTERNOON_SHIFTS = new Set(['A']);
+const IP_COMBINED_SHIFTS = new Set(['IP', 'IP+P']);
+const MAIN_COMBINED_SHIFTS = new Set(['M', 'M3', 'M+P']);
+const THURSDAY_FAIRNESS_SHIFTS = new Set(['A', 'M4', 'N', 'E']);
+const WEEKEND_FAIRNESS_SHIFTS = new Set(['A', 'M3', 'N', 'E']);
+
+function pickHeatmapColor(value: number, min: number, max: number): string {
+  if (max <= min) return HEATMAP_COLORS[3];
+  const ratio = (value - min) / (max - min);
+  const idx = Math.max(0, Math.min(HEATMAP_COLORS.length - 1, Math.round(ratio * (HEATMAP_COLORS.length - 1))));
+  return HEATMAP_COLORS[idx];
+}
+
+function metricMatchesShift(metric: OverallMetricKey, shift: string, leaveCodes: Set<string>): boolean {
+  switch (metric) {
+    case 'night':
+      return NIGHT_SHIFTS.has(shift);
+    case 'm4':
+      return M4_SHIFTS.has(shift);
+    case 'afternoon':
+      return AFTERNOON_SHIFTS.has(shift);
+    case 'ipCombined':
+      return IP_COMBINED_SHIFTS.has(shift);
+    case 'mainCombined':
+      return MAIN_COMBINED_SHIFTS.has(shift);
+    case 'oShift':
+      return shift === 'O';
+    case 'leaveRequested':
+      return leaveCodes.has(shift) && shift !== 'O';
+    case 'thursday':
+    case 'weekend':
+      return true;
+    default:
+      return false;
+  }
+}
 
 function ramadanMonthSet(windows: RamadanWindows): Set<number> {
   return new Set([
@@ -255,6 +334,11 @@ export const AllRostersPage: React.FC = () => {
   const [schedulesLoaded, setSchedulesLoaded] = useState(false); // Track if schedules list is loaded
   const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
   const [activeTab, setActiveTab] = useState<string>('overview');
+  const [historyViewTab, setHistoryViewTab] = useState<'all-rosters' | 'overall-analysis'>('all-rosters');
+  const [overallViewMode, setOverallViewMode] = useState<OverallViewMode>('grouped-bar');
+  const [selectedOverallMetric, setSelectedOverallMetric] = useState<OverallMetricKey>('night');
+  const [selectedHeatmapMetrics, setSelectedHeatmapMetrics] = useState<OverallMetricKey[]>(['night']);
+  const [overallMaxWarning, setOverallMaxWarning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false); // Separate loading state for individual schedule
   const [error, setError] = useState<string | null>(null);
@@ -269,6 +353,7 @@ export const AllRostersPage: React.FC = () => {
   const [originalSchedule, setOriginalSchedule] = useState<Schedule | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   const [employeesFromAPI, setEmployeesFromAPI] = useState<any[]>([]);
+  const [leaveTypeCodes, setLeaveTypeCodes] = useState<Set<string>>(new Set());
   /** Shift requests + roster locks for fairness chart “Requested” counts (same sources as Roster Generator). */
   const [fairnessShiftRequests, setFairnessShiftRequests] = useState<any[]>([]);
   const [fairnessRosterLocks, setFairnessRosterLocks] = useState<any[]>([]);
@@ -412,6 +497,16 @@ export const AllRostersPage: React.FC = () => {
     }
   }, []);
 
+  const loadLeaveTypesForOverall = useCallback(async () => {
+    try {
+      const leaveTypes = await leaveTypesAPI.getLeaveTypes(true);
+      setLeaveTypeCodes(new Set((leaveTypes || []).map((lt: any) => lt.code).filter(Boolean)));
+    } catch (err) {
+      console.error('Failed to load leave types for overall analysis:', err);
+      setLeaveTypeCodes(new Set());
+    }
+  }, []);
+
   const loadFairnessRequestSources = useCallback(async () => {
     // Staff users should not call manager-only endpoints used for fairness overlays.
     if (!isManager) {
@@ -447,6 +542,7 @@ export const AllRostersPage: React.FC = () => {
       loadSchedules(abortController.signal);
       loadEmployees(); // Load employees to get correct order
       loadFairnessRequestSources();
+      loadLeaveTypesForOverall();
     } else {
       // Auth not ready - clear schedules and show loading
       setSchedules([]);
@@ -459,7 +555,7 @@ export const AllRostersPage: React.FC = () => {
     return () => {
       abortController.abort();
     };
-  }, [authReady, loadSchedules, loadEmployees, loadFairnessRequestSources]);
+  }, [authReady, loadSchedules, loadEmployees, loadFairnessRequestSources, loadLeaveTypesForOverall]);
 
   // Load specific schedule ONLY after schedules list is loaded
   useEffect(() => {
@@ -1527,6 +1623,141 @@ export const AllRostersPage: React.FC = () => {
   
   const tabs = availableTabs;
 
+  const recentPublishedSchedules = useMemo(() => {
+    const sorted = [...schedules]
+      .filter((s) => Array.isArray(s.schedule) && s.schedule.length > 0)
+      .sort((a, b) => {
+        const aMax = Math.max(...(a.schedule || []).map((e: any) => new Date(e.date).getTime()));
+        const bMax = Math.max(...(b.schedule || []).map((e: any) => new Date(e.date).getTime()));
+        return bMax - aMax;
+      });
+    return sorted.slice(0, 3);
+  }, [schedules]);
+
+  const overallPeriodsInViewOrder = useMemo(
+    () => [...recentPublishedSchedules].reverse(),
+    [recentPublishedSchedules],
+  );
+
+  const overallEmployeeList = useMemo(() => {
+    const fromApi = (employeesFromAPI || []).map((e: any) => e.employee).filter(Boolean);
+    if (fromApi.length > 0) return fromApi;
+    const set = new Set<string>();
+    recentPublishedSchedules.forEach((sch) => {
+      getEmployeeRowsFromSchedule(sch).forEach((row: any) => {
+        if (row?.employee) set.add(row.employee);
+      });
+      (sch.schedule || []).forEach((entry: any) => {
+        if (entry?.employee) set.add(entry.employee);
+      });
+    });
+    return Array.from(set);
+  }, [employeesFromAPI, recentPublishedSchedules]);
+
+  const [selectedOverallEmployees, setSelectedOverallEmployees] = useState<string[]>([]);
+  useEffect(() => {
+    setSelectedOverallEmployees((prev) => {
+      if (overallEmployeeList.length === 0) return [];
+      const allowed = new Set(overallEmployeeList);
+      return prev.filter((name) => allowed.has(name));
+    });
+  }, [overallEmployeeList]);
+
+  const overallPeriodLabels = useMemo(
+    () =>
+      overallPeriodsInViewOrder.map((s) => {
+        const period = detectPeriod(s);
+        return formatRamadanPeriodLabel(s.year, period, monthNames, s.month);
+      }),
+    [overallPeriodsInViewOrder],
+  );
+
+  const overallPeriodMonthAbbr = useMemo(
+    () =>
+      overallPeriodsInViewOrder.map((s) => {
+        const first = (s.schedule || [])[0];
+        if (!first?.date) return monthNames[s.month - 1].slice(0, 3);
+        return monthNames[new Date(first.date).getMonth()].slice(0, 3);
+      }),
+    [overallPeriodsInViewOrder, monthNames],
+  );
+
+  const overallMetricsByPeriod = useMemo(() => {
+    return overallPeriodsInViewOrder.map((schedule) => {
+      const byEmployee = new Map<string, Record<OverallMetricKey, number>>();
+      overallEmployeeList.forEach((employee) => {
+        byEmployee.set(employee, {
+          night: 0,
+          m4: 0,
+          afternoon: 0,
+          thursday: 0,
+          weekend: 0,
+          ipCombined: 0,
+          mainCombined: 0,
+          oShift: 0,
+          leaveRequested: 0,
+        });
+      });
+
+      (schedule.schedule || []).forEach((entry: any) => {
+        const employee = entry?.employee;
+        if (!employee || !byEmployee.has(employee)) return;
+        const date = new Date(entry.date);
+        const day = date.getDay();
+        const shift = String(entry.shift || '').trim();
+        const row = byEmployee.get(employee)!;
+
+        if (metricMatchesShift('night', shift, leaveTypeCodes)) row.night += 1;
+        if (metricMatchesShift('m4', shift, leaveTypeCodes)) row.m4 += 1;
+        if (metricMatchesShift('afternoon', shift, leaveTypeCodes)) row.afternoon += 1;
+        if (metricMatchesShift('ipCombined', shift, leaveTypeCodes)) row.ipCombined += 1;
+        if (metricMatchesShift('mainCombined', shift, leaveTypeCodes)) row.mainCombined += 1;
+        if (metricMatchesShift('oShift', shift, leaveTypeCodes)) row.oShift += 1;
+        if (metricMatchesShift('leaveRequested', shift, leaveTypeCodes)) row.leaveRequested += 1;
+        if (day === 4 && THURSDAY_FAIRNESS_SHIFTS.has(shift)) row.thursday += 1;
+        if ((day === 5 || day === 6) && WEEKEND_FAIRNESS_SHIFTS.has(shift)) row.weekend += 1;
+      });
+
+      return byEmployee;
+    });
+  }, [overallPeriodsInViewOrder, overallEmployeeList, leaveTypeCodes]);
+
+  const visibleOverallEmployees = useMemo(() => {
+    if (selectedOverallEmployees.length === 0) return [];
+    return overallEmployeeList.filter((e) => selectedOverallEmployees.includes(e));
+  }, [overallEmployeeList, selectedOverallEmployees]);
+
+  const groupedBarAxisMax = useMemo(() => {
+    let maxValue = 0;
+    overallPeriodsInViewOrder.forEach((_, periodIdx) => {
+      visibleOverallEmployees.forEach((employee) => {
+        const value = overallMetricsByPeriod[periodIdx]?.get(employee)?.[selectedOverallMetric] || 0;
+        if (value > maxValue) maxValue = value;
+      });
+    });
+    return maxValue + 1;
+  }, [overallPeriodsInViewOrder, visibleOverallEmployees, overallMetricsByPeriod, selectedOverallMetric]);
+
+  const toggleHeatmapMetric = (metric: OverallMetricKey) => {
+    setSelectedHeatmapMetrics((prev) => {
+      if (prev.includes(metric)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((m) => m !== metric);
+      }
+      if (prev.length >= 5) {
+        setOverallMaxWarning(true);
+        return prev;
+      }
+      return [...prev, metric];
+    });
+  };
+
+  useEffect(() => {
+    if (!overallMaxWarning) return;
+    const timer = window.setTimeout(() => setOverallMaxWarning(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [overallMaxWarning]);
+
   // Show loading spinner while auth is loading or initial schedules list is loading
   // FIX: Show loading while auth is being verified
   // This prevents components from making API calls before auth is ready
@@ -1552,6 +1783,26 @@ export const AllRostersPage: React.FC = () => {
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Roster History</h2>
+      <div className="mb-6 border-b border-gray-200">
+        <div className="flex gap-2">
+          {[
+            { id: 'all-rosters' as const, label: 'All Rosters' },
+            { id: 'overall-analysis' as const, label: 'Overall Analysis' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setHistoryViewTab(tab.id)}
+              className={`rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
+                historyViewTab === tab.id
+                  ? 'border-b-2 border-primary-500 text-primary-700'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
@@ -1559,7 +1810,7 @@ export const AllRostersPage: React.FC = () => {
         </div>
       )}
 
-      {schedules.length === 0 ? (
+      {historyViewTab === 'all-rosters' && (schedules.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
           No committed schedules available
           {isManager ? '. Generate a new roster from the Roster Generator when you are ready.' : '.'}
@@ -1988,6 +2239,336 @@ export const AllRostersPage: React.FC = () => {
             </div>
           )}
         </>
+      ))}
+
+      {historyViewTab === 'overall-analysis' && (
+        <div className="bg-white rounded-lg shadow p-6 space-y-6">
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { id: 'grouped-bar' as const, label: 'Bars' },
+              { id: 'line-trend' as const, label: 'Lines' },
+              { id: 'heatmap' as const, label: 'Heatmap' },
+            ].map((view) => (
+              <button
+                key={view.id}
+                onClick={() => setOverallViewMode(view.id)}
+                className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                  overallViewMode === view.id
+                    ? 'border-gray-900 bg-gray-900 text-white'
+                    : 'border-gray-300 bg-transparent text-gray-600 hover:border-gray-400'
+                }`}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Metric:</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {OVERALL_METRICS.map((metric) => {
+                const isActive =
+                  overallViewMode === 'heatmap'
+                    ? selectedHeatmapMetrics.includes(metric.key)
+                    : selectedOverallMetric === metric.key;
+                return (
+                  <button
+                    key={metric.key}
+                    onClick={() => {
+                      if (overallViewMode === 'heatmap') {
+                        toggleHeatmapMetric(metric.key);
+                      } else {
+                        setSelectedOverallMetric(metric.key);
+                      }
+                    }}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      isActive
+                        ? 'border-[#534AB7] bg-[#EEEDFE] text-[#3C3489]'
+                        : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    {metric.label}
+                  </button>
+                );
+              })}
+              {overallMaxWarning && (
+                <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                  Max 5 selected
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Employees:</p>
+              <button
+                onClick={() => setSelectedOverallEmployees([])}
+                className="text-xs font-medium text-primary-600 hover:text-primary-700"
+              >
+                Clear all
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {overallEmployeeList.map((employee) => {
+                const isActive = visibleOverallEmployees.includes(employee);
+                return (
+                  <button
+                    key={employee}
+                    onClick={() =>
+                      setSelectedOverallEmployees((prev) =>
+                        prev.includes(employee) ? prev.filter((e) => e !== employee) : [...prev, employee],
+                      )
+                    }
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      isActive
+                        ? 'border-[#534AB7] bg-[#EEEDFE] text-[#3C3489]'
+                        : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    {employee}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {recentPublishedSchedules.length === 0 ? (
+            <div className="rounded border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+              No published roster periods available yet.
+            </div>
+          ) : overallViewMode === 'heatmap' ? (
+            visibleOverallEmployees.length === 0 ? (
+              <div className="rounded border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                Select at least one employee to display the heatmap.
+              </div>
+            ) : (
+            <div className="overflow-x-auto">
+              <div className="inline-block min-w-full">
+                <div className="mb-2 grid" style={{ gridTemplateColumns: `180px repeat(${selectedHeatmapMetrics.length * overallPeriodsInViewOrder.length}, 68px)` }}>
+                  <div />
+                  {selectedHeatmapMetrics.map((metric) => (
+                    <div
+                      key={metric}
+                      className="mx-[1px] rounded-t-md bg-gray-100 py-1 text-center text-[10px] font-semibold text-gray-600"
+                      style={{ gridColumn: `span ${overallPeriodsInViewOrder.length}` }}
+                    >
+                      {OVERALL_METRICS.find((m) => m.key === metric)?.label}
+                    </div>
+                  ))}
+                </div>
+                <div className="mb-2 grid" style={{ gridTemplateColumns: `180px repeat(${selectedHeatmapMetrics.length * overallPeriodsInViewOrder.length}, 68px)` }}>
+                  <div />
+                  {selectedHeatmapMetrics.flatMap((metric) =>
+                    overallPeriodsInViewOrder.map((_, idx) => (
+                      <div key={`${metric}-${idx}`} className="text-center text-[10px] text-gray-500">
+                        {overallPeriodMonthAbbr[idx] || `M${idx + 1}`}
+                      </div>
+                    )),
+                  )}
+                </div>
+
+                {visibleOverallEmployees.map((employee) => (
+                  <div
+                    key={employee}
+                    className="mb-1 grid items-center"
+                    style={{ gridTemplateColumns: `180px repeat(${selectedHeatmapMetrics.length * overallPeriodsInViewOrder.length}, 68px)` }}
+                  >
+                    <div className="pr-3 text-sm font-medium text-gray-700">{employee}</div>
+                    {selectedHeatmapMetrics.flatMap((metric, metricIdx) => {
+                      const values = overallPeriodsInViewOrder.map((_, periodIdx) => {
+                        return overallMetricsByPeriod[periodIdx]?.get(employee)?.[metric] || 0;
+                      });
+                      const min = Math.min(...values);
+                      const max = Math.max(...values);
+                      return values.map((value, periodIdx) => (
+                        <div
+                          key={`${employee}-${metric}-${periodIdx}`}
+                          className="mx-[2px] my-[2px] flex h-[34px] w-[64px] items-center justify-center rounded-[3px] border border-white text-[11px] font-medium text-gray-800"
+                          style={{
+                            backgroundColor: pickHeatmapColor(value, min, max),
+                            borderLeftWidth: periodIdx === 0 && metricIdx > 0 ? '3px' : '1px',
+                            borderLeftColor: periodIdx === 0 && metricIdx > 0 ? '#F9FAFB' : '#FFFFFF',
+                          }}
+                          title={`${employee} · ${overallPeriodLabels[periodIdx]} · ${
+                            OVERALL_METRICS.find((m) => m.key === metric)?.label
+                          }: ${value} shifts`}
+                        >
+                          {value}
+                        </div>
+                      ));
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex items-center gap-3 text-xs text-gray-600">
+                <span>Fewer</span>
+                <div className="h-3 w-40 rounded bg-gradient-to-r from-[#EAF8F4] via-[#63C0A0] to-[#136A52]" />
+                <span>More</span>
+              </div>
+            </div>
+            )
+          ) : (
+            <>
+              {visibleOverallEmployees.length === 0 ? (
+                <div className="rounded border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                  Select at least one employee to display this chart.
+                </div>
+              ) : (
+                <>
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                {overallViewMode === 'grouped-bar'
+                  ? overallPeriodLabels.map((label, idx) => (
+                      <div key={label} className="flex items-center gap-2 text-gray-600">
+                        <span className="inline-block h-[10px] w-[10px] rounded-[2px]" style={{ backgroundColor: MONTH_COLORS[idx] }} />
+                        <span>{label}</span>
+                      </div>
+                    ))
+                  : visibleOverallEmployees.map((employee, idx) => (
+                      <div key={employee} className="flex items-center gap-2 text-gray-600">
+                        <span
+                          className="inline-block h-[10px] w-[10px] rounded-[2px]"
+                          style={{ backgroundColor: `hsl(${(idx * 67) % 360}, 60%, 45%)` }}
+                        />
+                        <span>{employee}</span>
+                      </div>
+                    ))}
+              </div>
+              <div
+                style={{
+                  width: '100%',
+                  height:
+                    overallViewMode === 'grouped-bar'
+                      ? Math.max(420, visibleOverallEmployees.length * 52 + 60)
+                      : 380,
+                }}
+              >
+                {overallViewMode === 'grouped-bar' ? (
+                  <Bar
+                    key="overall-bar"
+                    data={{
+                      labels: visibleOverallEmployees,
+                      datasets: overallPeriodsInViewOrder.map((_, idx) => ({
+                        label: overallPeriodLabels[idx] || `Period ${idx + 1}`,
+                        data: visibleOverallEmployees.map(
+                          (employee) => overallMetricsByPeriod[idx]?.get(employee)?.[selectedOverallMetric] || 0,
+                        ),
+                        backgroundColor: MONTH_COLORS[idx],
+                        borderWidth: 0,
+                        borderSkipped: false as const,
+                        borderRadius: 3,
+                        barPercentage: 0.85,
+                        categoryPercentage: 0.75,
+                      })),
+                    }}
+                    options={{
+                      indexAxis: 'y',
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      animation: {
+                        duration: 400,
+                        easing: 'easeInOutQuart',
+                      },
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          callbacks: {
+                            label: (context) => `${context.dataset.label}: ${context.parsed.x} shifts`,
+                          },
+                        },
+                      },
+                      scales: {
+                        x: {
+                          beginAtZero: true,
+                          max: groupedBarAxisMax,
+                          grid: { display: false },
+                          ticks: {
+                            font: { size: 11 },
+                            color: '#6b7280',
+                            stepSize: 1,
+                            precision: 0,
+                            callback: (value) => {
+                              const num = typeof value === 'number' ? value : Number(value);
+                              return Number.isInteger(num) ? num : '';
+                            },
+                          },
+                        },
+                        y: {
+                          grid: { display: false },
+                          ticks: { font: { size: 11 }, color: '#6b7280' },
+                        },
+                      },
+                    }}
+                  />
+                ) : (
+                  <Line
+                    key="overall-line"
+                    data={{
+                      labels: overallPeriodLabels,
+                      datasets: visibleOverallEmployees.map((employee, idx) => {
+                        const color = `hsl(${(idx * 67) % 360}, 60%, 45%)`;
+                        return {
+                          label: employee,
+                          data: overallPeriodsInViewOrder.map(
+                            (_, periodIdx) =>
+                              overallMetricsByPeriod[periodIdx]?.get(employee)?.[selectedOverallMetric] || 0,
+                          ),
+                          borderColor: color,
+                          backgroundColor: color,
+                          borderWidth: 2,
+                          pointRadius: 5,
+                          pointHoverRadius: 7,
+                          pointBackgroundColor: color,
+                          pointBorderColor: color,
+                          tension: 0.3,
+                          fill: false,
+                        };
+                      }),
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      animation: {
+                        duration: 400,
+                        easing: 'easeInOutQuart',
+                      },
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          callbacks: {
+                            label: (context) => `${context.dataset.label}: ${context.parsed.y} shifts`,
+                          },
+                        },
+                      },
+                      scales: {
+                        x: {
+                          grid: { color: 'rgba(128,128,128,0.1)' },
+                          ticks: { font: { size: 13 }, color: '#6b7280' },
+                        },
+                        y: {
+                          beginAtZero: true,
+                          grid: { color: 'rgba(128,128,128,0.1)' },
+                          ticks: {
+                            font: { size: 13 },
+                            color: '#6b7280',
+                            stepSize: 1,
+                            precision: 0,
+                            callback: (value) => {
+                              const num = typeof value === 'number' ? value : Number(value);
+                              return Number.isInteger(num) ? num : '';
+                            },
+                          },
+                        },
+                      },
+                    }}
+                  />
+                )}
+              </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
       )}
     </div>
   );
