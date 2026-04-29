@@ -79,6 +79,8 @@ const OVERALL_METRICS: Array<{ key: OverallMetricKey; label: string }> = [
 
 const MONTH_COLORS = ['#1D9E75', '#378ADD', '#534AB7'];
 const HEATMAP_COLORS = ['#EAF8F4', '#CDEEE3', '#9FDCC8', '#63C0A0', '#2F9D7B', '#136A52'];
+const VIEW_EXPORT_PIXEL_RATIO = 1.25;
+const DOWNLOAD_EXPORT_PIXEL_RATIO = 3;
 
 const NIGHT_SHIFTS = new Set(['N']);
 const M4_SHIFTS = new Set(['M4']);
@@ -951,7 +953,7 @@ export const AllRostersPage: React.FC = () => {
   // Use selectedPeriod if available, otherwise detect from current schedule
   const currentPeriod = selectedPeriod || (currentSchedule ? detectPeriod(currentSchedule) : null);
 
-  const generateScheduleImage = async (): Promise<string | null> => {
+  const generateScheduleImage = async (pixelRatio: number): Promise<string | null> => {
     if (!scheduleImageRef.current || !selectedYear || !selectedMonth || !currentSchedule) {
       return null;
     }
@@ -1099,11 +1101,10 @@ export const AllRostersPage: React.FC = () => {
       const wrapperWidth = wrapper.scrollWidth;
       const wrapperHeight = wrapper.scrollHeight;
 
-      // Capture at full size to avoid cropping, but use lower pixelRatio for smaller file size
-      // pixelRatio: 1.25 provides good balance between quality and file size
+      // Capture at full size; pixelRatio is caller-controlled (view vs download quality).
       const dataUrl = await htmlToImage.toPng(wrapper, {
         backgroundColor: '#ffffff',
-        pixelRatio: 1.25,
+        pixelRatio,
         cacheBust: true,
         width: wrapperWidth,
         height: wrapperHeight,
@@ -1157,7 +1158,7 @@ export const AllRostersPage: React.FC = () => {
       setDownloadError(null);
 
     try {
-      const imageDataUrl = await generateScheduleImage();
+      const imageDataUrl = await generateScheduleImage(VIEW_EXPORT_PIXEL_RATIO);
       
       if (!imageDataUrl) {
         setDownloadError('Failed to generate schedule image. Please try again.');
@@ -1187,7 +1188,7 @@ export const AllRostersPage: React.FC = () => {
       setDownloadError(null);
 
     try {
-      const imageDataUrl = await generateScheduleImage();
+      const imageDataUrl = await generateScheduleImage(DOWNLOAD_EXPORT_PIXEL_RATIO);
       
       if (!imageDataUrl) {
         setDownloadError('Failed to download schedule image. Please try again.');
