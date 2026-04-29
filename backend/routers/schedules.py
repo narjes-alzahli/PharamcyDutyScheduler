@@ -759,18 +759,50 @@ async def publish_schedule(
         year = int(payload.get("year"))
         month = int(payload.get("month"))
         selected_period = payload.get("selected_period")
+        start_date_raw = payload.get("start_date")
+        end_date_raw = payload.get("end_date")
         if selected_period is not None and not isinstance(selected_period, str):
             selected_period = None
+        start_date: Optional[date_type] = None
+        end_date: Optional[date_type] = None
+        if start_date_raw is not None or end_date_raw is not None:
+            if not isinstance(start_date_raw, str) or not start_date_raw.strip():
+                raise ValueError("start_date must be a YYYY-MM-DD string")
+            if not isinstance(end_date_raw, str) or not end_date_raw.strip():
+                raise ValueError("end_date must be a YYYY-MM-DD string")
+            start_date = date_type.fromisoformat(start_date_raw.strip())
+            end_date = date_type.fromisoformat(end_date_raw.strip())
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid publish request payload")
 
     q = db.query(CommittedSchedule)
     window = get_pending_off_window_inclusive(year, month, selected_period, db=db)
+    scope_start: date_type
+    scope_end: date_type
     if window:
         start_d, end_d = window
-        q = q.filter(CommittedSchedule.date >= start_d, CommittedSchedule.date <= end_d)
+        scope_start, scope_end = start_d, end_d
     else:
-        q = q.filter(CommittedSchedule.year == year, CommittedSchedule.month == month)
+        scope_start = date_type(year, month, 1)
+        scope_end = date_type(year, month, monthrange(year, month)[1])
+
+    if start_date is not None and end_date is not None:
+        if start_date > end_date:
+            raise HTTPException(
+                status_code=400,
+                detail="start_date must be on or before end_date",
+            )
+        if start_date < scope_start or end_date > scope_end:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"start_date/end_date must be between {scope_start.isoformat()} and "
+                    f"{scope_end.isoformat()} for this selection"
+                ),
+            )
+        q = q.filter(CommittedSchedule.date >= start_date, CommittedSchedule.date <= end_date)
+    else:
+        q = q.filter(CommittedSchedule.date >= scope_start, CommittedSchedule.date <= scope_end)
 
     rows = q.all()
     if not rows:
@@ -788,6 +820,8 @@ async def publish_schedule(
         "year": year,
         "month": month,
         "selected_period": selected_period,
+        "start_date": start_date.isoformat() if start_date else None,
+        "end_date": end_date.isoformat() if end_date else None,
         "published_rows": changed,
     }
 

@@ -48,6 +48,10 @@ type OverallMetricKey =
   | 'night'
   | 'm4'
   | 'afternoon'
+  | 'cShift'
+  | 'wShift'
+  | 'msShift'
+  | 'clShift'
   | 'thursday'
   | 'weekend'
   | 'ipCombined'
@@ -66,7 +70,11 @@ const OVERALL_METRICS: Array<{ key: OverallMetricKey; label: string }> = [
   { key: 'ipCombined', label: 'IP / IP+P' },
   { key: 'mainCombined', label: 'M / M3 / M+P' },
   { key: 'oShift', label: 'O' },
-  { key: 'leaveRequested', label: 'Requested Leave' },
+  { key: 'leaveRequested', label: 'Leave' },
+  { key: 'cShift', label: 'C' },
+  { key: 'wShift', label: 'W' },
+  { key: 'msShift', label: 'MS' },
+  { key: 'clShift', label: 'CL' },
 ];
 
 const MONTH_COLORS = ['#1D9E75', '#378ADD', '#534AB7'];
@@ -75,6 +83,10 @@ const HEATMAP_COLORS = ['#EAF8F4', '#CDEEE3', '#9FDCC8', '#63C0A0', '#2F9D7B', '
 const NIGHT_SHIFTS = new Set(['N']);
 const M4_SHIFTS = new Set(['M4']);
 const AFTERNOON_SHIFTS = new Set(['A']);
+const C_SHIFTS = new Set(['C']);
+const W_SHIFTS = new Set(['W']);
+const MS_SHIFTS = new Set(['MS']);
+const CL_SHIFTS = new Set(['CL']);
 const IP_COMBINED_SHIFTS = new Set(['IP', 'IP+P']);
 const MAIN_COMBINED_SHIFTS = new Set(['M', 'M3', 'M+P']);
 const THURSDAY_FAIRNESS_SHIFTS = new Set(['A', 'M4', 'N', 'E']);
@@ -95,6 +107,14 @@ function metricMatchesShift(metric: OverallMetricKey, shift: string, leaveCodes:
       return M4_SHIFTS.has(shift);
     case 'afternoon':
       return AFTERNOON_SHIFTS.has(shift);
+    case 'cShift':
+      return C_SHIFTS.has(shift);
+    case 'wShift':
+      return W_SHIFTS.has(shift);
+    case 'msShift':
+      return MS_SHIFTS.has(shift);
+    case 'clShift':
+      return CL_SHIFTS.has(shift);
     case 'ipCombined':
       return IP_COMBINED_SHIFTS.has(shift);
     case 'mainCombined':
@@ -350,6 +370,9 @@ export const AllRostersPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [publishMenuOpen, setPublishMenuOpen] = useState(false);
+  const [publishStartDate, setPublishStartDate] = useState('');
+  const [publishEndDate, setPublishEndDate] = useState('');
   const [originalSchedule, setOriginalSchedule] = useState<Schedule | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   const [employeesFromAPI, setEmployeesFromAPI] = useState<any[]>([]);
@@ -363,6 +386,7 @@ export const AllRostersPage: React.FC = () => {
   }>({ has_unpublished: false, items: [] });
   const scheduleCardRef = useRef<HTMLDivElement>(null);
   const scheduleImageRef = useRef<HTMLDivElement>(null);
+  const publishMenuRef = useRef<HTMLDivElement>(null);
   const isManager = user?.employee_type === 'Manager';
   const isStaff = user?.employee_type === 'Staff';
 
@@ -370,6 +394,41 @@ export const AllRostersPage: React.FC = () => {
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
+
+  const publishDateBounds = useMemo(() => {
+    const rows = currentSchedule?.schedule || [];
+    let minDate = '';
+    let maxDate = '';
+    for (const entry of rows) {
+      const datePart = String(entry?.date || '').split('T')[0];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) continue;
+      if (!minDate || datePart < minDate) minDate = datePart;
+      if (!maxDate || datePart > maxDate) maxDate = datePart;
+    }
+    if (!minDate || !maxDate) return null;
+    return { minDate, maxDate };
+  }, [currentSchedule]);
+
+  useEffect(() => {
+    if (!publishDateBounds) return;
+    setPublishStartDate(publishDateBounds.minDate);
+    setPublishEndDate(publishDateBounds.maxDate);
+  }, [publishDateBounds]);
+
+  useEffect(() => {
+    if (!publishMenuOpen) return;
+    const handleOutside = (event: MouseEvent | TouchEvent) => {
+      if (!publishMenuRef.current) return;
+      if (publishMenuRef.current.contains(event.target as Node)) return;
+      setPublishMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [publishMenuOpen]);
 
   const loadSchedules = useCallback(async (signal?: AbortSignal) => {
     // FIX: Double-check token is still valid right before making the call
@@ -474,17 +533,61 @@ export const AllRostersPage: React.FC = () => {
     return unpublishedSummary.items.some((i) => i.year === year && i.has_unpublished);
   }, [isManager, unpublishedSummary]);
 
+  const currentSelectionPublishCounts = useMemo(() => {
+    const rows = currentSchedule?.schedule || [];
+    let publishedCount = 0;
+    let unpublishedCount = 0;
+    for (const row of rows) {
+      if (row?.is_published === false) unpublishedCount += 1;
+      else publishedCount += 1;
+    }
+    return { publishedCount, unpublishedCount, totalCount: rows.length };
+  }, [currentSchedule]);
+
   const currentSelectionHasDraft = useMemo(() => {
     if (!isManager || !selectedYear || !selectedMonth || !currentSchedule) return false;
     const period = selectedPeriod;
     if (period && hasUnpublishedForOption(selectedYear, selectedMonth, period)) return true;
-    return (currentSchedule.schedule || []).some((e: any) => e?.is_published === false);
-  }, [isManager, selectedYear, selectedMonth, currentSchedule, selectedPeriod, hasUnpublishedForOption]);
+    return currentSelectionPublishCounts.unpublishedCount > 0;
+  }, [
+    isManager,
+    selectedYear,
+    selectedMonth,
+    currentSchedule,
+    selectedPeriod,
+    hasUnpublishedForOption,
+    currentSelectionPublishCounts,
+  ]);
 
-  const currentSelectionIsPublished = useMemo(() => {
-    if (!isManager || !currentSchedule || !(currentSchedule.schedule || []).length) return false;
-    return (currentSchedule.schedule || []).every((e: any) => e?.is_published !== false);
-  }, [isManager, currentSchedule]);
+  const currentSelectionHasPublishedRows = useMemo(() => {
+    if (!isManager || !currentSchedule) return false;
+    return currentSelectionPublishCounts.publishedCount > 0;
+  }, [isManager, currentSchedule, currentSelectionPublishCounts]);
+
+  const currentSelectionPartiallyPublished = useMemo(() => {
+    if (!isManager || !currentSchedule) return false;
+    return (
+      currentSelectionPublishCounts.publishedCount > 0 &&
+      currentSelectionPublishCounts.unpublishedCount > 0
+    );
+  }, [isManager, currentSchedule, currentSelectionPublishCounts]);
+
+  const currentSelectionPublishedRangeLabel = useMemo(() => {
+    if (!currentSchedule) return null;
+    const publishedDates = (currentSchedule.schedule || [])
+      .filter((row: any) => row?.is_published !== false)
+      .map((row: any) => String(row?.date || '').split('T')[0])
+      .filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort();
+    if (!publishedDates.length) return null;
+    const first = publishedDates[0];
+    const last = publishedDates[publishedDates.length - 1];
+    const toDdMm = (isoDate: string) => {
+      const [, mm, dd] = isoDate.split('-');
+      return `${dd}/${mm}`;
+    };
+    return `${toDdMm(first)} - ${toDdMm(last)}`;
+  }, [currentSchedule]);
 
   // Load employees from API to get the correct order (from EmployeeSkills table)
   const loadEmployees = useCallback(async () => {
@@ -1192,19 +1295,50 @@ export const AllRostersPage: React.FC = () => {
     }
   };
 
-  const handlePublishSchedule = async () => {
+  const handlePublishSchedule = async (options?: { startDate?: string; endDate?: string }) => {
     if (!isManager || !selectedYear || !selectedMonth) return;
     try {
       setSaving(true);
-      await schedulesAPI.publishSchedule(selectedYear, selectedMonth, currentPeriod);
+      await schedulesAPI.publishSchedule(
+        selectedYear,
+        selectedMonth,
+        currentPeriod,
+        {
+          startDate: options?.startDate,
+          endDate: options?.endDate,
+        },
+      );
       await loadSchedules();
       await loadSchedule(selectedYear, selectedMonth, currentPeriod);
       setError(null);
+      setPublishMenuOpen(false);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to publish schedule');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handlePublishDateRange = async () => {
+    if (!publishDateBounds) return;
+    if (
+      !publishStartDate ||
+      !publishEndDate ||
+      publishStartDate < publishDateBounds.minDate ||
+      publishStartDate > publishDateBounds.maxDate ||
+      publishEndDate < publishDateBounds.minDate ||
+      publishEndDate > publishDateBounds.maxDate
+    ) {
+      setError(
+        `Choose a date between ${publishDateBounds.minDate} and ${publishDateBounds.maxDate}.`,
+      );
+      return;
+    }
+    if (publishStartDate > publishEndDate) {
+      setError('Publish "From" date must be on or before "To" date.');
+      return;
+    }
+    await handlePublishSchedule({ startDate: publishStartDate, endDate: publishEndDate });
   };
 
   const handleUnpublishSchedule = async () => {
@@ -1690,6 +1824,10 @@ export const AllRostersPage: React.FC = () => {
           night: 0,
           m4: 0,
           afternoon: 0,
+          cShift: 0,
+          wShift: 0,
+          msShift: 0,
+          clShift: 0,
           thursday: 0,
           weekend: 0,
           ipCombined: 0,
@@ -1710,6 +1848,10 @@ export const AllRostersPage: React.FC = () => {
         if (metricMatchesShift('night', shift, leaveTypeCodes)) row.night += 1;
         if (metricMatchesShift('m4', shift, leaveTypeCodes)) row.m4 += 1;
         if (metricMatchesShift('afternoon', shift, leaveTypeCodes)) row.afternoon += 1;
+        if (metricMatchesShift('cShift', shift, leaveTypeCodes)) row.cShift += 1;
+        if (metricMatchesShift('wShift', shift, leaveTypeCodes)) row.wShift += 1;
+        if (metricMatchesShift('msShift', shift, leaveTypeCodes)) row.msShift += 1;
+        if (metricMatchesShift('clShift', shift, leaveTypeCodes)) row.clShift += 1;
         if (metricMatchesShift('ipCombined', shift, leaveTypeCodes)) row.ipCombined += 1;
         if (metricMatchesShift('mainCombined', shift, leaveTypeCodes)) row.mainCombined += 1;
         if (metricMatchesShift('oShift', shift, leaveTypeCodes)) row.oShift += 1;
@@ -1938,17 +2080,19 @@ export const AllRostersPage: React.FC = () => {
                         ' Schedule',
                       )}
                     </h3>
-                    {isManager && (
-                      saveSuccess ? (
-                        <span className="text-sm text-green-600 font-medium">Changes saved successfully</span>
-                      ) : (
-                        <span className="text-sm text-gray-500 italic">Click any cell to edit</span>
-                      )
+                    {isManager && saveSuccess && (
+                      <span className="text-sm text-green-600 font-medium">Changes saved successfully</span>
                     )}
                     {isManager && (currentSelectionHasDraft || hasUnsavedChanges) && (
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        {!hasUnsavedChanges && currentSelectionHasDraft && (
+                        {!hasUnsavedChanges && currentSelectionHasDraft && !currentSelectionPartiallyPublished && (
                           <span className="text-sm text-amber-600 font-medium">Draft (unpublished)</span>
+                        )}
+                        {!hasUnsavedChanges && currentSelectionPartiallyPublished && (
+                          <span className="text-sm text-blue-600 font-medium">
+                            Partially published
+                            {currentSelectionPublishedRangeLabel ? ` (${currentSelectionPublishedRangeLabel})` : ''}
+                          </span>
                         )}
                         {hasUnsavedChanges && (
                           <span className="text-sm text-amber-600 font-medium">Unsaved changes</span>
@@ -2010,16 +2154,69 @@ export const AllRostersPage: React.FC = () => {
                           </button>
                         )}
                         {isManager && !hasUnsavedChanges && currentSelectionHasDraft && (
-                          <button
-                            type="button"
-                            onClick={handlePublishSchedule}
-                            disabled={saving}
-                            className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors hover:bg-green-700 disabled:opacity-70 disabled:cursor-not-allowed"
-                          >
-                            {saving ? 'Publishing...' : 'Publish'}
-                          </button>
+                          <div className="relative" ref={publishMenuRef}>
+                            <div className="inline-flex rounded-lg shadow-sm">
+                              <button
+                                type="button"
+                                onClick={() => handlePublishSchedule()}
+                                disabled={saving}
+                                className="px-4 py-2 min-h-[42px] bg-green-600 text-white font-semibold rounded-l-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors hover:bg-green-700 disabled:opacity-70 disabled:cursor-not-allowed"
+                              >
+                                {saving ? 'Publishing...' : 'Publish All'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPublishMenuOpen((prev) => !prev)}
+                                disabled={saving}
+                                aria-label="Open publish options"
+                                aria-expanded={publishMenuOpen}
+                                aria-haspopup="menu"
+                                className="px-3 py-2 min-h-[42px] bg-green-700 text-white font-semibold rounded-r-lg border-l border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors hover:bg-green-800 disabled:opacity-70 disabled:cursor-not-allowed"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                            {publishMenuOpen && (
+                              <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
+                                <div>
+                                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Publish from
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={publishStartDate}
+                                    min={publishDateBounds?.minDate}
+                                    max={publishDateBounds?.maxDate}
+                                    onChange={(e) => setPublishStartDate(e.target.value)}
+                                    className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-green-500"
+                                  />
+                                </div>
+                                <div className="mt-3">
+                                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Publish to
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={publishEndDate}
+                                    min={publishDateBounds?.minDate}
+                                    max={publishDateBounds?.maxDate}
+                                    onChange={(e) => setPublishEndDate(e.target.value)}
+                                    className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-green-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handlePublishDateRange}
+                                    disabled={saving || !publishDateBounds}
+                                    className="mt-2 w-full rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-70 disabled:cursor-not-allowed"
+                                  >
+                                    Publish selected dates
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )}
-                        {isManager && !hasUnsavedChanges && !currentSelectionHasDraft && currentSelectionIsPublished && (
+                        {isManager && !hasUnsavedChanges && currentSelectionHasPublishedRows && (
                           <button
                             type="button"
                             onClick={handleUnpublishSchedule}
@@ -2243,28 +2440,31 @@ export const AllRostersPage: React.FC = () => {
 
       {historyViewTab === 'overall-analysis' && (
         <div className="bg-white rounded-lg shadow p-6 space-y-6">
-          <div className="flex flex-wrap items-center gap-2">
-            {[
-              { id: 'grouped-bar' as const, label: 'Bars' },
-              { id: 'line-trend' as const, label: 'Lines' },
-              { id: 'heatmap' as const, label: 'Heatmap' },
-            ].map((view) => (
-              <button
-                key={view.id}
-                onClick={() => setOverallViewMode(view.id)}
-                className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
-                  overallViewMode === view.id
-                    ? 'border-gray-900 bg-gray-900 text-white'
-                    : 'border-gray-300 bg-transparent text-gray-600 hover:border-gray-400'
-                }`}
-              >
-                {view.label}
-              </button>
-            ))}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Graphs:</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { id: 'grouped-bar' as const, label: 'Bars' },
+                { id: 'line-trend' as const, label: 'Lines' },
+                { id: 'heatmap' as const, label: 'Heatmap' },
+              ].map((view) => (
+                <button
+                  key={view.id}
+                  onClick={() => setOverallViewMode(view.id)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    overallViewMode === view.id
+                      ? 'border-[#534AB7] bg-[#EEEDFE] text-[#3C3489]'
+                      : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
+                  }`}
+                >
+                  {view.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Metric:</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Metrics:</p>
             <div className="flex flex-wrap items-center gap-2">
               {OVERALL_METRICS.map((metric) => {
                 const isActive =
@@ -2416,7 +2616,8 @@ export const AllRostersPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-              <div className="flex flex-wrap items-center gap-4 text-sm">
+              <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+                <div className="flex flex-wrap items-center gap-4 text-sm">
                 {overallViewMode === 'grouped-bar'
                   ? overallPeriodLabels.map((label, idx) => (
                       <div key={label} className="flex items-center gap-2 text-gray-600">
@@ -2433,8 +2634,10 @@ export const AllRostersPage: React.FC = () => {
                         <span>{employee}</span>
                       </div>
                     ))}
+                </div>
               </div>
               <div
+                className="mt-5 border-t border-gray-200 pt-5"
                 style={{
                   width: '100%',
                   height:
@@ -2483,8 +2686,8 @@ export const AllRostersPage: React.FC = () => {
                           max: groupedBarAxisMax,
                           grid: { display: false },
                           ticks: {
-                            font: { size: 11 },
-                            color: '#6b7280',
+                            font: { size: 14 },
+                            color: '#374151',
                             stepSize: 1,
                             precision: 0,
                             callback: (value) => {
@@ -2495,7 +2698,7 @@ export const AllRostersPage: React.FC = () => {
                         },
                         y: {
                           grid: { display: false },
-                          ticks: { font: { size: 11 }, color: '#6b7280' },
+                          ticks: { font: { size: 14 }, color: '#374151' },
                         },
                       },
                     }}
@@ -2515,9 +2718,10 @@ export const AllRostersPage: React.FC = () => {
                           ),
                           borderColor: color,
                           backgroundColor: color,
-                          borderWidth: 2,
-                          pointRadius: 5,
-                          pointHoverRadius: 7,
+                          borderWidth: 4,
+                          pointRadius: 7,
+                          pointHoverRadius: 9,
+                          pointBorderWidth: 2,
                           pointBackgroundColor: color,
                           pointBorderColor: color,
                           tension: 0.3,
@@ -2543,14 +2747,14 @@ export const AllRostersPage: React.FC = () => {
                       scales: {
                         x: {
                           grid: { color: 'rgba(128,128,128,0.1)' },
-                          ticks: { font: { size: 13 }, color: '#6b7280' },
+                          ticks: { font: { size: 15 }, color: '#374151' },
                         },
                         y: {
                           beginAtZero: true,
                           grid: { color: 'rgba(128,128,128,0.1)' },
                           ticks: {
-                            font: { size: 13 },
-                            color: '#6b7280',
+                            font: { size: 15 },
+                            color: '#374151',
                             stepSize: 1,
                             precision: 0,
                             callback: (value) => {

@@ -421,10 +421,15 @@ export const schedulesAPI = {
     year: number,
     month: number,
     selectedPeriod?: string | null,
+    options?: { startDate?: string | null; endDate?: string | null },
   ): Promise<void> => {
     const payload: Record<string, unknown> = { year, month };
     if (selectedPeriod != null && selectedPeriod !== '') {
       payload.selected_period = selectedPeriod;
+    }
+    if (options?.startDate && options?.endDate) {
+      payload.start_date = options.startDate;
+      payload.end_date = options.endDate;
     }
     await api.post('/api/schedules/publish', payload);
   },
